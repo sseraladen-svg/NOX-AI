@@ -1,0 +1,289 @@
+"use client";
+
+import * as React from "react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, CheckCircle2, XCircle, Zap } from "lucide-react";
+import type { ModelAssignment, ConnectionType } from "@/lib/multi-model-types";
+import { useMultiModel, type TestState } from "@/store/multi-model-store";
+
+interface Provider {
+  id: string;
+  label: string;
+  connectionType: ConnectionType;
+  defaultModel: string;
+  models: string[];
+}
+
+interface Props {
+  roleId: string; // "global" | feature id | "host" | specialist id
+  assignment: ModelAssignment;
+  onChange: (a: ModelAssignment) => void;
+  providers: Provider[];
+  testState?: TestState;
+}
+
+export function ModelConfigFields({
+  roleId,
+  assignment,
+  onChange,
+  providers,
+  testState,
+}: Props) {
+  const test = useMultiModel((s) => s.test);
+
+  const apiProviders = providers.filter((p) => p.connectionType === "API");
+  const localProviders = providers.filter((p) => p.connectionType === "LOCAL");
+
+  function setConnectionType(ct: ConnectionType) {
+    // When switching connection type, switch to the first provider of that type.
+    const candidates = ct === "API" ? apiProviders : localProviders;
+    const p = candidates[0];
+    onChange({
+      ...assignment,
+      connectionType: ct,
+      provider: p?.id || assignment.provider,
+      modelName: p?.defaultModel || assignment.modelName,
+      // Clear irrelevant fields
+      ...(ct === "API" ? { cliPath: undefined, cliArgs: undefined } : {}),
+      ...(ct === "LOCAL" ? { apiKey: undefined, endpoint: undefined } : {}),
+    });
+  }
+
+  function setProvider(id: string) {
+    const p = providers.find((x) => x.id === id);
+    if (!p) return;
+    onChange({
+      ...assignment,
+      provider: id,
+      modelName: p.defaultModel,
+      connectionType: p.connectionType,
+    });
+  }
+
+  const currentProvider = providers.find((p) => p.id === assignment.provider);
+
+  return (
+    <div className="space-y-3">
+      {/* Connection type toggle */}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => setConnectionType("API")}
+          className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${
+            assignment.connectionType === "API"
+              ? "border-primary bg-primary/10 text-foreground"
+              : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
+          }`}
+        >
+          API Key
+        </button>
+        <button
+          type="button"
+          onClick={() => setConnectionType("LOCAL")}
+          className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${
+            assignment.connectionType === "LOCAL"
+              ? "border-primary bg-primary/10 text-foreground"
+              : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
+          }`}
+        >
+          Local CLI
+        </button>
+      </div>
+
+      {/* Provider */}
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">Provider</Label>
+        <Select value={assignment.provider} onValueChange={setProvider}>
+          <SelectTrigger className="h-9">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {assignment.connectionType === "API"
+              ? apiProviders.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.label}
+                  </SelectItem>
+                ))
+              : localProviders.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Model name (with known-models dropdown) */}
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">Model</Label>
+        {currentProvider && currentProvider.models.length > 1 ? (
+          <Select
+            value={assignment.modelName}
+            onValueChange={(v) => onChange({ ...assignment, modelName: v })}
+          >
+            <SelectTrigger className="h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {currentProvider.models.map((m) => (
+                <SelectItem key={m} value={m}>
+                  {m}
+                </SelectItem>
+              ))}
+              <SelectItem value="__custom__">+ Custom model…</SelectItem>
+            </SelectContent>
+          </Select>
+        ) : (
+          <Input
+            className="h-9"
+            value={assignment.modelName}
+            onChange={(e) =>
+              onChange({ ...assignment, modelName: e.target.value })
+            }
+            placeholder="model-name"
+          />
+        )}
+        {assignment.modelName === "__custom__" && (
+          <Input
+            className="h-9 mt-1"
+            placeholder="Type exact model name"
+            onChange={(e) =>
+              onChange({ ...assignment, modelName: e.target.value })
+            }
+          />
+        )}
+      </div>
+
+      {/* Connection-type-specific fields */}
+      {assignment.connectionType === "API" ? (
+        <>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">API Key</Label>
+            <Input
+              type="password"
+              className="h-9 font-mono"
+              value={assignment.apiKey || ""}
+              onChange={(e) =>
+                onChange({ ...assignment, apiKey: e.target.value })
+              }
+              placeholder="sk-…"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Encrypted at rest. Masked when reloaded.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">
+              Endpoint (optional)
+            </Label>
+            <Input
+              className="h-9 font-mono"
+              value={assignment.endpoint || ""}
+              onChange={(e) =>
+                onChange({ ...assignment, endpoint: e.target.value })
+              }
+              placeholder="https://api.provider.com/v1"
+            />
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">CLI Path</Label>
+            <Input
+              className="h-9 font-mono"
+              value={assignment.cliPath || ""}
+              onChange={(e) =>
+                onChange({ ...assignment, cliPath: e.target.value })
+              }
+              placeholder="/usr/local/bin/ollama"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">
+              CLI Args (optional)
+            </Label>
+            <Input
+              className="h-9 font-mono"
+              value={assignment.cliArgs || ""}
+              onChange={(e) =>
+                onChange({ ...assignment, cliArgs: e.target.value })
+              }
+              placeholder="--port 11434"
+            />
+          </div>
+        </>
+      )}
+
+      {/* Test button + result */}
+      <div className="flex items-center gap-2 pt-1">
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={testState?.status === "testing"}
+          onClick={() => test(roleId, assignment)}
+        >
+          {testState?.status === "testing" ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+          ) : (
+            <Zap className="h-3.5 w-3.5 mr-1.5" />
+          )}
+          Test
+        </Button>
+
+        {testState?.status === "ready" && (
+          <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20">
+            <CheckCircle2 className="h-3 w-3 mr-1" />
+            Ready
+          </Badge>
+        )}
+        {testState?.status === "error" && (
+          <Badge className="bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/20">
+            <XCircle className="h-3 w-3 mr-1" />
+            Error
+          </Badge>
+        )}
+        {testState?.version && testState.status === "ready" && (
+          <span className="text-[10px] text-muted-foreground">
+            {testState.version}
+            {testState.latencyMs ? ` · ${testState.latencyMs}ms` : ""}
+          </span>
+        )}
+      </div>
+
+      {testState?.message && (
+        <p
+          className={`text-xs leading-relaxed ${
+            testState.status === "error"
+              ? "text-red-400"
+              : "text-muted-foreground"
+          }`}
+        >
+          {testState.message}
+        </p>
+      )}
+      {testState?.reason && (
+        <p className="text-[11px] text-amber-400/90 leading-relaxed">
+          {testState.reason}
+        </p>
+      )}
+      {testState?.fixSteps && testState.fixSteps.length > 0 && (
+        <ol className="text-[11px] text-muted-foreground list-decimal pl-4 space-y-0.5">
+          {testState.fixSteps.map((s, i) => (
+            <li key={i}>{s}</li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}

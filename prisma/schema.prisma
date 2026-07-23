@@ -30,3 +30,51 @@ model Post {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// NOX AI — Multi-Model Advanced Customization
+//
+// One unified schema that backs all three modes:
+//   • GLOBAL      → one ModelAssignment used for every feature
+//   • PER_FEATURE → each of the 6 features (chat, voice, vision, coding,
+//                   automation, robotics) has its own ModelAssignment
+//   • HOST        → one host ModelAssignment routes prompts to specialist
+//                   ModelAssignments (planning, coding, vision, automation,
+//                   robotics) based on intent
+//
+// API keys are encrypted at rest by the service layer (see src/lib/crypto.ts)
+// and never returned in plaintext by any GET route.
+// ───────────────────────────────────────────────────────────────────────────
+
+model MultiModelConfig {
+  id              String   @id @default(cuid())
+  // Single-row design: there is one active config per install.
+  // Use a fixed sentinel so we can upsert deterministically.
+  scope           String   @unique @default("default")
+
+  mode            String   @default("GLOBAL") // GLOBAL | PER_FEATURE | HOST
+
+  // JSON-encoded ModelAssignment (encrypted apiKey inside).
+  // Used when mode = GLOBAL.
+  globalConfig    String?
+
+  // JSON-encoded Record<FeatureId, ModelAssignment>.
+  // Used when mode = PER_FEATURE.
+  featureConfigs  String?
+
+  // JSON-encoded ModelAssignment for the Host router.
+  // Used when mode = HOST.
+  hostConfig      String?
+
+  // JSON-encoded Record<SpecialistId, ModelAssignment>.
+  // Specialists: planning, coding, vision, automation, robotics.
+  // Used when mode = HOST.
+  specialistConfigs String?
+
+  // Per-connection-type timeout overrides (ms). JSON-encoded.
+  // Defaults are applied by the service when these are absent.
+  timeoutOverrides String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
