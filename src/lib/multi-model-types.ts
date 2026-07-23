@@ -189,6 +189,21 @@ export const PROVIDERS = [
     models: ["mistral-large-latest", "mistral-small-latest"],
   },
   {
+    id: "gemini",
+    label: "Google Gemini",
+    connectionType: "API" as ConnectionType,
+    defaultModel: "gemini-1.5-flash",
+    models: [
+      "gemini-1.5-flash",
+      "gemini-1.5-flash-8b",
+      "gemini-1.5-pro",
+      "gemini-2.0-flash",
+      "gemini-2.0-flash-exp",
+      "gemini-2.5-pro",
+      "gemini-2.5-flash",
+    ],
+  },
+  {
     id: "groq",
     label: "Groq",
     connectionType: "API" as ConnectionType,
