@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,68 +10,88 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// NOX AI — Local database schema
+//
+// Everything is user-scoped. A user signs up / logs in with email + password
+// (hashed with scrypt). All multi-model configs and chat conversations belong
+// to a single user.
+// ───────────────────────────────────────────────────────────────────────────
+
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  multiModelConfigs MultiModelConfig[]
+  conversations     Conversation[]
 }
-
-// ───────────────────────────────────────────────────────────────────────────
-// NOX AI — Multi-Model Advanced Customization
-//
-// One unified schema that backs all three modes:
-//   • GLOBAL      → one ModelAssignment used for every feature
-//   • PER_FEATURE → each of the 6 features (chat, voice, vision, coding,
-//                   automation, robotics) has its own ModelAssignment
-//   • HOST        → one host ModelAssignment routes prompts to specialist
-//                   ModelAssignments (planning, coding, vision, automation,
-//                   robotics) based on intent
-//
-// API keys are encrypted at rest by the service layer (see src/lib/crypto.ts)
-// and never returned in plaintext by any GET route.
-// ───────────────────────────────────────────────────────────────────────────
 
 model MultiModelConfig {
-  id              String   @id @default(cuid())
-  // Single-row design: there is one active config per install.
-  // Use a fixed sentinel so we can upsert deterministically.
-  scope           String   @unique @default("default")
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  mode            String   @default("GLOBAL") // GLOBAL | PER_FEATURE | HOST
+  // Single row per user. Sentinel so we can upsert deterministically.
+  scope String @default("default")
+
+  // SINGLE | MULTI | ORCHESTRATOR
+  mode String @default("SINGLE")
 
   // JSON-encoded ModelAssignment (encrypted apiKey inside).
-  // Used when mode = GLOBAL.
-  globalConfig    String?
+  // Used when mode = SINGLE.
+  globalConfig String?
 
   // JSON-encoded Record<FeatureId, ModelAssignment>.
-  // Used when mode = PER_FEATURE.
-  featureConfigs  String?
+  // Used when mode = MULTI.
+  featureConfigs String?
 
   // JSON-encoded ModelAssignment for the Host router.
-  // Used when mode = HOST.
-  hostConfig      String?
+  // Used when mode = ORCHESTRATOR.
+  hostConfig String?
 
   // JSON-encoded Record<SpecialistId, ModelAssignment>.
-  // Specialists: planning, coding, vision, automation, robotics.
-  // Used when mode = HOST.
+  // Used when mode = ORCHESTRATOR.
   specialistConfigs String?
 
   // Per-connection-type timeout overrides (ms). JSON-encoded.
-  // Defaults are applied by the service when these are absent.
   timeoutOverrides String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([userId, scope])
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String   @default("New conversation")
+  mode      String   @default("SINGLE") // SINGLE | MULTI | ORCHESTRATOR
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages Message[]
+
+  @@index([userId, updatedAt])
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String   // user | assistant
+  content        String
+  // JSON-encoded dispatch trace (steps with model, provider, latency, etc.)
+  trace          String?
+  mode           String?
+  multiAgent     Boolean  @default(false)
+  error          Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId, createdAt])
 }

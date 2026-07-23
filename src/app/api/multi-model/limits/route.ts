@@ -4,20 +4,25 @@ import {
   getConfigInternal,
   type ModelAssignment,
 } from "@/lib/multi-model-service";
+import { getCurrentUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
-// POST /api/multi-model/limits
-// Body: { taskSize?: "small" | "medium" | "large" }
-// Returns a per-model limit summary for the assignments involved in the
-// current mode. Used by the pre-flight confirmation dialog.
+// POST /api/multi-model/limits — per-model limit summary for the active mode.
 export async function POST(req: NextRequest) {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { ok: false, error: "Not authenticated." },
+        { status: 401 }
+      );
+    }
     const body = (await req.json().catch(() => ({}))) as {
       taskSize?: "small" | "medium" | "large";
     };
     const taskSize = body.taskSize || "medium";
-    const doc = await getConfigInternal();
+    const doc = await getConfigInternal(user.id);
 
     const assignments: {
       id: string;
@@ -25,20 +30,20 @@ export async function POST(req: NextRequest) {
       assignment: ModelAssignment;
     }[] = [];
 
-    if (doc.mode === "GLOBAL") {
+    if (doc.mode === "SINGLE") {
       if (doc.globalConfig) {
         assignments.push({
           id: "global",
-          label: "Global Model",
+          label: "Single Model",
           assignment: doc.globalConfig,
         });
       }
-    } else if (doc.mode === "PER_FEATURE") {
+    } else if (doc.mode === "MULTI") {
       for (const [id, a] of Object.entries(doc.featureConfigs || {})) {
         if (a) assignments.push({ id, label: id, assignment: a });
       }
     } else {
-      // HOST
+      // ORCHESTRATOR
       if (doc.hostConfig) {
         assignments.push({
           id: "host",

@@ -1,25 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getConfig, saveConfig, type MultiModelConfigDoc } from "@/lib/multi-model-service";
+import {
+  getConfig,
+  saveConfig,
+  type MultiModelConfigDoc,
+} from "@/lib/multi-model-service";
+import { getCurrentUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
-// POST /api/multi-model/export-import
-//   ?action=export → returns current config (masked) as JSON for download
-//   ?action=import → body: { config: MultiModelConfigDoc } → saves it
-//   ?action=reset  → resets to a clean GLOBAL default
+// POST /api/multi-model/export-import?action=export|import|reset
 export async function POST(req: NextRequest) {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { ok: false, error: "Not authenticated." },
+        { status: 401 }
+      );
+    }
     const url = new URL(req.url);
     const action = url.searchParams.get("action") || "import";
 
     if (action === "export") {
-      const config = await getConfig();
+      const config = await getConfig(user.id);
       return NextResponse.json({ ok: true, config });
     }
 
     if (action === "reset") {
-      const blank: MultiModelConfigDoc = { mode: "GLOBAL" };
-      await saveConfig(blank);
+      const blank: MultiModelConfigDoc = { mode: "SINGLE" };
+      await saveConfig(user.id, blank);
       return NextResponse.json({ ok: true, config: blank });
     }
 
@@ -31,8 +40,8 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    await saveConfig(body.config);
-    const fresh = await getConfig();
+    await saveConfig(user.id, body.config);
+    const fresh = await getConfig(user.id);
     return NextResponse.json({ ok: true, config: fresh });
   } catch (err) {
     return NextResponse.json(

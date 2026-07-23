@@ -41,6 +41,8 @@ interface MultiModelStore {
   hostConfig: ModelAssignment | null;
   specialistConfigs: Partial<Record<SpecialistId, ModelAssignment>>;
   timeoutOverrides: { LOCAL?: number; API?: number };
+  // Default SINGLE mode constants
+  defaultMode: Mode;
 
   // UI state
   loaded: boolean;
@@ -77,7 +79,8 @@ interface MultiModelStore {
 }
 
 export const useMultiModel = create<MultiModelStore>((set, get) => ({
-  mode: "GLOBAL",
+  mode: "SINGLE",
+  defaultMode: "SINGLE",
   globalConfig: null,
   featureConfigs: {},
   hostConfig: null,
@@ -223,7 +226,7 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
       if (json.ok) {
         const c = json.config as MultiModelConfigDoc;
         set({
-          mode: c.mode,
+          mode: c.mode || "SINGLE",
           globalConfig: null,
           featureConfigs: {},
           hostConfig: null,

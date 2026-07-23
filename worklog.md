@@ -27,3 +27,43 @@ Stage Summary:
 - Frontend: Advanced Customization panel + Chat with live dispatch trace.
 - Verified working in browser: Global single-model path, Host multi-agent path with confirmation dialog + limit summary + mixed Local/API connection types per role.
 - Artifacts: source files under src/, screenshot at download/nox-ai-host-dispatch.png.
+
+---
+Task ID: 2
+Agent: main (Super Z)
+Task: Add local DB-backed auth (login/signup), rename modes to Single/Multi/Orchestrator, connect each mode's backend, persist conversations per user.
+
+Work Log:
+- Wiped DB and rebuilt Prisma schema: User (with passwordHash), MultiModelConfig (userId-scoped, unique [userId, scope]), Conversation (userId-scoped, has mode), Message (conversationId-scoped with trace/mode/multiAgent/error).
+- src/lib/auth.ts (server-only): scrypt password hashing (salt+64-byte hash), HMAC-signed session tokens stored in httpOnly cookie (30-day TTL), getCurrentUser/requireUser helpers.
+- Auth API routes: /api/auth/{signup,login,logout,me}. Validates email, enforces 6+ char password, prevents duplicate emails.
+- Renamed modes in multi-model-types.ts: GLOBAL→SINGLE, PER_FEATURE→MULTI, HOST→ORCHESTRATOR.
+- Updated multi-model-service.ts to be user-scoped: getConfig(userId), saveConfig(userId, doc), dispatch(userId, messages). Added conversation CRUD: listConversations, createConversation, getConversation, deleteConversation, renameConversation, addMessage (auto-titles conv from first user message).
+- Updated all multi-model API routes to require auth + thread userId (config, providers, test, limits, dispatch, export-import).
+- New conversations API routes: list, create, get, delete, rename, save-message — all auth-gated.
+- Zustand stores: auth-store (user, loading, signup/login/logout), conversations-store (items, activeId, activeMessages, loadList/create/select/remove/appendLocal/refreshActive).
+- AuthOverlay component: login/signup tabs with name/email/password fields, error display, NOX branding.
+- Rewrote page.tsx with auth gate (shows AuthOverlay if not logged in), conversation sidebar (desktop + mobile drawer), user menu dropdown with logout, chat area that persists every message to DB via /api/conversations/save-message.
+- Updated AdvancedCustomization panel labels: Single/Multi/Orchestrator.
+- Lint clean (0 errors, 0 warnings).
+- Agent Browser self-verification:
+  • Signup flow: created demo@nox.ai account → redirected to main app ✓
+  • Auth gate: GET /api/multi-model/config returns 401 when not authenticated ✓
+  • Chat in SINGLE mode: sent "Hello NOX" → got response with dispatch trace (Single Model · gpt-4o-mini · openai · API · 1042ms) ✓
+  • Conversation auto-titled from first message ("Hello NOX, what can you do?") ✓
+  • Page reload: session persisted (still logged in), conversation list loaded from DB, clicking conversation loads messages + trace from DB ✓
+  • Advanced panel: modes show as Single/Multi/Orchestrator ✓
+  • Switched to Orchestrator mode, saved, new conversation → mode badge shows ORCHESTRATOR ✓
+  • Sent "Plan a simple blog system architecture" → Multi-Agent Task Detected dialog appeared ✓
+  • Clicked Continue → 3-step Host pipeline ran (Host analyze → Planning planning → Host synthesize) with full dispatch trace ✓
+  • Sidebar shows both conversations with correct mode badges (SINGLE + ORCHESTRATOR) ✓
+  • Logout → back to auth overlay ✓
+  • Login with same account → both conversations restored from DB ✓
+
+Stage Summary:
+- Full local auth system working: signup, login, logout, session cookies.
+- All data is user-scoped: configs and conversations belong to the logged-in user.
+- Three modes renamed: SINGLE (one model for all features), MULTI (per-feature models), ORCHESTRATOR (host routes to specialists).
+- Each mode connected to its backend: dispatch resolves the right model(s) per mode, conversations persist with mode + dispatch trace.
+- Conversations auto-title from first user message, listed in sidebar with mode badge + date, fully reloadable from DB.
+- All safety layers from prior task preserved (test validation, timeout+retry, pre-flight confirmation, per-model limit check).

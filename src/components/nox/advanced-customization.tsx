@@ -65,9 +65,9 @@ const SPECIALIST_ICONS: Record<SpecialistId, React.ComponentType<{ className?: s
 };
 
 const MODES: { id: Mode; label: string; icon: React.ComponentType<{ className?: string }>; desc: string }[] = [
-  { id: "GLOBAL", label: "Global", icon: Globe, desc: "One model for all features" },
-  { id: "PER_FEATURE", label: "Per-Feature", icon: Layers, desc: "Different model per feature" },
-  { id: "HOST", label: "Host Orchestrator", icon: Network, desc: "Host routes tasks to specialists" },
+  { id: "SINGLE", label: "Single", icon: Globe, desc: "One model for all features" },
+  { id: "MULTI", label: "Multi", icon: Layers, desc: "Different model per feature" },
+  { id: "ORCHESTRATOR", label: "Orchestrator", icon: Network, desc: "Host routes tasks to specialists" },
 ];
 
 function defaultAssignment(connectionType: ConnectionType = "API"): ModelAssignment {
@@ -197,7 +197,7 @@ export function AdvancedCustomization() {
 
       {/* Mode content */}
       <AnimatePresence mode="wait">
-        {store.mode === "GLOBAL" && (
+        {store.mode === "SINGLE" && (
           <motion.div
             key="global"
             initial={{ opacity: 0, y: 8 }}
@@ -208,7 +208,7 @@ export function AdvancedCustomization() {
             <Card className="p-5 bg-card/60 backdrop-blur border-border">
               <div className="flex items-center gap-2 mb-4">
                 <Globe className="h-4 w-4 text-primary" />
-                <h3 className="font-medium">Global Model</h3>
+                <h3 className="font-medium">Single Model</h3>
                 <span className="text-xs text-muted-foreground">
                   — used for all 6 features
                 </span>
@@ -224,7 +224,7 @@ export function AdvancedCustomization() {
           </motion.div>
         )}
 
-        {store.mode === "PER_FEATURE" && (
+        {store.mode === "MULTI" && (
           <motion.div
             key="per-feature"
             initial={{ opacity: 0, y: 8 }}
@@ -262,7 +262,7 @@ export function AdvancedCustomization() {
           </motion.div>
         )}
 
-        {store.mode === "HOST" && (
+        {store.mode === "ORCHESTRATOR" && (
           <motion.div
             key="host"
             initial={{ opacity: 0, y: 8 }}

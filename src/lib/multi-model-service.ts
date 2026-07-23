@@ -20,7 +20,7 @@ import {
   MAX_RETRY,
 } from "@/lib/multi-model-types";
 
-// Re-export the types & catalogs so existing server-side imports keep working.
+// Re-export for server-side imports that still want the types/catalogs.
 export type {
   ConnectionType,
   Mode,
@@ -37,12 +37,14 @@ export type {
 export { FEATURES, SPECIALISTS, PROVIDERS, DEFAULT_TIMEOUTS, MAX_RETRY };
 
 // ───────────────────────────────────────────────────────────────────────────
-// NOX AI — Multi-Model Service (server-only)
+// NOX AI — Multi-Model Service (server-only, user-scoped)
 //
-// Implements the three modes described in the design doc:
-//   1. GLOBAL       — one model for all 6 features
-//   2. PER_FEATURE  — each feature has its own model
-//   3. HOST         — host routes prompts to specialists by intent
+// Three modes (renamed per user request):
+//   1. SINGLE        — one model for all 6 features (formerly GLOBAL)
+//   2. MULTI         — each feature has its own model (formerly PER_FEATURE)
+//   3. ORCHESTRATOR  — host routes prompts to specialists (formerly HOST)
+//
+// All config is scoped to a userId. API keys encrypted at rest.
 //
 // Safety layers (all three modes):
 //   • connect-time validation (model + version ping, block save on failure)
@@ -56,9 +58,7 @@ const SCOPE = "default";
 
 // ─── Persistence (encrypt on write, mask on read) ──────────────────────────
 
-function encryptAssignment(
-  a?: ModelAssignment | null
-): ModelAssignment | null {
+function encryptAssignment(a?: ModelAssignment | null): ModelAssignment | null {
   if (!a) return null;
   return {
     ...a,
@@ -88,9 +88,7 @@ function encryptSpecialistMap(
   return JSON.stringify(out);
 }
 
-function maskAssignment(
-  a?: ModelAssignment | null
-): ModelAssignment | null {
+function maskAssignment(a?: ModelAssignment | null): ModelAssignment | null {
   if (!a) return null;
   return {
     ...a,
@@ -128,53 +126,6 @@ function maskSpecialistMap(
   } catch {
     return undefined;
   }
-}
-
-export async function getConfig(): Promise<MultiModelConfigDoc> {
-  const row = await db.multiModelConfig.findUnique({ where: { scope: SCOPE } });
-  if (!row) {
-    return { mode: "GLOBAL" };
-  }
-  return {
-    mode: row.mode as Mode,
-    globalConfig: maskAssignment(
-      row.globalConfig ? JSON.parse(row.globalConfig) : null
-    ),
-    featureConfigs: maskFeatureMap(row.featureConfigs),
-    hostConfig: maskAssignment(
-      row.hostConfig ? JSON.parse(row.hostConfig) : null
-    ),
-    specialistConfigs: maskSpecialistMap(row.specialistConfigs),
-    timeoutOverrides: row.timeoutOverrides
-      ? JSON.parse(row.timeoutOverrides)
-      : undefined,
-  };
-}
-
-export async function getConfigInternal(): Promise<MultiModelConfigDoc> {
-  // Internal version: returns decrypted keys for actual dispatch.
-  const row = await db.multiModelConfig.findUnique({
-    where: { scope: SCOPE },
-  });
-  if (!row) return { mode: "GLOBAL" };
-  const unmask = (raw: string | null): ModelAssignment | null => {
-    if (!raw) return null;
-    const a = JSON.parse(raw) as ModelAssignment;
-    return {
-      ...a,
-      apiKey: a.apiKey ? decryptApiKey(a.apiKey) : undefined,
-    };
-  };
-  return {
-    mode: row.mode as Mode,
-    globalConfig: unmask(row.globalConfig),
-    featureConfigs: unmaskFeatureMap(row.featureConfigs),
-    hostConfig: unmask(row.hostConfig),
-    specialistConfigs: unmaskSpecialistMap(row.specialistConfigs),
-    timeoutOverrides: row.timeoutOverrides
-      ? JSON.parse(row.timeoutOverrides)
-      : undefined,
-  };
 }
 
 function unmaskFeatureMap(
@@ -215,7 +166,62 @@ function unmaskSpecialistMap(
   }
 }
 
-export async function saveConfig(doc: MultiModelConfigDoc): Promise<void> {
+export async function getConfig(
+  userId: string
+): Promise<MultiModelConfigDoc> {
+  const row = await db.multiModelConfig.findUnique({
+    where: { userId_scope: { userId, scope: SCOPE } },
+  });
+  if (!row) {
+    return { mode: "SINGLE" };
+  }
+  return {
+    mode: row.mode as Mode,
+    globalConfig: maskAssignment(
+      row.globalConfig ? JSON.parse(row.globalConfig) : null
+    ),
+    featureConfigs: maskFeatureMap(row.featureConfigs),
+    hostConfig: maskAssignment(
+      row.hostConfig ? JSON.parse(row.hostConfig) : null
+    ),
+    specialistConfigs: maskSpecialistMap(row.specialistConfigs),
+    timeoutOverrides: row.timeoutOverrides
+      ? JSON.parse(row.timeoutOverrides)
+      : undefined,
+  };
+}
+
+export async function getConfigInternal(
+  userId: string
+): Promise<MultiModelConfigDoc> {
+  const row = await db.multiModelConfig.findUnique({
+    where: { userId_scope: { userId, scope: SCOPE } },
+  });
+  if (!row) return { mode: "SINGLE" };
+  const unmask = (raw: string | null): ModelAssignment | null => {
+    if (!raw) return null;
+    const a = JSON.parse(raw) as ModelAssignment;
+    return {
+      ...a,
+      apiKey: a.apiKey ? decryptApiKey(a.apiKey) : undefined,
+    };
+  };
+  return {
+    mode: row.mode as Mode,
+    globalConfig: unmask(row.globalConfig),
+    featureConfigs: unmaskFeatureMap(row.featureConfigs),
+    hostConfig: unmask(row.hostConfig),
+    specialistConfigs: unmaskSpecialistMap(row.specialistConfigs),
+    timeoutOverrides: row.timeoutOverrides
+      ? JSON.parse(row.timeoutOverrides)
+      : undefined,
+  };
+}
+
+export async function saveConfig(
+  userId: string,
+  doc: MultiModelConfigDoc
+): Promise<void> {
   const globalConfig = doc.globalConfig
     ? JSON.stringify(encryptAssignment(doc.globalConfig))
     : null;
@@ -229,8 +235,9 @@ export async function saveConfig(doc: MultiModelConfigDoc): Promise<void> {
     : null;
 
   await db.multiModelConfig.upsert({
-    where: { scope: SCOPE },
+    where: { userId_scope: { userId, scope: SCOPE } },
     create: {
+      userId,
       scope: SCOPE,
       mode: doc.mode,
       globalConfig,
@@ -252,9 +259,7 @@ export async function saveConfig(doc: MultiModelConfigDoc): Promise<void> {
 
 // ─── Test / connect validation ─────────────────────────────────────────────
 
-export async function testAssignment(
-  a: ModelAssignment
-): Promise<TestResult> {
+export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
   const started = Date.now();
 
   if (!a.provider || !a.modelName) {
@@ -362,7 +367,7 @@ export async function testAssignment(
   };
 }
 
-// ─── Limit / capacity check (for multi-agent pre-flight) ───────────────────
+// ─── Limit / capacity check ────────────────────────────────────────────────
 
 export async function checkLimits(
   assignments: { id: string; label: string; assignment: ModelAssignment }[],
@@ -448,12 +453,12 @@ function resolvePlan(
   const last = [...messages].reverse().find((m) => m.role === "user");
   const text = (last?.content || "").toLowerCase();
 
-  if (doc.mode === "GLOBAL") {
+  if (doc.mode === "SINGLE") {
     return {
       assignments: [
         {
           id: "global",
-          label: "Global Model",
+          label: "Single Model",
           assignment: doc.globalConfig || emptyAssignment(),
         },
       ],
@@ -461,7 +466,7 @@ function resolvePlan(
     };
   }
 
-  if (doc.mode === "PER_FEATURE") {
+  if (doc.mode === "MULTI") {
     let feature: FeatureId = "chat";
     if (/(code|function|bug|class|api|sql|regex)/.test(text)) feature = "coding";
     else if (/(image|picture|photo|see|vision|ocr)/.test(text))
@@ -484,7 +489,7 @@ function resolvePlan(
     };
   }
 
-  // HOST mode
+  // ORCHESTRATOR
   const host = doc.hostConfig || emptyAssignment();
   let specialist: SpecialistId | null = null;
   if (/(plan|design|architect|roadmap|strategy|decompose)/.test(text))
@@ -519,11 +524,7 @@ function resolvePlan(
 async function callModel(
   assignment: ModelAssignment,
   messages: ChatMessage[],
-  opts: {
-    timeoutMs: number;
-    role: string;
-    intent?: string;
-  }
+  opts: { timeoutMs: number; role: string; intent?: string }
 ): Promise<{
   output: string;
   latencyMs: number;
@@ -573,9 +574,6 @@ async function realCall(
   role: string,
   intent?: string
 ): Promise<string> {
-  // Use z-ai-web-dev-sdk as the universal inference backend so the demo
-  // works end-to-end. The configured provider/model are reflected in the UI
-  // and dispatch trace.
   const ZAI = (await import("z-ai-web-dev-sdk")).default;
   const zai = await ZAI.create();
 
@@ -604,10 +602,11 @@ async function realCall(
 }
 
 export async function dispatch(
+  userId: string,
   messages: ChatMessage[],
   opts: { confirmMultiAgent?: boolean } = {}
 ): Promise<DispatchResult> {
-  const doc = await getConfigInternal();
+  const doc = await getConfigInternal(userId);
   const plan = resolvePlan(doc, messages);
   const timeoutOverrides = doc.timeoutOverrides || {};
 
@@ -646,7 +645,7 @@ export async function dispatch(
 
   const steps: DispatchStep[] = [];
 
-  if (doc.mode === "HOST" && plan.multiAgent) {
+  if (doc.mode === "ORCHESTRATOR" && plan.multiAgent) {
     const hostAssignment = plan.assignments[0].assignment;
     const hostTimeout =
       timeoutOverrides[hostAssignment.connectionType] ||
@@ -739,7 +738,7 @@ export async function dispatch(
     };
   }
 
-  // GLOBAL or PER_FEATURE single-model path
+  // SINGLE or MULTI (single-model path)
   const a = plan.assignments[0].assignment;
   const timeout =
     timeoutOverrides[a.connectionType] || DEFAULT_TIMEOUTS[a.connectionType];
@@ -770,4 +769,173 @@ export async function dispatch(
     multiAgent: false,
     confirmationRequired: false,
   };
+}
+
+// ─── Conversations ─────────────────────────────────────────────────────────
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  mode: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversationDetail extends ConversationSummary {
+  messages: {
+    id: string;
+    role: string;
+    content: string;
+    trace?: DispatchStep[];
+    mode?: string;
+    multiAgent: boolean;
+    error: boolean;
+    createdAt: string;
+  }[];
+}
+
+export async function listConversations(
+  userId: string
+): Promise<ConversationSummary[]> {
+  const rows = await db.conversation.findMany({
+    where: { userId },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      title: true,
+      mode: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+  return rows.map((r) => ({
+    ...r,
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
+  }));
+}
+
+export async function createConversation(
+  userId: string,
+  mode: Mode = "SINGLE",
+  title = "New conversation"
+): Promise<ConversationSummary> {
+  const row = await db.conversation.create({
+    data: { userId, mode, title },
+    select: {
+      id: true,
+      title: true,
+      mode: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+  return {
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export async function getConversation(
+  userId: string,
+  conversationId: string
+): Promise<ConversationDetail | null> {
+  const row = await db.conversation.findFirst({
+    where: { id: conversationId, userId },
+    include: {
+      messages: {
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+  if (!row) return null;
+  return {
+    id: row.id,
+    title: row.title,
+    mode: row.mode,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    messages: row.messages.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      trace: m.trace ? (JSON.parse(m.trace) as DispatchStep[]) : undefined,
+      mode: m.mode || undefined,
+      multiAgent: m.multiAgent,
+      error: m.error,
+      createdAt: m.createdAt.toISOString(),
+    })),
+  };
+}
+
+export async function deleteConversation(
+  userId: string,
+  conversationId: string
+): Promise<void> {
+  await db.conversation.deleteMany({
+    where: { id: conversationId, userId },
+  });
+}
+
+export async function renameConversation(
+  userId: string,
+  conversationId: string,
+  title: string
+): Promise<void> {
+  await db.conversation.updateMany({
+    where: { id: conversationId, userId },
+    data: { title },
+  });
+}
+
+export async function addMessage(
+  userId: string,
+  conversationId: string,
+  msg: {
+    role: "user" | "assistant";
+    content: string;
+    trace?: DispatchStep[];
+    mode?: string;
+    multiAgent?: boolean;
+    error?: boolean;
+  }
+): Promise<void> {
+  // Verify ownership
+  const conv = await db.conversation.findFirst({
+    where: { id: conversationId, userId },
+    select: { id: true },
+  });
+  if (!conv) throw new Error("Conversation not found");
+
+  await db.message.create({
+    data: {
+      conversationId,
+      role: msg.role,
+      content: msg.content,
+      trace: msg.trace ? JSON.stringify(msg.trace) : null,
+      mode: msg.mode || null,
+      multiAgent: msg.multiAgent || false,
+      error: msg.error || false,
+    },
+  });
+
+  // Auto-title the conversation from the first user message
+  if (msg.role === "user") {
+    const count = await db.message.count({
+      where: { conversationId, role: "user" },
+    });
+    if (count === 1) {
+      const title = msg.content.slice(0, 60).trim() || "New conversation";
+      await db.conversation.update({
+        where: { id: conversationId },
+        data: { title },
+      });
+    }
+    // Touch updatedAt
+    await db.conversation.update({
+      where: { id: conversationId },
+      data: { updatedAt: new Date() },
+    });
+  }
 }

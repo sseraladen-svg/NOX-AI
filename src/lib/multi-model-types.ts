@@ -7,7 +7,7 @@
 // ───────────────────────────────────────────────────────────────────────────
 
 export type ConnectionType = "LOCAL" | "API";
-export type Mode = "GLOBAL" | "PER_FEATURE" | "HOST";
+export type Mode = "SINGLE" | "MULTI" | "ORCHESTRATOR";
 
 export type FeatureId =
   | "chat"

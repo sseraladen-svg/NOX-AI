@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getConfig,
-  saveConfig,
-  type MultiModelConfigDoc,
-} from "@/lib/multi-model-service";
+import { getCurrentUser } from "@/lib/auth";
+import { getConfig, saveConfig, type MultiModelConfigDoc } from "@/lib/multi-model-service";
 
 export const runtime = "nodejs";
 
-// GET /api/multi-model/config
-// Returns the active config. API keys are masked (never plaintext).
+// GET /api/multi-model/config — returns the active config (masked) for the logged-in user.
 export async function GET() {
   try {
-    const doc = await getConfig();
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { ok: false, error: "Not authenticated." },
+        { status: 401 }
+      );
+    }
+    const doc = await getConfig(user.id);
     return NextResponse.json({ ok: true, config: doc });
   } catch (err) {
     return NextResponse.json(
@@ -21,10 +24,16 @@ export async function GET() {
   }
 }
 
-// PUT /api/multi-model/config
-// Saves the config. API keys are encrypted at rest by the service layer.
+// PUT /api/multi-model/config — saves the config (encrypts keys at rest).
 export async function PUT(req: NextRequest) {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { ok: false, error: "Not authenticated." },
+        { status: 401 }
+      );
+    }
     const body = (await req.json()) as { config: MultiModelConfigDoc };
     if (!body?.config || !body.config.mode) {
       return NextResponse.json(
@@ -32,8 +41,8 @@ export async function PUT(req: NextRequest) {
         { status: 400 }
       );
     }
-    await saveConfig(body.config);
-    const fresh = await getConfig();
+    await saveConfig(user.id, body.config);
+    const fresh = await getConfig(user.id);
     return NextResponse.json({ ok: true, config: fresh });
   } catch (err) {
     return NextResponse.json(
