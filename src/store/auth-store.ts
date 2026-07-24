@@ -1,6 +1,11 @@
 "use client";
 
 import { create } from "zustand";
+import {
+  setSessionToken,
+  clearSessionToken,
+  getSessionToken,
+} from "@/lib/auth-fetch";
 
 export interface NoxUser {
   id: string;
@@ -29,10 +34,20 @@ export const useAuth = create<AuthStore>((set) => ({
   error: null,
 
   load: async () => {
+    // If we have a stored token, send it as a header to verify the session.
+    const token = getSessionToken();
     try {
-      const res = await fetch("/api/auth/me");
+      const res = await fetch("/api/auth/me", {
+        headers: token ? { "x-nox-session": token } : undefined,
+      });
       const json = await res.json();
-      set({ user: json.user || null, loading: false });
+      if (json.ok && json.user) {
+        set({ user: json.user, loading: false });
+      } else {
+        // No valid session — clear any stale token.
+        clearSessionToken();
+        set({ user: null, loading: false });
+      }
     } catch {
       set({ user: null, loading: false });
     }
@@ -48,6 +63,8 @@ export const useAuth = create<AuthStore>((set) => ({
       });
       const json = await res.json();
       if (json.ok) {
+        // Store the session token for header-based auth on subsequent calls.
+        if (json.sessionToken) setSessionToken(json.sessionToken);
         set({ user: json.user });
         return true;
       }
@@ -69,6 +86,8 @@ export const useAuth = create<AuthStore>((set) => ({
       });
       const json = await res.json();
       if (json.ok) {
+        // Store the session token for header-based auth on subsequent calls.
+        if (json.sessionToken) setSessionToken(json.sessionToken);
         set({ user: json.user });
         return true;
       }
@@ -84,6 +103,7 @@ export const useAuth = create<AuthStore>((set) => ({
     try {
       await fetch("/api/auth/logout", { method: "POST" });
     } finally {
+      clearSessionToken();
       set({ user: null });
     }
   },

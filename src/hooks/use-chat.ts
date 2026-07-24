@@ -6,6 +6,7 @@ import {
   type ConversationMessage,
 } from "@/store/conversations-store";
 import { useMultiModel, type LimitRow } from "@/store/multi-model-store";
+import { authFetch } from "@/lib/auth-fetch";
 import type { DispatchStep, Mode, FeatureId } from "@/lib/multi-model-types";
 import { toast } from "sonner";
 
@@ -48,10 +49,9 @@ export function useChat() {
     msg: Omit<ConversationMessage, "id" | "createdAt">
   ) => {
     try {
-      await fetch("/api/conversations/save-message", {
+      await authFetch("/api/conversations/save-message", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId, ...msg }),
+        body: { conversationId, ...msg },
       });
     } catch {
       /* ignore */
@@ -93,14 +93,13 @@ export function useChat() {
     ];
 
     try {
-      const res = await fetch("/api/multi-model/dispatch", {
+      const res = await authFetch("/api/multi-model/dispatch", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: {
           messages: apiMessages,
           confirmMultiAgent,
           feature,
-        }),
+        },
       });
       const json = await res.json();
 

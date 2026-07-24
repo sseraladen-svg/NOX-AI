@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { hashPassword, setSessionCookie } from "@/lib/auth";
+import { hashPassword, setSessionCookie, createSessionToken } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
 // POST /api/auth/signup
 // Body: { email, password, name? }
+// Returns: { ok, user, sessionToken } — sessionToken stored in localStorage
+// by the frontend and sent as x-nox-session header on subsequent requests.
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as {
@@ -47,8 +49,10 @@ export async function POST(req: NextRequest) {
       select: { id: true, email: true, name: true },
     });
 
+    // Set cookie + return token for header-based fallback.
     await setSessionCookie(user.id);
-    return NextResponse.json({ ok: true, user });
+    const sessionToken = createSessionToken(user.id);
+    return NextResponse.json({ ok: true, user, sessionToken });
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: (err as Error).message },

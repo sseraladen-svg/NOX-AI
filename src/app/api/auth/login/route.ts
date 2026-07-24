@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { verifyPassword, setSessionCookie } from "@/lib/auth";
+import { verifyPassword, setSessionCookie, createSessionToken } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
 // POST /api/auth/login
 // Body: { email, password }
+// Returns: { ok, user, sessionToken } — sessionToken is stored in localStorage
+// by the frontend and sent as x-nox-session header on subsequent requests,
+// as a fallback when cookies aren't sent (e.g. preview gateway HTTPS contexts).
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as {
@@ -30,10 +33,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Set the cookie (primary auth path).
     await setSessionCookie(user.id);
+    // Also return the token in the response body so the frontend can store it
+    // in localStorage and send it as a header (fallback auth path).
+    const sessionToken = createSessionToken(user.id);
     return NextResponse.json({
       ok: true,
       user: { id: user.id, email: user.email, name: user.name },
+      sessionToken,
     });
   } catch (err) {
     return NextResponse.json(

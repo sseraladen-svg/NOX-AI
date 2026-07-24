@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { authFetch } from "@/lib/auth-fetch";
 import type {
   Mode,
   FeatureId,
@@ -97,7 +98,7 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
 
   load: async () => {
     try {
-      const res = await fetch("/api/multi-model/config");
+      const res = await authFetch("/api/multi-model/config");
       const json = await res.json();
       if (json.ok) {
         const c = json.config as MultiModelConfigDoc;
@@ -148,10 +149,9 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
   save: async () => {
     set({ saving: true });
     try {
-      const res = await fetch("/api/multi-model/config", {
+      const res = await authFetch("/api/multi-model/config", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config: get().asDoc() }),
+        body: { config: get().asDoc() },
       });
       const json = await res.json();
       if (json.ok) {
@@ -180,10 +180,9 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
   test: async (id, a) => {
     set((s) => ({ tests: { ...s.tests, [id]: { status: "testing" } } }));
     try {
-      const res = await fetch("/api/multi-model/test", {
+      const res = await authFetch("/api/multi-model/test", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assignment: a }),
+        body: { assignment: a },
       });
       const json = await res.json();
       if (json.ok) {
@@ -223,7 +222,7 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
 
   reset: async () => {
     try {
-      const res = await fetch("/api/multi-model/export-import?action=reset", {
+      const res = await authFetch("/api/multi-model/export-import?action=reset", {
         method: "POST",
       });
       const json = await res.json();
@@ -247,7 +246,7 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
 
   exportConfig: async () => {
     try {
-      const res = await fetch("/api/multi-model/export-import?action=export", {
+      const res = await authFetch("/api/multi-model/export-import?action=export", {
         method: "POST",
       });
       const json = await res.json();
@@ -259,10 +258,9 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
 
   importConfig: async (doc) => {
     try {
-      const res = await fetch("/api/multi-model/export-import?action=import", {
+      const res = await authFetch("/api/multi-model/export-import?action=import", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config: doc }),
+        body: { config: doc },
       });
       const json = await res.json();
       if (json.ok) {

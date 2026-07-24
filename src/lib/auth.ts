@@ -125,8 +125,20 @@ export async function clearSessionCookie(): Promise<void> {
 
 export async function getCurrentUser(): Promise<{ id: string; email: string; name: string | null } | null> {
   try {
+    // Primary auth path: session cookie.
     const store = await cookies();
-    const token = store.get(SESSION_COOKIE)?.value;
+    let token = store.get(SESSION_COOKIE)?.value;
+
+    // Fallback auth path: x-nox-session header (for preview gateway contexts
+    // where SameSite cookies aren't sent on fetch). The frontend stores the
+    // token in localStorage after login and sends it as a header on every
+    // API call.
+    if (!token) {
+      const { headers } = await import("next/headers");
+      const h = await headers();
+      token = h.get("x-nox-session") || undefined;
+    }
+
     if (!token) return null;
     const userId = verify(token);
     if (!userId) return null;
@@ -135,6 +147,18 @@ export async function getCurrentUser(): Promise<{ id: string; email: string; nam
       select: { id: true, email: true, name: true },
     });
     return user || null;
+  } catch {
+    return null;
+  }
+}
+
+// Return the raw session token for the current request (cookie or header).
+// Used by login/signup routes to echo the token back in the JSON response so
+// the frontend can store it in localStorage and send it as a header.
+export async function getCurrentSessionToken(): Promise<string | null> {
+  try {
+    const store = await cookies();
+    return store.get(SESSION_COOKIE)?.value || null;
   } catch {
     return null;
   }

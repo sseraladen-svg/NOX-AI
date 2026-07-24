@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { authFetch } from "@/lib/auth-fetch";
 import type { DispatchStep, Mode } from "@/lib/multi-model-types";
 
 export interface ConversationMessage {
@@ -48,7 +49,7 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   loadList: async () => {
     set({ loading: true });
     try {
-      const res = await fetch("/api/conversations/list");
+      const res = await authFetch("/api/conversations/list");
       const json = await res.json();
       if (json.ok) {
         set({ items: json.items });
@@ -60,10 +61,9 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
 
   create: async (mode = "SINGLE", title) => {
     try {
-      const res = await fetch("/api/conversations/create", {
+      const res = await authFetch("/api/conversations/create", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, title }),
+        body: { mode, title },
       });
       const json = await res.json();
       if (json.ok) {
@@ -80,7 +80,7 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   select: async (id) => {
     set({ activeId: id, loadingMessages: true, activeMessages: [] });
     try {
-      const res = await fetch(`/api/conversations/get?id=${id}`);
+      const res = await authFetch(`/api/conversations/get?id=${id}`);
       const json = await res.json();
       if (json.ok) {
         set({ activeMessages: json.item.messages || [] });
@@ -91,7 +91,7 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   },
 
   remove: async (id) => {
-    await fetch(`/api/conversations/delete?id=${id}`, { method: "POST" });
+    await authFetch(`/api/conversations/delete?id=${id}`, { method: "POST" });
     set((s) => ({
       items: s.items.filter((i) => i.id !== id),
       activeId: s.activeId === id ? null : s.activeId,
