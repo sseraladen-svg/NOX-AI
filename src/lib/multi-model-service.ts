@@ -295,14 +295,16 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
       };
     }
   } else {
-    if (!a.cliPath) {
+    // For ollama: uses HTTP API via `endpoint` field, so cliPath isn't required.
+    // For llamacpp/llamafile: requires cliPath.
+    if (a.provider !== "ollama" && !a.cliPath) {
       return {
         ok: false,
         status: "error",
         message: "CLI path is empty.",
         reason: "Local CLI connections require a path to the binary.",
         fixSteps: [
-          "Find the CLI binary (e.g. `which ollama`).",
+          "Find the CLI binary (e.g. `which llama-cli`).",
           "Paste the absolute path.",
           "Test again.",
         ],

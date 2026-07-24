@@ -209,11 +209,16 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
         },
       }));
       return false;
-    } catch {
+    } catch (err) {
+      const e = err as Error;
       set((s) => ({
         tests: {
           ...s.tests,
-          [id]: { status: "error", message: "Network error during test." },
+          [id]: {
+            status: "error",
+            message: `Network error: ${e.message || "Request failed"}. Check your connection and that NOX AI is reachable.`,
+            reason: "The test request could not reach the server.",
+          },
         },
       }));
       return false;
