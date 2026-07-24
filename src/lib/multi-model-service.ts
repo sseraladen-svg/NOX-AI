@@ -370,6 +370,18 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
     };
   }
 
+  // ─── OpenAI-compatible test: actually ping the API ──────────────────────
+  // For openai, anthropic, mistral, groq — hit a lightweight endpoint to
+  // verify the key works and the API is reachable from the server.
+  if (a.connectionType === "API" && ["openai", "mistral", "groq"].includes(a.provider)) {
+    return await testOpenAiCompatibleConnection(
+      a.apiKey!,
+      a.modelName,
+      a.provider,
+      a.endpoint
+    );
+  }
+
   if (a.connectionType === "LOCAL") {
     // For ollama: actually ping the HTTP API to verify it's reachable.
     if (a.provider === "ollama") {
@@ -582,10 +594,12 @@ async function callModel(
   latencyMs: number;
   retries: number;
   timedOut: boolean;
+  lastError?: string;
 }> {
   const started = Date.now();
   let retries = 0;
   let timedOut = false;
+  let lastError: string | undefined;
 
   for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
     try {
@@ -604,9 +618,10 @@ async function callModel(
         retries,
         timedOut: false,
       };
-    } catch {
+    } catch (err) {
       retries = attempt + 1;
       timedOut = true;
+      lastError = (err as Error).message;
       if (attempt === MAX_RETRY) break;
       await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
     }
@@ -617,6 +632,7 @@ async function callModel(
     latencyMs: Date.now() - started,
     retries,
     timedOut,
+    lastError,
   };
 }
 
@@ -1017,6 +1033,131 @@ function geminiFixStepsForStatus(status: number): string[] {
   }
 }
 
+// Test an OpenAI-compatible API connection (openai, mistral, groq).
+// Hits GET /v1/models with the Bearer token — lightweight, no tokens spent.
+// Verifies: key is valid, API is reachable from the server, key has access.
+export async function testOpenAiCompatibleConnection(
+  apiKey: string,
+  model: string,
+  provider: string,
+  endpoint?: string
+): Promise<TestResult> {
+  const started = Date.now();
+  const defaultEndpoints: Record<string, string> = {
+    openai: "https://api.openai.com/v1/models",
+    mistral: "https://api.mistral.ai/v1/models",
+    groq: "https://api.groq.com/openai/v1/models",
+  };
+  const url = endpoint
+    ? `${endpoint.replace(/\/$/, "")}/models`
+    : defaultEndpoints[provider] || defaultEndpoints.openai;
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => res.statusText);
+      let errMsg = body;
+      try {
+        const j = JSON.parse(body);
+        errMsg = j?.error?.message || j?.message || body;
+      } catch {
+        /* keep raw */
+      }
+      errMsg = String(errMsg).slice(0, 250);
+
+      // Map common HTTP errors to actionable messages.
+      let message: string;
+      let reason: string;
+      let fixSteps: string[];
+      if (res.status === 401) {
+        message = `${provider} rejected the API key — check it's copied correctly with no extra spaces.`;
+        reason = `HTTP 401: ${errMsg}`;
+        fixSteps = [
+          `Go to the ${provider} dashboard and verify the key is still active`,
+          "Copy it again with no leading/trailing spaces",
+          "Ensure the key has the necessary permissions",
+        ];
+      } else if (res.status === 403) {
+        const isRegion = errMsg.toLowerCase().includes("country") ||
+          errMsg.toLowerCase().includes("region") ||
+          errMsg.toLowerCase().includes("unsupported_country");
+        message = isRegion
+          ? `${provider} is blocking this request because of the server's geographic location. The NOX AI server is in a region ${provider} doesn't support. You need to deploy NOX AI in a supported region (e.g. US, EU).`
+          : `${provider} returned 403 — the key may not have permission for this API. (Details: ${errMsg})`;
+        reason = `HTTP 403: ${errMsg}`;
+        fixSteps = isRegion
+          ? [
+              "Deploy NOX AI to a supported region (Vercel, Railway, etc.)",
+              `Or use a different provider that supports this region`,
+              "This is a server-side geo-block — no key will work from here",
+            ]
+          : [
+              `Check the ${provider} key has the right permissions`,
+              "Verify your organization's API access settings",
+            ];
+      } else if (res.status === 429) {
+        message = `${provider} rate limit hit — wait a moment and try again. (Details: ${errMsg})`;
+        reason = `HTTP 429: ${errMsg}`;
+        fixSteps = [
+          "Wait a minute for the rate limit to reset",
+          `Check your ${provider} usage dashboard`,
+        ];
+      } else {
+        message = `${provider} API error (HTTP ${res.status}): ${errMsg}`;
+        reason = `HTTP ${res.status}`;
+        fixSteps = ["Try again", `Check the ${provider} status page`];
+      }
+
+      return {
+        ok: false,
+        status: "error",
+        message,
+        reason,
+        fixSteps,
+        latencyMs: Date.now() - started,
+      };
+    }
+
+    // Success — key works, API is reachable.
+    const json = await res.json();
+    const modelCount = Array.isArray(json.data) ? json.data.length : 0;
+    return {
+      ok: true,
+      status: "ready",
+      message: `Connected to ${provider} (key verified). ${modelCount} models available. Model "${model}" ready.`,
+      version: model,
+      latencyMs: Date.now() - started,
+    };
+  } catch (err) {
+    const e = err as Error;
+    const isConn = e.message.includes("fetch failed") ||
+      e.message.includes("aborted") ||
+      e.message.includes("ECONNREFUSED");
+    return {
+      ok: false,
+      status: "error",
+      message: isConn
+        ? `Could not reach ${provider}'s API from the server. The server may be in a region ${provider} blocks, or there's a network issue.`
+        : `${provider} error: ${e.message}`,
+      reason: isConn
+        ? "Network error — server cannot reach the provider."
+        : e.message,
+      fixSteps: isConn
+        ? [
+            "Deploy NOX AI to a region the provider supports",
+            "Check the server's internet connection",
+            "Try a different provider",
+          ]
+        : ["Try again", "Check the provider's status page"],
+    };
+  }
+}
+
 // Test ollama connection by hitting the HTTP API.
 // Pings GET /api/tags to verify ollama is running and reachable, then
 // optionally checks if the configured model is available.
@@ -1376,11 +1517,17 @@ export async function dispatch(
     timedOut: result.timedOut,
   });
 
+  // If the call failed (empty output after retries), surface the error as
+  // the final reply so the user sees what went wrong in the chat.
+  const finalReply = result.output || (result.lastError
+    ? `⚠️ Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
+    : "⚠️ Model returned no response. Check your configuration in Advanced Customization.");
+
   return {
     ok: true,
     mode: doc.mode,
     steps,
-    finalReply: result.output,
+    finalReply,
     multiAgent: false,
     confirmationRequired: false,
   };
