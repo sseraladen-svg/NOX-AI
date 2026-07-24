@@ -12,7 +12,11 @@ import { MultiModePage } from "@/components/nox/multi-mode-page";
 import { OrchestratorModePage } from "@/components/nox/orchestrator-mode-page";
 import { Loader2 } from "lucide-react";
 
-export default function Home() {
+/**
+ * Inner component that consumes useSearchParams. MUST be wrapped in <Suspense>
+ * in Next.js 16 or client-side navigation will bail out.
+ */
+function HomeInner() {
   const auth = useAuth();
   const mm = useMultiModel();
   const convs = useConversations();
@@ -61,4 +65,18 @@ export default function Home() {
 
   // Default: mode picker landing
   return <ModePicker />;
+}
+
+export default function Home() {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-background nox-aurora">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <HomeInner />
+    </React.Suspense>
+  );
 }
