@@ -111,6 +111,10 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
           loaded: true,
           dirty: false,
         });
+      } else {
+        // Auth failure or other error — still mark loaded so the UI doesn't
+        // spin forever. The auth gate will redirect to the login screen.
+        set({ loaded: true });
       }
     } catch {
       set({ loaded: true });

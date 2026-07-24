@@ -83,6 +83,9 @@ export function createSessionToken(userId: string): string {
 export async function setSessionCookie(userId: string): Promise<void> {
   const token = createSessionToken(userId);
   const store = await cookies();
+  // Always use sameSite="lax" + secure only in production. The preview
+  // gateway proxies to localhost:3000 over HTTPS, and lax cookies are sent
+  // on same-site navigations and same-origin fetches, which covers our case.
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
