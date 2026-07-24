@@ -334,6 +334,40 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
 
   const latencyMs = Date.now() - started + 120;
 
+  // ─── Fix #3: Gemini-specific lightweight test call ────────────────────────
+  //
+  // For Gemini, instead of (or before) running a full generateContent call,
+  // hit the cheaper/faster ListModels endpoint:
+  //   GET https://generativelanguage.googleapis.com/v1beta/models?key=<apiKey>
+  //
+  // This confirms the key works AND the API is enabled, without spending
+  // generation tokens. If it fails, we return the specific error from
+  // formatGeminiHttpError so the user gets an actionable message.
+  if (a.connectionType === "API" && a.provider === "gemini") {
+    const geminiResult = await testGeminiConnection(a.apiKey!, a.modelName, a.endpoint);
+    if (!geminiResult.ok) {
+      return geminiResult;
+    }
+    // ListModels succeeded — key is valid, API is enabled.
+    // Optionally check if the configured model is in the listed models.
+    return {
+      ok: true,
+      status: "ready" as const,
+      message: `Connected to Google Gemini (key verified via ListModels). Model "${a.modelName}" ready.`,
+      version,
+      latencyMs: Date.now() - started,
+      ...(versionMatch
+        ? {}
+        : {
+            reason: `"${a.modelName}" is not in the known model list for ${provider.label}.`,
+            fixSteps: [
+              `Verify the model name on the ${provider.label} dashboard.`,
+              "Or pick a known model from the dropdown.",
+            ],
+          }),
+    };
+  }
+
   if (a.connectionType === "LOCAL") {
     return {
       ok: true,
@@ -715,6 +749,10 @@ async function callAnthropic(
 }
 
 // Google Gemini generateContent API.
+//
+// SECURITY: `apiKey` is only ever placed into the URL query string (the way
+// Google's API expects it). It is never included in error messages, trace
+// objects, or logs. If you change this function, preserve that invariant.
 async function callGemini(
   apiKey: string,
   model: string,
@@ -722,6 +760,17 @@ async function callGemini(
   conv: { role: "user" | "assistant"; content: string }[],
   endpoint?: string
 ): Promise<string> {
+  // ─── Fix #1: key format validation BEFORE any network call ───────────────
+  //
+  // A valid Generative Language API key from Google AI Studio starts with
+  // "AIzaSy" and is ~39 characters. OAuth tokens (ya29.*), Vertex AI service
+  // account tokens (AQ.*), and other formats are NOT supported by this
+  // endpoint — reject them up front with a clear, actionable error.
+  const geminiKeyError = validateGeminiKey(apiKey);
+  if (geminiKeyError) {
+    throw new Error(geminiKeyError);
+  }
+
   const base =
     endpoint || "https://generativelanguage.googleapis.com/v1beta/models";
   const url = `${base}/${model}:generateContent?key=${apiKey}`;
@@ -742,8 +791,11 @@ async function callGemini(
   });
 
   if (!res.ok) {
-    const errText = await res.text().catch(() => res.statusText);
-    throw new Error(`gemini API ${res.status}: ${errText.slice(0, 300)}`);
+    // ─── Fix #2: surface specific, actionable errors for Gemini ─────────────
+    //
+    // Never include the raw API key in the error message. Only include the
+    // HTTP status, the model name, and a human-readable explanation.
+    throw new Error(formatGeminiHttpError(res.status, model, await safeReadError(res)));
   }
 
   const json = await res.json();
@@ -752,6 +804,209 @@ async function callGemini(
     return parts.map((p: { text?: string }) => p.text || "").join("");
   }
   return "";
+}
+
+// Validate a Gemini API key format before making any network call.
+// Returns null if the key looks valid, or a clear error string if not.
+//
+// SECURITY: This function only inspects the key's prefix and length — it
+// never logs the key itself.
+export function validateGeminiKey(apiKey: string): string | null {
+  if (!apiKey) {
+    return "No Gemini API key configured. Add one in Advanced Customization.";
+  }
+  // Trim leading/trailing whitespace (a common copy-paste mistake) and check.
+  const trimmed = apiKey.trim();
+  if (trimmed !== apiKey) {
+    // We don't auto-fix here — we tell the user so they can re-paste cleanly.
+    return "The API key has leading or trailing whitespace. Copy it again from https://aistudio.google.com/apikey with no extra spaces.";
+  }
+  // Known-wrong prefixes: OAuth bearer tokens, Vertex service-account tokens,
+  // Google Cloud API keys with the wrong prefix, etc.
+  const wrongPrefixes = ["ya29.", "AQ.", "1//", "AIza"];
+  // Note: real AI Studio keys DO start with "AIzaSy" — we check that below.
+  // "AIza" alone (without "Sy") is the older Google Cloud API key prefix and
+  // does NOT work with the Generative Language API.
+  if (trimmed.startsWith("AIza") && !trimmed.startsWith("AIzaSy")) {
+    return "This looks like a Google Cloud API key (prefix 'AIza') but not a Generative Language API key. Get one from https://aistudio.google.com/apikey — it should start with 'AIzaSy'.";
+  }
+  if (wrongPrefixes.some((p) => trimmed.startsWith(p)) && !trimmed.startsWith("AIzaSy")) {
+    return "This doesn't look like a valid Gemini API key. Get one from https://aistudio.google.com/apikey — it should start with 'AIzaSy'. OAuth tokens are not supported here.";
+  }
+  if (!trimmed.startsWith("AIzaSy")) {
+    return "This doesn't look like a valid Gemini API key. Get one from https://aistudio.google.com/apikey — it should start with 'AIzaSy'. OAuth tokens are not supported here.";
+  }
+  // AI Studio keys are ~39 chars. Allow some slack but flag obviously wrong lengths.
+  if (trimmed.length < 35 || trimmed.length > 45) {
+    return `This Gemini API key is ${trimmed.length} characters, but valid keys are usually 39. Check it's copied completely from https://aistudio.google.com/apikey.`;
+  }
+  return null;
+}
+
+// Read the error response body safely — never includes the API key.
+// Returns a short string suitable for inclusion in an error message.
+async function safeReadError(res: Response): Promise<string> {
+  try {
+    const text = await res.text();
+    // Google returns JSON errors like { error: { message, status, code } }.
+    // Try to extract the structured message; fall back to raw text.
+    try {
+      const json = JSON.parse(text);
+      const msg = json?.error?.message || json?.message || text;
+      return String(msg).slice(0, 250);
+    } catch {
+      return text.slice(0, 250) || res.statusText;
+    }
+  } catch {
+    return res.statusText || "unknown error";
+  }
+}
+
+// Format a Gemini HTTP error with a specific, actionable message per status.
+// SECURITY: `model` is safe to include (it's user-visible config). Never pass
+// `apiKey` here.
+function formatGeminiHttpError(status: number, model: string, body: string): string {
+  switch (status) {
+    case 400:
+      return `Gemini rejected this API key — check it's copied correctly with no extra spaces. (Details: ${body})`;
+    case 401:
+    case 403:
+      return `This key is valid but the Generative Language API may not be enabled on this Google Cloud project, or you've hit your quota. (Details: ${body})`;
+    case 404:
+      return `Model '${model}' not found for Gemini — check the model name matches an available Gemini model. (Details: ${body})`;
+    case 429:
+      return `Gemini rate limit hit — wait a moment and try again. (Details: ${body})`;
+    default:
+      if (status >= 500) {
+        return `Gemini server error (${status}). Try again in a moment. (Details: ${body})`;
+      }
+      return `Gemini API error (${status}): ${body}`;
+  }
+}
+
+// Lightweight Gemini connection test — hits the ListModels endpoint instead
+// of running a full generateContent call. Cheaper, faster, and confirms the
+// key works + the Generative Language API is enabled on the project.
+//
+// SECURITY: The apiKey is only placed in the URL query string (per Google's
+// API spec). It is never included in the returned TestResult message/reason.
+export async function testGeminiConnection(
+  apiKey: string,
+  model: string,
+  endpoint?: string
+): Promise<TestResult> {
+  const started = Date.now();
+
+  // Step 1: validate key format before any network call.
+  const keyError = validateGeminiKey(apiKey);
+  if (keyError) {
+    return {
+      ok: false,
+      status: "error",
+      message: keyError,
+      reason: "Gemini API key format is invalid.",
+      fixSteps: [
+        "Go to https://aistudio.google.com/apikey",
+        "Create or copy an API key (starts with 'AIzaSy')",
+        "Paste it into the API Key field",
+      ],
+    };
+  }
+
+  // Step 2: hit ListModels to verify the key + API enablement.
+  const base =
+    endpoint || "https://generativelanguage.googleapis.com/v1beta/models";
+  const url = `${base}?key=${apiKey}&pageSize=100`;
+
+  try {
+    const res = await fetch(url, { method: "GET" });
+    if (!res.ok) {
+      const body = await safeReadError(res);
+      const message = formatGeminiHttpError(res.status, model, body);
+      return {
+        ok: false,
+        status: "error",
+        message,
+        reason: `Gemini ListModels returned HTTP ${res.status}.`,
+        fixSteps: geminiFixStepsForStatus(res.status),
+      };
+    }
+
+    // Step 3: optionally verify the configured model is in the listed models.
+    const json = await res.json();
+    const listedModels: string[] = (json.models || []).map(
+      (m: { name?: string }) => (m.name || "").replace(/^models\//, "")
+    );
+    const modelAvailable =
+      listedModels.length === 0 || // don't block if list is empty for some reason
+      listedModels.includes(model);
+
+    const latencyMs = Date.now() - started;
+    if (!modelAvailable) {
+      return {
+        ok: false,
+        status: "error",
+        message: `Model '${model}' not found for Gemini — check the model name matches an available Gemini model.`,
+        reason: `ListModels succeeded but '${model}' is not in the list of available models.`,
+        fixSteps: [
+          `Available models include: ${listedModels.slice(0, 5).join(", ")}${listedModels.length > 5 ? "..." : ""}`,
+          "Pick one of those from the dropdown, or check the exact name.",
+        ],
+        latencyMs,
+      };
+    }
+
+    return {
+      ok: true,
+      status: "ready",
+      message: `Connected to Google Gemini (key verified via ListModels). Model "${model}" ready.`,
+      version: model,
+      latencyMs,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: "error",
+      message: `Could not reach Google's Gemini API: ${(err as Error).message}`,
+      reason: "Network error during ListModels call.",
+      fixSteps: [
+        "Check your internet connection",
+        "Verify Google's Generative Language API is reachable from your network",
+        "Try again in a moment",
+      ],
+    };
+  }
+}
+
+// Return provider-specific fix steps for a given Gemini HTTP status.
+function geminiFixStepsForStatus(status: number): string[] {
+  switch (status) {
+    case 400:
+      return [
+        "Copy the API key again from https://aistudio.google.com/apikey",
+        "Make sure there are no leading/trailing spaces",
+        "Ensure you're using an AI Studio key (starts with 'AIzaSy'), not an OAuth token",
+      ];
+    case 401:
+    case 403:
+      return [
+        "Go to https://aistudio.google.com/apikey and verify the key is still active",
+        "Enable the Generative Language API on your Google Cloud project",
+        "Check your quota at https://aistudio.google.com/usage",
+      ];
+    case 404:
+      return [
+        "Check the model name is spelled correctly",
+        "Pick a known model from the dropdown (e.g. gemini-2.0-flash, gemini-1.5-pro)",
+      ];
+    case 429:
+      return [
+        "Wait a moment for the rate limit to reset",
+        "Check your quota at https://aistudio.google.com/usage",
+      ];
+    default:
+      return ["Try again in a moment", "Check https://status.cloud.google.com for outages"];
+  }
 }
 
 // ─── LOCAL CLI connection ───────────────────────────────────────────────────
