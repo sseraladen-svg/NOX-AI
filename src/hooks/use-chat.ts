@@ -6,7 +6,7 @@ import {
   type ConversationMessage,
 } from "@/store/conversations-store";
 import { useMultiModel, type LimitRow } from "@/store/multi-model-store";
-import type { DispatchStep, Mode } from "@/lib/multi-model-types";
+import type { DispatchStep, Mode, FeatureId } from "@/lib/multi-model-types";
 import { toast } from "sonner";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -24,6 +24,7 @@ export function useChat() {
   const [confirmLimits, setConfirmLimits] = React.useState<LimitRow[]>([]);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [pendingText, setPendingText] = React.useState<string | null>(null);
+  const [pendingFeature, setPendingFeature] = React.useState<FeatureId | undefined>(undefined);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [convDrawerOpen, setConvDrawerOpen] = React.useState(false);
 
@@ -57,7 +58,11 @@ export function useChat() {
     }
   };
 
-  const sendMessage = async (text: string, confirmMultiAgent = false) => {
+  const sendMessage = async (
+    text: string,
+    confirmMultiAgent = false,
+    feature?: FeatureId
+  ) => {
     if (!text.trim() || sending) return;
     setSending(true);
 
@@ -94,6 +99,7 @@ export function useChat() {
         body: JSON.stringify({
           messages: apiMessages,
           confirmMultiAgent,
+          feature,
         }),
       });
       const json = await res.json();
@@ -118,6 +124,7 @@ export function useChat() {
         setConfirmLimits(r.limits || []);
         setConfirmOpen(true);
         setPendingText(text);
+        setPendingFeature(feature);
         setSending(false);
         return;
       }
@@ -160,9 +167,11 @@ export function useChat() {
     setConfirmOpen(false);
     if (pendingText !== null) {
       const text = pendingText;
+      const feature = pendingFeature;
       setPendingText(null);
+      setPendingFeature(undefined);
       setConfirmLimits([]);
-      sendMessage(text, true);
+      sendMessage(text, true, feature);
     }
   };
 

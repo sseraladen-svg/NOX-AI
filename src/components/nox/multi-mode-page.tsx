@@ -119,7 +119,7 @@ export function MultiModePage() {
       scrollRef: chat.scrollRef,
       input: chat.input,
       setInput: chat.setInput,
-      onSend: () => chat.sendMessage(chat.input),
+      onSend: () => chat.sendMessage(chat.input, false, activeFeature),
     };
 
     switch (activeFeature) {

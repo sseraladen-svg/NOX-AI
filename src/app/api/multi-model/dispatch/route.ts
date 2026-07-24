@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dispatch, type ChatMessage } from "@/lib/multi-model-service";
+import { dispatch, type ChatMessage, type FeatureId } from "@/lib/multi-model-service";
 import { getCurrentUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
 // POST /api/multi-model/dispatch — routes a message through the active mode.
-// If ORCHESTRATOR mode detects a multi-agent task and confirmMultiAgent is not
-// set, returns confirmationRequired=true along with the per-model limit summary.
+// Body: { messages, confirmMultiAgent?, feature? }
+//
+// `feature` is sent from the active tab in multi-mode-page.tsx and tells the
+// backend which feature's model to use in MULTI mode (instead of guessing from
+// keywords). SINGLE and ORCHESTRATOR modes ignore it.
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser();
@@ -19,6 +22,7 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as {
       messages: ChatMessage[];
       confirmMultiAgent?: boolean;
+      feature?: FeatureId;
     };
     if (!body?.messages || !Array.isArray(body.messages)) {
       return NextResponse.json(
@@ -28,6 +32,7 @@ export async function POST(req: NextRequest) {
     }
     const result = await dispatch(user.id, body.messages, {
       confirmMultiAgent: body.confirmMultiAgent,
+      feature: body.feature,
     });
     return NextResponse.json({ ok: true, result });
   } catch (err) {

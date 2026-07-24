@@ -1,6 +1,10 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { encryptApiKey, decryptApiKey, maskApiKey } from "@/lib/crypto";
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 import {
   type ConnectionType,
   type Mode,
@@ -440,7 +444,8 @@ function emptyAssignment(): ModelAssignment {
 
 function resolvePlan(
   doc: MultiModelConfigDoc,
-  messages: ChatMessage[]
+  messages: ChatMessage[],
+  explicitFeature?: FeatureId
 ): {
   assignments: {
     id: string;
@@ -467,16 +472,21 @@ function resolvePlan(
   }
 
   if (doc.mode === "MULTI") {
-    let feature: FeatureId = "chat";
-    if (/(code|function|bug|class|api|sql|regex)/.test(text)) feature = "coding";
-    else if (/(image|picture|photo|see|vision|ocr)/.test(text))
-      feature = "vision";
-    else if (/(voice|speak|speech|audio|transcri)/.test(text))
-      feature = "voice";
-    else if (/(automate|workflow|schedule|pipeline)/.test(text))
-      feature = "automation";
-    else if (/(robot|move|arm|sensor|actuator)/.test(text))
-      feature = "robotics";
+    // Use the explicitly-passed feature from the UI tab. Only fall back to
+    // keyword detection if no feature was provided (e.g. API calls without
+    // a tab context).
+    let feature: FeatureId = explicitFeature || "chat";
+    if (!explicitFeature) {
+      if (/(code|function|bug|class|api|sql|regex)/.test(text)) feature = "coding";
+      else if (/(image|picture|photo|see|vision|ocr)/.test(text))
+        feature = "vision";
+      else if (/(voice|speak|speech|audio|transcri)/.test(text))
+        feature = "voice";
+      else if (/(automate|workflow|schedule|pipeline)/.test(text))
+        feature = "automation";
+      else if (/(robot|move|arm|sensor|actuator)/.test(text))
+        feature = "robotics";
+    }
 
     const assignment =
       doc.featureConfigs?.[feature] ||
@@ -569,14 +579,12 @@ async function callModel(
 }
 
 async function realCall(
-  _assignment: ModelAssignment,
+  assignment: ModelAssignment,
   messages: ChatMessage[],
   role: string,
   intent?: string
 ): Promise<string> {
-  const ZAI = (await import("z-ai-web-dev-sdk")).default;
-  const zai = await ZAI.create();
-
+  // Build the system hint the same way — this is the NOX persona prompt.
   const systemHint =
     role === "host"
       ? "You are NOX Host. Analyze the user's intent and either answer directly or synthesize the response from a specialist model into a clean reply to the user. Be concise."
@@ -584,30 +592,239 @@ async function realCall(
       ? `You are NOX ${role} specialist (intent: ${intent}). Answer the user's request focused on your specialty. Be concise and useful.`
       : "You are NOX AI. Respond helpfully and concisely.";
 
-  const completion = await zai.chat.completions.create({
-    messages: [
-      { role: "assistant", content: systemHint },
-      ...messages.map((m) => ({
-        role:
-          m.role === "system"
-            ? ("assistant" as const)
-            : (m.role as "user" | "assistant"),
-        content: m.content,
-      })),
-    ],
-    thinking: { type: "disabled" },
+  // Normalise the conversation into user/assistant turns (drop "system" role
+  // — it's folded into systemHint for each provider).
+  const conv: { role: "user" | "assistant"; content: string }[] = messages
+    .filter((m) => m.role !== "system")
+    .map((m) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: m.content,
+    }));
+
+  // Route based on the assignment's connection type.
+  if (assignment.connectionType === "LOCAL") {
+    return callLocalCli(assignment, systemHint, conv);
+  }
+
+  return callApi(assignment, systemHint, conv);
+}
+
+// ─── API connection ────────────────────────────────────────────────────────
+
+async function callApi(
+  assignment: ModelAssignment,
+  systemHint: string,
+  conv: { role: "user" | "assistant"; content: string }[]
+): Promise<string> {
+  const { provider, modelName, apiKey, endpoint } = assignment;
+
+  if (!apiKey) {
+    throw new Error(
+      `No API key configured for ${provider}/${modelName}. Add one in Advanced Customization.`
+    );
+  }
+
+  // Anthropic has its own request/response format.
+  if (provider === "anthropic") {
+    return callAnthropic(apiKey, modelName, systemHint, conv, endpoint);
+  }
+
+  // Google Gemini uses a different URL structure + API key as query param.
+  if (provider === "gemini") {
+    return callGemini(apiKey, modelName, systemHint, conv, endpoint);
+  }
+
+  // OpenAI, Mistral, and Groq all use the OpenAI-compatible
+  // /v1/chat/completions format with Bearer auth.
+  return callOpenAiCompatible(apiKey, modelName, systemHint, conv, provider, endpoint);
+}
+
+// OpenAI-compatible endpoint (openai, mistral, groq).
+async function callOpenAiCompatible(
+  apiKey: string,
+  model: string,
+  systemHint: string,
+  conv: { role: "user" | "assistant"; content: string }[],
+  provider: string,
+  endpoint?: string
+): Promise<string> {
+  const defaultEndpoints: Record<string, string> = {
+    openai: "https://api.openai.com/v1/chat/completions",
+    mistral: "https://api.mistral.ai/v1/chat/completions",
+    groq: "https://api.groq.com/openai/v1/chat/completions",
+  };
+  const url = endpoint || defaultEndpoints[provider] || defaultEndpoints.openai;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 1024,
+      messages: [
+        { role: "system", content: systemHint },
+        ...conv,
+      ],
+    }),
   });
 
-  return completion.choices[0]?.message?.content || "";
+  if (!res.ok) {
+    const errText = await res.text().catch(() => res.statusText);
+    throw new Error(`${provider} API ${res.status}: ${errText.slice(0, 300)}`);
+  }
+
+  const json = await res.json();
+  return json.choices?.[0]?.message?.content ?? "";
+}
+
+// Anthropic Messages API.
+async function callAnthropic(
+  apiKey: string,
+  model: string,
+  systemHint: string,
+  conv: { role: "user" | "assistant"; content: string }[],
+  endpoint?: string
+): Promise<string> {
+  const url = endpoint || "https://api.anthropic.com/v1/messages";
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 1024,
+      system: systemHint,
+      messages: conv,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => res.statusText);
+    throw new Error(`anthropic API ${res.status}: ${errText.slice(0, 300)}`);
+  }
+
+  const json = await res.json();
+  return json.content?.[0]?.text ?? "";
+}
+
+// Google Gemini generateContent API.
+async function callGemini(
+  apiKey: string,
+  model: string,
+  systemHint: string,
+  conv: { role: "user" | "assistant"; content: string }[],
+  endpoint?: string
+): Promise<string> {
+  const base =
+    endpoint || "https://generativelanguage.googleapis.com/v1beta/models";
+  const url = `${base}/${model}:generateContent?key=${apiKey}`;
+
+  const contents = conv.map((m) => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }],
+  }));
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents,
+      systemInstruction: { parts: [{ text: systemHint }] },
+      generationConfig: { maxOutputTokens: 1024 },
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => res.statusText);
+    throw new Error(`gemini API ${res.status}: ${errText.slice(0, 300)}`);
+  }
+
+  const json = await res.json();
+  const parts = json.candidates?.[0]?.content?.parts;
+  if (Array.isArray(parts)) {
+    return parts.map((p: { text?: string }) => p.text || "").join("");
+  }
+  return "";
+}
+
+// ─── LOCAL CLI connection ───────────────────────────────────────────────────
+//
+// Runs the configured binary as a subprocess. The prompt (system hint + last
+// user message) is passed as a positional argument. Provider-specific arg
+// structure is handled below.
+//
+// The timeout/retry wrapping is handled by callModel's Promise.race — this
+// function just runs the subprocess. A 120s backstop timeout is set on the
+// subprocess itself so it can't run forever if Promise.race rejects first.
+
+async function callLocalCli(
+  assignment: ModelAssignment,
+  systemHint: string,
+  conv: { role: "user" | "assistant"; content: string }[]
+): Promise<string> {
+  const { cliPath, cliArgs, modelName, provider } = assignment;
+
+  if (!cliPath) {
+    throw new Error(
+      `No CLI path configured for ${provider}/${modelName}. Add one in Advanced Customization.`
+    );
+  }
+
+  // Build a single text prompt from the system hint + last user message.
+  const lastUser = [...conv].reverse().find((m) => m.role === "user");
+  const prompt = `${systemHint}\n\nUser: ${lastUser?.content || ""}\nAssistant:`;
+
+  // Provider-specific argument structure.
+  let args: string[];
+  if (provider === "ollama") {
+    // ollama run <model> "<prompt>"
+    args = ["run", modelName, prompt];
+  } else if (provider === "llamacpp" || provider === "llamafile") {
+    // llama.cpp / llamafile: -m <model> -p "<prompt>"
+    args = ["-m", modelName, "-p", prompt];
+  } else {
+    // Generic fallback: <model> "<prompt>"
+    args = [modelName, prompt];
+  }
+
+  // Append any user-specified extra CLI args.
+  if (cliArgs) {
+    args.push(...cliArgs.split(/\s+/).filter(Boolean));
+  }
+
+  try {
+    const { stdout } = await execFileAsync(cliPath, args, {
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 120_000, // backstop — callModel's Promise.race will reject first
+      env: { ...process.env },
+    });
+    return stdout.trim();
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    if (e.code === "ENOENT") {
+      throw new Error(
+        `CLI binary not found at "${cliPath}". Check the path in Advanced Customization.`
+      );
+    }
+    const stderr = (e as { stderr?: string }).stderr?.slice(0, 300) || e.message;
+    throw new Error(`${provider} CLI error: ${stderr}`);
+  }
 }
 
 export async function dispatch(
   userId: string,
   messages: ChatMessage[],
-  opts: { confirmMultiAgent?: boolean } = {}
+  opts: { confirmMultiAgent?: boolean; feature?: FeatureId } = {}
 ): Promise<DispatchResult> {
   const doc = await getConfigInternal(userId);
-  const plan = resolvePlan(doc, messages);
+  const plan = resolvePlan(doc, messages, opts.feature);
   const timeoutOverrides = doc.timeoutOverrides || {};
 
   if (plan.multiAgent && !opts.confirmMultiAgent) {
