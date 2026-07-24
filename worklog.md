@@ -67,3 +67,38 @@ Stage Summary:
 - Each mode connected to its backend: dispatch resolves the right model(s) per mode, conversations persist with mode + dispatch trace.
 - Conversations auto-title from first user message, listed in sidebar with mode badge + date, fully reloadable from DB.
 - All safety layers from prior task preserved (test validation, timeout+retry, pre-flight confirmation, per-model limit check).
+
+---
+Task ID: 3
+Agent: main (Super Z)
+Task: Create three different dedicated pages for the three modes (Single, Multi, Orchestrator), each with its own tailored layout, plus a mode picker landing page.
+
+Work Log:
+- Extracted shared chat logic into src/hooks/use-chat.ts (sendMessage, persist, confirmation flow, advanced dialog state, conversation drawer state).
+- Created src/components/nox/shared-chat.tsx with reusable components: MessageBubble, WelcomeScreen, ChatInput, UserMenu, ConversationDrawer, AdvancedDialog, ConfirmWrapper, ThinkingIndicator, IconButton, MessagesArea.
+- Created src/components/nox/mode-picker.tsx — landing page with 3 big gradient cards (Single/Multi/Orchestrator), each showing tagline, description, feature bullets, "Enter [mode] mode" CTA. Active mode is highlighted.
+- Created src/components/nox/single-mode-page.tsx — clean focused layout: header with back-to-picker + model strip showing active model (provider, connection type, timeout) + Configure link. Chat area below. Compact, single-column (max-w-4xl).
+- Created src/components/nox/multi-mode-page.tsx — feature tab layout: 6 tabs (Chat/Voice/Vision/Coding/Automation/Robotics) across the top, active feature's model strip below, chat area. Each tab has its own example prompts. Switching tabs updates the input placeholder and welcome examples.
+- Created src/components/nox/orchestrator-mode-page.tsx — roster sidebar layout: left sidebar (desktop) showing Host card (ROUTER badge) + 5 specialist cards (Planning/Coding/Vision/Automation/Robotics) with compact model lines. Chat area on the right. "Configure all roles →" button at bottom of sidebar.
+- Updated src/app/page.tsx to route via ?mode= query param: empty/picker → ModePicker, single → SingleModePage, multi → MultiModePage, orchestrator → OrchestratorModePage. Each mode page auto-sets + saves the mode on mount via useEffect.
+- AdvancedCustomization panel now opens as a Dialog from any mode page's header gear icon.
+- Lint clean (0 errors, 0 warnings).
+- Agent Browser self-verification:
+  • Logged in → Mode Picker landing shows 3 cards with active mode highlighted ✓
+  • Clicked Single → navigated to /?mode=single, Single Mode page rendered with inline model strip (gpt-4o-mini · openai · API · 30s timeout) ✓
+  • Sent "What is 2 plus 2?" in Single mode → SINGLE badge, response "2 plus 2 equals 4.", dispatch trace: Single Model · gpt-4o-mini ✓
+  • Clicked Modes back → returned to picker, Single now marked ACTIVE ✓
+  • Clicked Multi → navigated to /?mode=multi, Multi Mode page with 6 feature tabs ✓
+  • Clicked Coding tab → strip updated to "Coding feature", input placeholder changed to "Message the coding model…" ✓
+  • New conversation → welcome screen showed coding-specific examples (Write a regex, Fix this Python bug, Explain async/await) ✓
+  • Sent "Write a regex to validate emails" → MULTI badge, proper regex response, dispatch trace: Coding · gpt-4o-mini (intent-routed) ✓
+  • Navigated to /?mode=orchestrator → Orchestrator Mode page with roster sidebar (Host + 5 specialists visible at desktop width) ✓
+  • Sent "Plan a simple blog system architecture" → Multi-Agent Task Detected dialog → Continue → 3-step pipeline ran (Host analyze → Planning planning → Host synthesize) ✓
+  • Screenshots saved: nox-mode-picker.png, nox-single-page.png, nox-multi-page.png, nox-orchestrator-page.png
+
+Stage Summary:
+- Four distinct pages: Mode Picker (landing), Single Mode (clean chat + inline model), Multi Mode (feature tabs + chat), Orchestrator Mode (roster sidebar + chat).
+- Each page has its own layout, header, and tailored UI for that mode.
+- Navigation via ?mode= query param; back button returns to picker.
+- All shared logic (chat, persistence, confirmation, advanced dialog) extracted to reusable hook + components.
+- All three modes' chat flows verified working end-to-end in browser.
