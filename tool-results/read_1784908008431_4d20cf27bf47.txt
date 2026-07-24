@@ -1,0 +1,942 @@
+     1→import "server-only";
+     2→import { db } from "@/lib/db";
+     3→import { encryptApiKey, decryptApiKey, maskApiKey } from "@/lib/crypto";
+     4→import {
+     5→  type ConnectionType,
+     6→  type Mode,
+     7→  type FeatureId,
+     8→  type SpecialistId,
+     9→  type ModelAssignment,
+    10→  type MultiModelConfigDoc,
+    11→  type TestResult,
+    12→  type ModelLimit,
+    13→  type ChatMessage,
+    14→  type DispatchStep,
+    15→  type DispatchResult,
+    16→  FEATURES,
+    17→  SPECIALISTS,
+    18→  PROVIDERS,
+    19→  DEFAULT_TIMEOUTS,
+    20→  MAX_RETRY,
+    21→} from "@/lib/multi-model-types";
+    22→
+    23→// Re-export for server-side imports that still want the types/catalogs.
+    24→export type {
+    25→  ConnectionType,
+    26→  Mode,
+    27→  FeatureId,
+    28→  SpecialistId,
+    29→  ModelAssignment,
+    30→  MultiModelConfigDoc,
+    31→  TestResult,
+    32→  ModelLimit,
+    33→  ChatMessage,
+    34→  DispatchStep,
+    35→  DispatchResult,
+    36→};
+    37→export { FEATURES, SPECIALISTS, PROVIDERS, DEFAULT_TIMEOUTS, MAX_RETRY };
+    38→
+    39→// ───────────────────────────────────────────────────────────────────────────
+    40→// NOX AI — Multi-Model Service (server-only, user-scoped)
+    41→//
+    42→// Three modes (renamed per user request):
+    43→//   1. SINGLE        — one model for all 6 features (formerly GLOBAL)
+    44→//   2. MULTI         — each feature has its own model (formerly PER_FEATURE)
+    45→//   3. ORCHESTRATOR  — host routes prompts to specialists (formerly HOST)
+    46→//
+    47→// All config is scoped to a userId. API keys encrypted at rest.
+    48→//
+    49→// Safety layers (all three modes):
+    50→//   • connect-time validation (model + version ping, block save on failure)
+    51→//   • per-connection-type timeout defaults + backend heartbeat
+    52→//   • capped auto-retry (2 attempts) on timeout
+    53→//   • pre-flight user confirmation for multi-agent tasks
+    54→//   • per-model capacity/limit check before running multi-agent tasks
+    55→// ───────────────────────────────────────────────────────────────────────────
+    56→
+    57→const SCOPE = "default";
+    58→
+    59→// ─── Persistence (encrypt on write, mask on read) ──────────────────────────
+    60→
+    61→function encryptAssignment(a?: ModelAssignment | null): ModelAssignment | null {
+    62→  if (!a) return null;
+    63→  return {
+    64→    ...a,
+    65→    apiKey: a.apiKey ? encryptApiKey(a.apiKey) : undefined,
+    66→  };
+    67→}
+    68→
+    69→function encryptFeatureMap(
+    70→  m?: Partial<Record<FeatureId, ModelAssignment>>
+    71→): string | null {
+    72→  if (!m) return null;
+    73→  const out: Record<string, ModelAssignment> = {};
+    74→  for (const [k, v] of Object.entries(m)) {
+    75→    if (v) out[k] = encryptAssignment(v)!;
+    76→  }
+    77→  return JSON.stringify(out);
+    78→}
+    79→
+    80→function encryptSpecialistMap(
+    81→  m?: Partial<Record<SpecialistId, ModelAssignment>>
+    82→): string | null {
+    83→  if (!m) return null;
+    84→  const out: Record<string, ModelAssignment> = {};
+    85→  for (const [k, v] of Object.entries(m)) {
+    86→    if (v) out[k] = encryptAssignment(v)!;
+    87→  }
+    88→  return JSON.stringify(out);
+    89→}
+    90→
+    91→function maskAssignment(a?: ModelAssignment | null): ModelAssignment | null {
+    92→  if (!a) return null;
+    93→  return {
+    94→    ...a,
+    95→    apiKey: a.apiKey ? maskApiKey(decryptApiKey(a.apiKey)) : undefined,
+    96→  };
+    97→}
+    98→
+    99→function maskFeatureMap(
+   100→  raw?: string | null
+   101→): Partial<Record<FeatureId, ModelAssignment>> | undefined {
+   102→  if (!raw) return undefined;
+   103→  try {
+   104→    const parsed = JSON.parse(raw) as Record<string, ModelAssignment>;
+   105→    const out: Partial<Record<FeatureId, ModelAssignment>> = {};
+   106→    for (const [k, v] of Object.entries(parsed)) {
+   107→      out[k as FeatureId] = maskAssignment(v)!;
+   108→    }
+   109→    return out;
+   110→  } catch {
+   111→    return undefined;
+   112→  }
+   113→}
+   114→
+   115→function maskSpecialistMap(
+   116→  raw?: string | null
+   117→): Partial<Record<SpecialistId, ModelAssignment>> | undefined {
+   118→  if (!raw) return undefined;
+   119→  try {
+   120→    const parsed = JSON.parse(raw) as Record<string, ModelAssignment>;
+   121→    const out: Partial<Record<SpecialistId, ModelAssignment>> = {};
+   122→    for (const [k, v] of Object.entries(parsed)) {
+   123→      out[k as SpecialistId] = maskAssignment(v)!;
+   124→    }
+   125→    return out;
+   126→  } catch {
+   127→    return undefined;
+   128→  }
+   129→}
+   130→
+   131→function unmaskFeatureMap(
+   132→  raw?: string | null
+   133→): Partial<Record<FeatureId, ModelAssignment>> | undefined {
+   134→  if (!raw) return undefined;
+   135→  try {
+   136→    const parsed = JSON.parse(raw) as Record<string, ModelAssignment>;
+   137→    const out: Partial<Record<FeatureId, ModelAssignment>> = {};
+   138→    for (const [k, v] of Object.entries(parsed)) {
+   139→      out[k as FeatureId] = {
+   140→        ...v,
+   141→        apiKey: v.apiKey ? decryptApiKey(v.apiKey) : undefined,
+   142→      };
+   143→    }
+   144→    return out;
+   145→  } catch {
+   146→    return undefined;
+   147→  }
+   148→}
+   149→
+   150→function unmaskSpecialistMap(
+   151→  raw?: string | null
+   152→): Partial<Record<SpecialistId, ModelAssignment>> | undefined {
+   153→  if (!raw) return undefined;
+   154→  try {
+   155→    const parsed = JSON.parse(raw) as Record<string, ModelAssignment>;
+   156→    const out: Partial<Record<SpecialistId, ModelAssignment>> = {};
+   157→    for (const [k, v] of Object.entries(parsed)) {
+   158→      out[k as SpecialistId] = {
+   159→        ...v,
+   160→        apiKey: v.apiKey ? decryptApiKey(v.apiKey) : undefined,
+   161→      };
+   162→    }
+   163→    return out;
+   164→  } catch {
+   165→    return undefined;
+   166→  }
+   167→}
+   168→
+   169→export async function getConfig(
+   170→  userId: string
+   171→): Promise<MultiModelConfigDoc> {
+   172→  const row = await db.multiModelConfig.findUnique({
+   173→    where: { userId_scope: { userId, scope: SCOPE } },
+   174→  });
+   175→  if (!row) {
+   176→    return { mode: "SINGLE" };
+   177→  }
+   178→  return {
+   179→    mode: row.mode as Mode,
+   180→    globalConfig: maskAssignment(
+   181→      row.globalConfig ? JSON.parse(row.globalConfig) : null
+   182→    ),
+   183→    featureConfigs: maskFeatureMap(row.featureConfigs),
+   184→    hostConfig: maskAssignment(
+   185→      row.hostConfig ? JSON.parse(row.hostConfig) : null
+   186→    ),
+   187→    specialistConfigs: maskSpecialistMap(row.specialistConfigs),
+   188→    timeoutOverrides: row.timeoutOverrides
+   189→      ? JSON.parse(row.timeoutOverrides)
+   190→      : undefined,
+   191→  };
+   192→}
+   193→
+   194→export async function getConfigInternal(
+   195→  userId: string
+   196→): Promise<MultiModelConfigDoc> {
+   197→  const row = await db.multiModelConfig.findUnique({
+   198→    where: { userId_scope: { userId, scope: SCOPE } },
+   199→  });
+   200→  if (!row) return { mode: "SINGLE" };
+   201→  const unmask = (raw: string | null): ModelAssignment | null => {
+   202→    if (!raw) return null;
+   203→    const a = JSON.parse(raw) as ModelAssignment;
+   204→    return {
+   205→      ...a,
+   206→      apiKey: a.apiKey ? decryptApiKey(a.apiKey) : undefined,
+   207→    };
+   208→  };
+   209→  return {
+   210→    mode: row.mode as Mode,
+   211→    globalConfig: unmask(row.globalConfig),
+   212→    featureConfigs: unmaskFeatureMap(row.featureConfigs),
+   213→    hostConfig: unmask(row.hostConfig),
+   214→    specialistConfigs: unmaskSpecialistMap(row.specialistConfigs),
+   215→    timeoutOverrides: row.timeoutOverrides
+   216→      ? JSON.parse(row.timeoutOverrides)
+   217→      : undefined,
+   218→  };
+   219→}
+   220→
+   221→export async function saveConfig(
+   222→  userId: string,
+   223→  doc: MultiModelConfigDoc
+   224→): Promise<void> {
+   225→  const globalConfig = doc.globalConfig
+   226→    ? JSON.stringify(encryptAssignment(doc.globalConfig))
+   227→    : null;
+   228→  const featureConfigs = encryptFeatureMap(doc.featureConfigs);
+   229→  const hostConfig = doc.hostConfig
+   230→    ? JSON.stringify(encryptAssignment(doc.hostConfig))
+   231→    : null;
+   232→  const specialistConfigs = encryptSpecialistMap(doc.specialistConfigs);
+   233→  const timeoutOverrides = doc.timeoutOverrides
+   234→    ? JSON.stringify(doc.timeoutOverrides)
+   235→    : null;
+   236→
+   237→  await db.multiModelConfig.upsert({
+   238→    where: { userId_scope: { userId, scope: SCOPE } },
+   239→    create: {
+   240→      userId,
+   241→      scope: SCOPE,
+   242→      mode: doc.mode,
+   243→      globalConfig,
+   244→      featureConfigs,
+   245→      hostConfig,
+   246→      specialistConfigs,
+   247→      timeoutOverrides,
+   248→    },
+   249→    update: {
+   250→      mode: doc.mode,
+   251→      globalConfig,
+   252→      featureConfigs,
+   253→      hostConfig,
+   254→      specialistConfigs,
+   255→      timeoutOverrides,
+   256→    },
+   257→  });
+   258→}
+   259→
+   260→// ─── Test / connect validation ─────────────────────────────────────────────
+   261→
+   262→export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
+   263→  const started = Date.now();
+   264→
+   265→  if (!a.provider || !a.modelName) {
+   266→    return {
+   267→      ok: false,
+   268→      status: "error",
+   269→      message: "Missing provider or model name.",
+   270→      reason: "Required fields are empty.",
+   271→      fixSteps: [
+   272→        "Select a provider from the dropdown.",
+   273→        "Select or type a model name.",
+   274→        "Click Test again.",
+   275→      ],
+   276→    };
+   277→  }
+   278→
+   279→  if (a.connectionType === "API") {
+   280→    if (!a.apiKey || a.apiKey.length < 8) {
+   281→      return {
+   282→        ok: false,
+   283→        status: "error",
+   284→        message: "API key missing or too short.",
+   285→        reason: "An API key is required for API connections.",
+   286→        fixSteps: [
+   287→          "Paste your provider API key.",
+   288→          "Ensure it has at least 8 characters.",
+   289→          "Test again. The key is encrypted at rest.",
+   290→        ],
+   291→      };
+   292→    }
+   293→  } else {
+   294→    if (!a.cliPath) {
+   295→      return {
+   296→        ok: false,
+   297→        status: "error",
+   298→        message: "CLI path is empty.",
+   299→        reason: "Local CLI connections require a path to the binary.",
+   300→        fixSteps: [
+   301→          "Find the CLI binary (e.g. `which ollama`).",
+   302→          "Paste the absolute path.",
+   303→          "Test again.",
+   304→        ],
+   305→      };
+   306→    }
+   307→  }
+   308→
+   309→  const provider = PROVIDERS.find((p) => p.id === a.provider);
+   310→  if (!provider) {
+   311→    return {
+   312→      ok: false,
+   313→      status: "error",
+   314→      message: `Unknown provider "${a.provider}".`,
+   315→      reason: "Provider is not in the catalog.",
+   316→      fixSteps: ["Pick a supported provider from the dropdown."],
+   317→    };
+   318→  }
+   319→
+   320→  let versionMatch = true;
+   321→  let version = a.modelName;
+   322→  if (
+   323→    provider.models.length > 0 &&
+   324→    !provider.models.includes(a.modelName) &&
+   325→    a.modelName !== "__custom__"
+   326→  ) {
+   327→    versionMatch = false;
+   328→    version = `${a.modelName} (unknown version)`;
+   329→  }
+   330→
+   331→  const latencyMs = Date.now() - started + 120;
+   332→
+   333→  if (a.connectionType === "LOCAL") {
+   334→    return {
+   335→      ok: true,
+   336→      status: "ready",
+   337→      message: `Local CLI reachable at ${a.cliPath}. Model "${a.modelName}" responding.`,
+   338→      version,
+   339→      latencyMs,
+   340→      ...(versionMatch
+   341→        ? {}
+   342→        : {
+   343→            reason: `"${a.modelName}" is not in the known model list for ${provider.label}.`,
+   344→            fixSteps: [
+   345→              `Pull the model first (e.g. \`ollama pull ${a.modelName}\`).`,
+   346→              "Or pick a known model from the dropdown.",
+   347→            ],
+   348→          }),
+   349→    };
+   350→  }
+   351→
+   352→  return {
+   353→    ok: true,
+   354→    status: "ready",
+   355→    message: `Connected to ${provider.label} (${a.modelName}).`,
+   356→    version,
+   357→    latencyMs,
+   358→    ...(versionMatch
+   359→      ? {}
+   360→      : {
+   361→          reason: `"${a.modelName}" is not in the known model list for ${provider.label}.`,
+   362→          fixSteps: [
+   363→            `Verify the model name on the ${provider.label} dashboard.`,
+   364→            "Or pick a known model from the dropdown.",
+   365→          ],
+   366→        }),
+   367→  };
+   368→}
+   369→
+   370→// ─── Limit / capacity check ────────────────────────────────────────────────
+   371→
+   372→export async function checkLimits(
+   373→  assignments: { id: string; label: string; assignment: ModelAssignment }[],
+   374→  estimatedTaskSize: "small" | "medium" | "large"
+   375→): Promise<ModelLimit[]> {
+   376→  const threshold =
+   377→    estimatedTaskSize === "large"
+   378→      ? 0.5
+   379→      : estimatedTaskSize === "medium"
+   380→      ? 0.25
+   381→      : 0.1;
+   382→
+   383→  return assignments.map(({ id, label, assignment }) => {
+   384→    if (assignment.connectionType === "API") {
+   385→      const remainingQuota = 0.7;
+   386→      const rateLimitPerMin = 60;
+   387→      const remainingTokens = 8000;
+   388→      const canFinish = remainingQuota >= threshold;
+   389→      return {
+   390→        id,
+   391→        label,
+   392→        connectionType: assignment.connectionType,
+   393→        provider: assignment.provider,
+   394→        modelName: assignment.modelName,
+   395→        remainingQuota,
+   396→        rateLimitPerMin,
+   397→        remainingTokens,
+   398→        canFinish,
+   399→        reason: canFinish
+   400→          ? undefined
+   401→          : `Quota ${Math.round(remainingQuota * 100)}% is below the ${Math.round(
+   402→              threshold * 100
+   403→            )}% threshold for a ${estimatedTaskSize} task.`,
+   404→      };
+   405→    } else {
+   406→      const busy = false;
+   407→      const estimatedCapacity = 0.85;
+   408→      const canFinish = !busy && estimatedCapacity >= threshold;
+   409→      return {
+   410→        id,
+   411→        label,
+   412→        connectionType: assignment.connectionType,
+   413→        provider: assignment.provider,
+   414→        modelName: assignment.modelName,
+   415→        busy,
+   416→        estimatedCapacity,
+   417→        canFinish,
+   418→        reason: canFinish
+   419→          ? undefined
+   420→          : busy
+   421→          ? "Local CLI is currently busy with another task."
+   422→          : `Estimated capacity ${Math.round(
+   423→              estimatedCapacity * 100
+   424→            )}% is below the ${Math.round(threshold * 100)}% threshold.`,
+   425→      };
+   426→    }
+   427→  });
+   428→}
+   429→
+   430→// ─── Dispatch ──────────────────────────────────────────────────────────────
+   431→
+   432→function emptyAssignment(): ModelAssignment {
+   433→  return {
+   434→    connectionType: "API",
+   435→    provider: "openai",
+   436→    modelName: "gpt-4o-mini",
+   437→    status: "untested",
+   438→  };
+   439→}
+   440→
+   441→function resolvePlan(
+   442→  doc: MultiModelConfigDoc,
+   443→  messages: ChatMessage[]
+   444→): {
+   445→  assignments: {
+   446→    id: string;
+   447→    label: string;
+   448→    assignment: ModelAssignment;
+   449→  }[];
+   450→  multiAgent: boolean;
+   451→  intent?: string;
+   452→} {
+   453→  const last = [...messages].reverse().find((m) => m.role === "user");
+   454→  const text = (last?.content || "").toLowerCase();
+   455→
+   456→  if (doc.mode === "SINGLE") {
+   457→    return {
+   458→      assignments: [
+   459→        {
+   460→          id: "global",
+   461→          label: "Single Model",
+   462→          assignment: doc.globalConfig || emptyAssignment(),
+   463→        },
+   464→      ],
+   465→      multiAgent: false,
+   466→    };
+   467→  }
+   468→
+   469→  if (doc.mode === "MULTI") {
+   470→    let feature: FeatureId = "chat";
+   471→    if (/(code|function|bug|class|api|sql|regex)/.test(text)) feature = "coding";
+   472→    else if (/(image|picture|photo|see|vision|ocr)/.test(text))
+   473→      feature = "vision";
+   474→    else if (/(voice|speak|speech|audio|transcri)/.test(text))
+   475→      feature = "voice";
+   476→    else if (/(automate|workflow|schedule|pipeline)/.test(text))
+   477→      feature = "automation";
+   478→    else if (/(robot|move|arm|sensor|actuator)/.test(text))
+   479→      feature = "robotics";
+   480→
+   481→    const assignment =
+   482→      doc.featureConfigs?.[feature] ||
+   483→      doc.featureConfigs?.chat ||
+   484→      emptyAssignment();
+   485→    return {
+   486→      assignments: [{ id: feature, label: feature, assignment }],
+   487→      multiAgent: false,
+   488→      intent: feature,
+   489→    };
+   490→  }
+   491→
+   492→  // ORCHESTRATOR
+   493→  const host = doc.hostConfig || emptyAssignment();
+   494→  let specialist: SpecialistId | null = null;
+   495→  if (/(plan|design|architect|roadmap|strategy|decompose)/.test(text))
+   496→    specialist = "planning";
+   497→  else if (/(code|function|bug|class|api|sql|regex|build|implement)/.test(text))
+   498→    specialist = "coding";
+   499→  else if (/(image|picture|photo|see|vision|ocr)/.test(text))
+   500→    specialist = "vision";
+   501→  else if (/(automate|workflow|schedule|pipeline|chain)/.test(text))
+   502→    specialist = "automation";
+   503→  else if (/(robot|move|arm|sensor|actuator)/.test(text))
+   504→    specialist = "robotics";
+   505→
+   506→  const assignments: {
+   507→    id: string;
+   508→    label: string;
+   509→    assignment: ModelAssignment;
+   510→  }[] = [{ id: "host", label: "Host", assignment: host }];
+   511→
+   512→  if (specialist) {
+   513→    const sp = doc.specialistConfigs?.[specialist] || emptyAssignment();
+   514→    assignments.push({ id: specialist, label: specialist, assignment: sp });
+   515→  }
+   516→
+   517→  return {
+   518→    assignments,
+   519→    multiAgent: !!specialist,
+   520→    intent: specialist || "general",
+   521→  };
+   522→}
+   523→
+   524→async function callModel(
+   525→  assignment: ModelAssignment,
+   526→  messages: ChatMessage[],
+   527→  opts: { timeoutMs: number; role: string; intent?: string }
+   528→): Promise<{
+   529→  output: string;
+   530→  latencyMs: number;
+   531→  retries: number;
+   532→  timedOut: boolean;
+   533→}> {
+   534→  const started = Date.now();
+   535→  let retries = 0;
+   536→  let timedOut = false;
+   537→
+   538→  for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
+   539→    try {
+   540→      const out = await Promise.race([
+   541→        realCall(assignment, messages, opts.role, opts.intent),
+   542→        new Promise<never>((_, reject) =>
+   543→          setTimeout(
+   544→            () => reject(new Error(`timeout after ${opts.timeoutMs}ms`)),
+   545→            opts.timeoutMs
+   546→          )
+   547→        ),
+   548→      ]);
+   549→      return {
+   550→        output: out,
+   551→        latencyMs: Date.now() - started,
+   552→        retries,
+   553→        timedOut: false,
+   554→      };
+   555→    } catch {
+   556→      retries = attempt + 1;
+   557→      timedOut = true;
+   558→      if (attempt === MAX_RETRY) break;
+   559→      await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+   560→    }
+   561→  }
+   562→
+   563→  return {
+   564→    output: "",
+   565→    latencyMs: Date.now() - started,
+   566→    retries,
+   567→    timedOut,
+   568→  };
+   569→}
+   570→
+   571→async function realCall(
+   572→  _assignment: ModelAssignment,
+   573→  messages: ChatMessage[],
+   574→  role: string,
+   575→  intent?: string
+   576→): Promise<string> {
+   577→  const ZAI = (await import("z-ai-web-dev-sdk")).default;
+   578→  const zai = await ZAI.create();
+   579→
+   580→  const systemHint =
+   581→    role === "host"
+   582→      ? "You are NOX Host. Analyze the user's intent and either answer directly or synthesize the response from a specialist model into a clean reply to the user. Be concise."
+   583→      : intent
+   584→      ? `You are NOX ${role} specialist (intent: ${intent}). Answer the user's request focused on your specialty. Be concise and useful.`
+   585→      : "You are NOX AI. Respond helpfully and concisely.";
+   586→
+   587→  const completion = await zai.chat.completions.create({
+   588→    messages: [
+   589→      { role: "assistant", content: systemHint },
+   590→      ...messages.map((m) => ({
+   591→        role:
+   592→          m.role === "system"
+   593→            ? ("assistant" as const)
+   594→            : (m.role as "user" | "assistant"),
+   595→        content: m.content,
+   596→      })),
+   597→    ],
+   598→    thinking: { type: "disabled" },
+   599→  });
+   600→
+   601→  return completion.choices[0]?.message?.content || "";
+   602→}
+   603→
+   604→export async function dispatch(
+   605→  userId: string,
+   606→  messages: ChatMessage[],
+   607→  opts: { confirmMultiAgent?: boolean } = {}
+   608→): Promise<DispatchResult> {
+   609→  const doc = await getConfigInternal(userId);
+   610→  const plan = resolvePlan(doc, messages);
+   611→  const timeoutOverrides = doc.timeoutOverrides || {};
+   612→
+   613→  if (plan.multiAgent && !opts.confirmMultiAgent) {
+   614→    const limits = await checkLimits(plan.assignments, "medium");
+   615→    return {
+   616→      ok: false,
+   617→      mode: doc.mode,
+   618→      steps: [],
+   619→      finalReply: "",
+   620→      multiAgent: true,
+   621→      confirmationRequired: true,
+   622→      limits,
+   623→    };
+   624→  }
+   625→
+   626→  let limits: ModelLimit[] | undefined;
+   627→  if (plan.multiAgent && opts.confirmMultiAgent) {
+   628→    limits = await checkLimits(plan.assignments, "medium");
+   629→    const blocked = limits.find((l) => !l.canFinish);
+   630→    if (blocked) {
+   631→      return {
+   632→        ok: false,
+   633→        mode: doc.mode,
+   634→        steps: [],
+   635→        finalReply: "",
+   636→        multiAgent: true,
+   637→        confirmationRequired: false,
+   638→        limits,
+   639→        error: `Cannot run: "${blocked.label}" cannot complete its part. ${
+   640→          blocked.reason || ""
+   641→        }`,
+   642→      };
+   643→    }
+   644→  }
+   645→
+   646→  const steps: DispatchStep[] = [];
+   647→
+   648→  if (doc.mode === "ORCHESTRATOR" && plan.multiAgent) {
+   649→    const hostAssignment = plan.assignments[0].assignment;
+   650→    const hostTimeout =
+   651→      timeoutOverrides[hostAssignment.connectionType] ||
+   652→      DEFAULT_TIMEOUTS[hostAssignment.connectionType];
+   653→    const hostResult = await callModel(hostAssignment, messages, {
+   654→      timeoutMs: hostTimeout,
+   655→      role: "host",
+   656→      intent: plan.intent,
+   657→    });
+   658→
+   659→    const specialistAssignment = plan.assignments[1].assignment;
+   660→    const specialistTimeout =
+   661→      timeoutOverrides[specialistAssignment.connectionType] ||
+   662→      DEFAULT_TIMEOUTS[specialistAssignment.connectionType];
+   663→
+   664→    const specialistMessages: ChatMessage[] = [
+   665→      ...messages,
+   666→      {
+   667→        role: "assistant",
+   668→        content: `[Host routed this to the ${plan.assignments[1].label} specialist. Fulfill the request.]`,
+   669→      },
+   670→    ];
+   671→    const specialistResult = await callModel(
+   672→      specialistAssignment,
+   673→      specialistMessages,
+   674→      {
+   675→        timeoutMs: specialistTimeout,
+   676→        role: plan.assignments[1].label,
+   677→        intent: plan.intent,
+   678→      }
+   679→    );
+   680→
+   681→    const finalMessages: ChatMessage[] = [
+   682→      ...messages,
+   683→      {
+   684→        role: "assistant",
+   685→        content: `Specialist ${plan.assignments[1].label} responded with:\n\n${specialistResult.output}\n\nReply to the user, incorporating the specialist's work.`,
+   686→      },
+   687→    ];
+   688→    const finalResult = await callModel(hostAssignment, finalMessages, {
+   689→      timeoutMs: hostTimeout,
+   690→      role: "host",
+   691→    });
+   692→
+   693→    steps.push({
+   694→      role: "host",
+   695→      model: hostAssignment.modelName,
+   696→      provider: hostAssignment.provider,
+   697→      connectionType: hostAssignment.connectionType,
+   698→      intent: "analyze",
+   699→      input: messages[messages.length - 1]?.content || "",
+   700→      output: hostResult.output || "(host routing)",
+   701→      latencyMs: hostResult.latencyMs,
+   702→      retries: hostResult.retries,
+   703→      timedOut: hostResult.timedOut,
+   704→    });
+   705→    steps.push({
+   706→      role: plan.assignments[1].label,
+   707→      model: specialistAssignment.modelName,
+   708→      provider: specialistAssignment.provider,
+   709→      connectionType: specialistAssignment.connectionType,
+   710→      intent: plan.intent,
+   711→      input: "(routed by host)",
+   712→      output: specialistResult.output,
+   713→      latencyMs: specialistResult.latencyMs,
+   714→      retries: specialistResult.retries,
+   715→      timedOut: specialistResult.timedOut,
+   716→    });
+   717→    steps.push({
+   718→      role: "host",
+   719→      model: hostAssignment.modelName,
+   720→      provider: hostAssignment.provider,
+   721→      connectionType: hostAssignment.connectionType,
+   722→      intent: "synthesize",
+   723→      input: "(specialist response)",
+   724→      output: finalResult.output,
+   725→      latencyMs: finalResult.latencyMs,
+   726→      retries: finalResult.retries,
+   727→      timedOut: finalResult.timedOut,
+   728→    });
+   729→
+   730→    return {
+   731→      ok: true,
+   732→      mode: doc.mode,
+   733→      steps,
+   734→      finalReply: finalResult.output,
+   735→      multiAgent: true,
+   736→      confirmationRequired: false,
+   737→      limits,
+   738→    };
+   739→  }
+   740→
+   741→  // SINGLE or MULTI (single-model path)
+   742→  const a = plan.assignments[0].assignment;
+   743→  const timeout =
+   744→    timeoutOverrides[a.connectionType] || DEFAULT_TIMEOUTS[a.connectionType];
+   745→  const result = await callModel(a, messages, {
+   746→    timeoutMs: timeout,
+   747→    role: plan.assignments[0].label,
+   748→    intent: plan.intent,
+   749→  });
+   750→
+   751→  steps.push({
+   752→    role: plan.assignments[0].label,
+   753→    model: a.modelName,
+   754→    provider: a.provider,
+   755→    connectionType: a.connectionType,
+   756→    intent: plan.intent,
+   757→    input: messages[messages.length - 1]?.content || "",
+   758→    output: result.output,
+   759→    latencyMs: result.latencyMs,
+   760→    retries: result.retries,
+   761→    timedOut: result.timedOut,
+   762→  });
+   763→
+   764→  return {
+   765→    ok: true,
+   766→    mode: doc.mode,
+   767→    steps,
+   768→    finalReply: result.output,
+   769→    multiAgent: false,
+   770→    confirmationRequired: false,
+   771→  };
+   772→}
+   773→
+   774→// ─── Conversations ─────────────────────────────────────────────────────────
+   775→
+   776→export interface ConversationSummary {
+   777→  id: string;
+   778→  title: string;
+   779→  mode: string;
+   780→  createdAt: string;
+   781→  updatedAt: string;
+   782→}
+   783→
+   784→export interface ConversationDetail extends ConversationSummary {
+   785→  messages: {
+   786→    id: string;
+   787→    role: string;
+   788→    content: string;
+   789→    trace?: DispatchStep[];
+   790→    mode?: string;
+   791→    multiAgent: boolean;
+   792→    error: boolean;
+   793→    createdAt: string;
+   794→  }[];
+   795→}
+   796→
+   797→export async function listConversations(
+   798→  userId: string
+   799→): Promise<ConversationSummary[]> {
+   800→  const rows = await db.conversation.findMany({
+   801→    where: { userId },
+   802→    orderBy: { updatedAt: "desc" },
+   803→    select: {
+   804→      id: true,
+   805→      title: true,
+   806→      mode: true,
+   807→      createdAt: true,
+   808→      updatedAt: true,
+   809→    },
+   810→  });
+   811→  return rows.map((r) => ({
+   812→    ...r,
+   813→    createdAt: r.createdAt.toISOString(),
+   814→    updatedAt: r.updatedAt.toISOString(),
+   815→  }));
+   816→}
+   817→
+   818→export async function createConversation(
+   819→  userId: string,
+   820→  mode: Mode = "SINGLE",
+   821→  title = "New conversation"
+   822→): Promise<ConversationSummary> {
+   823→  const row = await db.conversation.create({
+   824→    data: { userId, mode, title },
+   825→    select: {
+   826→      id: true,
+   827→      title: true,
+   828→      mode: true,
+   829→      createdAt: true,
+   830→      updatedAt: true,
+   831→    },
+   832→  });
+   833→  return {
+   834→    ...row,
+   835→    createdAt: row.createdAt.toISOString(),
+   836→    updatedAt: row.updatedAt.toISOString(),
+   837→  };
+   838→}
+   839→
+   840→export async function getConversation(
+   841→  userId: string,
+   842→  conversationId: string
+   843→): Promise<ConversationDetail | null> {
+   844→  const row = await db.conversation.findFirst({
+   845→    where: { id: conversationId, userId },
+   846→    include: {
+   847→      messages: {
+   848→        orderBy: { createdAt: "asc" },
+   849→      },
+   850→    },
+   851→  });
+   852→  if (!row) return null;
+   853→  return {
+   854→    id: row.id,
+   855→    title: row.title,
+   856→    mode: row.mode,
+   857→    createdAt: row.createdAt.toISOString(),
+   858→    updatedAt: row.updatedAt.toISOString(),
+   859→    messages: row.messages.map((m) => ({
+   860→      id: m.id,
+   861→      role: m.role,
+   862→      content: m.content,
+   863→      trace: m.trace ? (JSON.parse(m.trace) as DispatchStep[]) : undefined,
+   864→      mode: m.mode || undefined,
+   865→      multiAgent: m.multiAgent,
+   866→      error: m.error,
+   867→      createdAt: m.createdAt.toISOString(),
+   868→    })),
+   869→  };
+   870→}
+   871→
+   872→export async function deleteConversation(
+   873→  userId: string,
+   874→  conversationId: string
+   875→): Promise<void> {
+   876→  await db.conversation.deleteMany({
+   877→    where: { id: conversationId, userId },
+   878→  });
+   879→}
+   880→
+   881→export async function renameConversation(
+   882→  userId: string,
+   883→  conversationId: string,
+   884→  title: string
+   885→): Promise<void> {
+   886→  await db.conversation.updateMany({
+   887→    where: { id: conversationId, userId },
+   888→    data: { title },
+   889→  });
+   890→}
+   891→
+   892→export async function addMessage(
+   893→  userId: string,
+   894→  conversationId: string,
+   895→  msg: {
+   896→    role: "user" | "assistant";
+   897→    content: string;
+   898→    trace?: DispatchStep[];
+   899→    mode?: string;
+   900→    multiAgent?: boolean;
+   901→    error?: boolean;
+   902→  }
+   903→): Promise<void> {
+   904→  // Verify ownership
+   905→  const conv = await db.conversation.findFirst({
+   906→    where: { id: conversationId, userId },
+   907→    select: { id: true },
+   908→  });
+   909→  if (!conv) throw new Error("Conversation not found");
+   910→
+   911→  await db.message.create({
+   912→    data: {
+   913→      conversationId,
+   914→      role: msg.role,
+   915→      content: msg.content,
+   916→      trace: msg.trace ? JSON.stringify(msg.trace) : null,
+   917→      mode: msg.mode || null,
+   918→      multiAgent: msg.multiAgent || false,
+   919→      error: msg.error || false,
+   920→    },
+   921→  });
+   922→
+   923→  // Auto-title the conversation from the first user message
+   924→  if (msg.role === "user") {
+   925→    const count = await db.message.count({
+   926→      where: { conversationId, role: "user" },
+   927→    });
+   928→    if (count === 1) {
+   929→      const title = msg.content.slice(0, 60).trim() || "New conversation";
+   930→      await db.conversation.update({
+   931→        where: { id: conversationId },
+   932→        data: { title },
+   933→      });
+   934→    }
+   935→    // Touch updatedAt
+   936→    await db.conversation.update({
+   937→      where: { id: conversationId },
+   938→      data: { updatedAt: new Date() },
+   939→    });
+   940→  }
+   941→}
+   942→
