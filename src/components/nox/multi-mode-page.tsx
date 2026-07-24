@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   ArrowLeft,
   PanelLeft,
@@ -25,15 +25,15 @@ import {
   type ConnectionType,
   type ModelAssignment,
 } from "@/lib/multi-model-types";
+import { ConversationDrawer, UserMenu, AdvancedDialog, ConfirmWrapper, IconButton } from "./shared-chat";
 import {
-  ChatInput,
-  ConversationDrawer,
-  UserMenu,
-  AdvancedDialog,
-  ConfirmWrapper,
-  MessagesArea,
-  IconButton,
-} from "./shared-chat";
+  ChatFeatureUI,
+  CodingFeatureUI,
+  VoiceFeatureUI,
+  VisionFeatureUI,
+  AutomationFeatureUI,
+  RoboticsFeatureUI,
+} from "./feature-uis";
 import { cn } from "@/lib/utils";
 
 const FEATURE_ICONS: Record<
@@ -49,12 +49,42 @@ const FEATURE_ICONS: Record<
 };
 
 const EXAMPLES_BY_FEATURE: Record<FeatureId, string[]> = {
-  chat: ["Explain quantum computing", "What's the capital of Brazil?", "Write a haiku about the ocean"],
-  voice: ["Transcribe this audio sample", "Generate speech from this text", "What's STT vs TTS?"],
-  vision: ["Describe what's in this photo", "Read the text in this image", "Identify the objects here"],
-  coding: ["Write a regex for emails", "Fix this Python bug", "Explain async/await"],
-  automation: ["Automate a daily report", "Build a CI/CD pipeline", "Chain these 3 APIs"],
-  robotics: ["Plan a pick-and-place motion", "Sensor fusion strategy", "PID controller tuning"],
+  chat: [
+    "Explain quantum computing simply",
+    "What's the capital of Brazil?",
+    "Write a haiku about the ocean",
+    "Give me 5 productivity tips",
+  ],
+  voice: [
+    "Transcribe this audio sample",
+    "Generate speech from this text",
+    "What's the difference between STT and TTS?",
+    "Summarize this podcast clip",
+  ],
+  vision: [
+    "Describe what's in this photo",
+    "Read the text in this image (OCR)",
+    "Identify the objects in this picture",
+    "Count the people in this image",
+  ],
+  coding: [
+    "Write a regex to validate emails",
+    "Fix this Python bug: def add(a,b): return a-b",
+    "Explain async/await with an example",
+    "Build a REST API endpoint for login",
+  ],
+  automation: [
+    "Automate a daily report workflow",
+    "Build a CI/CD pipeline for Node.js",
+    "Chain these 3 APIs together",
+    "Schedule a weekly data backup",
+  ],
+  robotics: [
+    "Plan a pick-and-place motion",
+    "Design a sensor fusion strategy",
+    "Tune a PID controller for a robot arm",
+    "Path planning for obstacle avoidance",
+  ],
 };
 
 export function MultiModePage() {
@@ -71,19 +101,50 @@ export function MultiModePage() {
     }
   }, [mm.loaded]);
 
-  const assignment: ModelAssignment =
-    mm.featureConfigs[activeFeature] || {
-      connectionType: "API" as ConnectionType,
-      provider: "openai",
-      modelName: "gpt-4o-mini",
-      status: "untested",
+  const assignment: ModelAssignment = mm.featureConfigs[activeFeature] || {
+    connectionType: "API" as ConnectionType,
+    provider: "openai",
+    modelName: "gpt-4o-mini",
+    status: "untested",
+  };
+
+  const examples = EXAMPLES_BY_FEATURE[activeFeature];
+
+  // Pick the right feature UI
+  const renderFeatureUI = () => {
+    const commonProps = {
+      messages: chat.convs.activeMessages,
+      sending: chat.sending,
+      loadingMessages: chat.convs.loadingMessages,
+      scrollRef: chat.scrollRef,
+      input: chat.input,
+      setInput: chat.setInput,
+      onSend: () => chat.sendMessage(chat.input),
     };
+
+    switch (activeFeature) {
+      case "chat":
+        return <ChatFeatureUI {...commonProps} examples={examples} />;
+      case "coding":
+        return <CodingFeatureUI {...commonProps} />;
+      case "voice":
+        return <VoiceFeatureUI {...commonProps} />;
+      case "vision":
+        return <VisionFeatureUI {...commonProps} />;
+      case "automation":
+        return <AutomationFeatureUI {...commonProps} />;
+      case "robotics":
+        return <RoboticsFeatureUI {...commonProps} />;
+      default:
+        return <ChatFeatureUI {...commonProps} examples={examples} />;
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-background nox-aurora">
       {/* Header */}
       <header className="sticky top-0 z-30 glass border-b border-border">
-        <div className="mx-auto max-w-5xl px-3 sm:px-4 py-3 flex items-center justify-between gap-2">
+        <div className="mx-auto max-w-6xl px-3 sm:px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <IconButton
               onClick={() => chat.setConvDrawerOpen(true)}
@@ -123,7 +184,7 @@ export function MultiModePage() {
       </header>
 
       {/* Feature tabs */}
-      <div className="mx-auto w-full max-w-5xl px-3 sm:px-4 pt-4">
+      <div className="mx-auto w-full max-w-6xl px-3 sm:px-4 pt-4">
         <div className="flex items-center gap-1.5 overflow-x-auto nox-scroll pb-1">
           {FEATURES.map((f) => {
             const Icon = FEATURE_ICONS[f.id];
@@ -152,7 +213,7 @@ export function MultiModePage() {
       </div>
 
       {/* Active feature model strip */}
-      <div className="mx-auto w-full max-w-5xl px-3 sm:px-4 pt-3">
+      <div className="mx-auto w-full max-w-6xl px-3 sm:px-4 pt-3">
         <FeatureModelStrip
           featureId={activeFeature}
           assignment={assignment}
@@ -160,27 +221,9 @@ export function MultiModePage() {
         />
       </div>
 
-      {/* Chat area */}
-      <main className="flex-1 mx-auto w-full max-w-5xl px-3 sm:px-4 py-4 flex flex-col gap-3 min-h-0">
-        <MessagesArea
-          scrollRef={chat.scrollRef}
-          messages={chat.convs.activeMessages}
-          sending={chat.sending}
-          loadingMessages={chat.convs.loadingMessages}
-          welcomeProps={{
-            examples: EXAMPLES_BY_FEATURE[activeFeature],
-            onPick: (t) => chat.setInput(t),
-            mode: "MULTI",
-            subtitle: `Multi Mode — prompts route to the ${activeFeature} feature's model. Switch features above.`,
-          }}
-        />
-        <ChatInput
-          input={chat.input}
-          setInput={chat.setInput}
-          onSend={() => chat.sendMessage(chat.input)}
-          sending={chat.sending}
-          placeholder={`Message the ${activeFeature} model…`}
-        />
+      {/* Feature-specific UI */}
+      <main className="flex-1 mx-auto w-full max-w-6xl px-3 sm:px-4 py-4 flex min-h-0">
+        {renderFeatureUI()}
       </main>
 
       <ConversationDrawer
