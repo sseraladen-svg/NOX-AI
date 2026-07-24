@@ -234,7 +234,7 @@ export const PROVIDERS = [
 ];
 
 export const DEFAULT_TIMEOUTS = {
-  LOCAL: 60_000,
+  LOCAL: 120_000,
   API: 30_000,
 } as const;
 

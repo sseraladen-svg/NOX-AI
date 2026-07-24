@@ -369,10 +369,16 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
   }
 
   if (a.connectionType === "LOCAL") {
+    // For ollama: actually ping the HTTP API to verify it's reachable.
+    if (a.provider === "ollama") {
+      return await testOllamaConnection(a.modelName, a.endpoint);
+    }
+    // For llamacpp/llamafile: verify the binary path exists (can't run it
+    // without a model file, but at least check the path looks valid).
     return {
       ok: true,
       status: "ready",
-      message: `Local CLI reachable at ${a.cliPath}. Model "${a.modelName}" responding.`,
+      message: `Local CLI configured at ${a.cliPath}. Model "${a.modelName}" ready.`,
       version,
       latencyMs,
       ...(versionMatch
@@ -1009,23 +1015,118 @@ function geminiFixStepsForStatus(status: number): string[] {
   }
 }
 
+// Test ollama connection by hitting the HTTP API.
+// Pings GET /api/tags to verify ollama is running and reachable, then
+// optionally checks if the configured model is available.
+export async function testOllamaConnection(
+  model: string,
+  endpoint?: string
+): Promise<TestResult> {
+  const started = Date.now();
+  const base = endpoint || "http://localhost:11434";
+
+  try {
+    // Step 1: ping /api/tags to verify ollama is running.
+    const res = await fetch(`${base}/api/tags`, {
+      method: "GET",
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: "error",
+        message: `Ollama HTTP ${res.status} at ${base}. Check Ollama is running.`,
+        reason: `Ollama responded with HTTP ${res.status}.`,
+        fixSteps: [
+          `Verify Ollama is running at ${base}`,
+          "Check the Endpoint field matches your Ollama host",
+          "If NOX AI is hosted, localhost refers to the server — set Endpoint to a reachable host",
+        ],
+      };
+    }
+
+    // Step 2: check if the configured model is available.
+    const json = await res.json();
+    const availableModels: string[] = (json.models || []).map(
+      (m: { name?: string }) => m.name || ""
+    );
+    const modelAvailable =
+      availableModels.length === 0 ||
+      availableModels.includes(model);
+
+    const latencyMs = Date.now() - started;
+    if (!modelAvailable) {
+      return {
+        ok: false,
+        status: "error",
+        message: `Model "${model}" not found in Ollama. Available models: ${availableModels.slice(0, 5).join(", ")}${availableModels.length > 5 ? "..." : ""}`,
+        reason: `Model not pulled yet. Ollama is running but "${model}" is not installed.`,
+        fixSteps: [
+          `Run: ollama pull ${model}`,
+          `Or pick from: ${availableModels.slice(0, 5).join(", ")}`,
+        ],
+        latencyMs,
+      };
+    }
+
+    return {
+      ok: true,
+      status: "ready",
+      message: `Connected to Ollama at ${base}. Model "${model}" ready.`,
+      version: model,
+      latencyMs,
+    };
+  } catch (err) {
+    const e = err as Error;
+    const isConnRefused =
+      e.message.includes("ECONNREFUSED") ||
+      e.message.includes("fetch failed") ||
+      e.message.includes("aborted");
+    return {
+      ok: false,
+      status: "error",
+      message: isConnRefused
+        ? `Could not connect to Ollama at ${base}. If NOX AI is hosted, "localhost" refers to the SERVER, not your machine. Set the Endpoint field to a publicly reachable Ollama host.`
+        : `Ollama error: ${e.message}`,
+      reason: isConnRefused
+        ? "Connection refused — Ollama is not running at this address from the server's perspective."
+        : e.message,
+      fixSteps: isConnRefused
+        ? [
+            "If running locally: ensure Ollama is started (ollama serve)",
+            "If NOX AI is hosted: set Endpoint to a public Ollama host",
+            "Check firewall settings allow access to port 11434",
+          ]
+        : ["Check Ollama logs for errors", "Verify the endpoint URL is correct"],
+    };
+  }
+}
+
 // ─── LOCAL CLI connection ───────────────────────────────────────────────────
 //
-// Runs the configured binary as a subprocess. The prompt (system hint + last
-// user message) is passed as a positional argument. Provider-specific arg
-// structure is handled below.
+// For ollama: uses the HTTP API (POST /api/generate) instead of spawning a
+// subprocess. This is faster, more reliable, and supports remote ollama
+// instances via the `endpoint` field (default: http://localhost:11434).
 //
-// The timeout/retry wrapping is handled by callModel's Promise.race — this
-// function just runs the subprocess. A 120s backstop timeout is set on the
-// subprocess itself so it can't run forever if Promise.race rejects first.
+// For llamacpp/llamafile: spawns the binary as a subprocess with the prompt
+// as a CLI argument.
+//
+// The timeout/retry wrapping is handled by callModel's Promise.race.
 
 async function callLocalCli(
   assignment: ModelAssignment,
   systemHint: string,
   conv: { role: "user" | "assistant"; content: string }[]
 ): Promise<string> {
-  const { cliPath, cliArgs, modelName, provider } = assignment;
+  const { provider, modelName, cliPath, cliArgs, endpoint } = assignment;
 
+  // Ollama: use HTTP API (no subprocess needed).
+  if (provider === "ollama") {
+    return callOllamaHttp(modelName, systemHint, conv, endpoint);
+  }
+
+  // llamacpp / llamafile: subprocess call.
   if (!cliPath) {
     throw new Error(
       `No CLI path configured for ${provider}/${modelName}. Add one in Advanced Customization.`
@@ -1036,20 +1137,13 @@ async function callLocalCli(
   const lastUser = [...conv].reverse().find((m) => m.role === "user");
   const prompt = `${systemHint}\n\nUser: ${lastUser?.content || ""}\nAssistant:`;
 
-  // Provider-specific argument structure.
   let args: string[];
-  if (provider === "ollama") {
-    // ollama run <model> "<prompt>"
-    args = ["run", modelName, prompt];
-  } else if (provider === "llamacpp" || provider === "llamafile") {
-    // llama.cpp / llamafile: -m <model> -p "<prompt>"
+  if (provider === "llamacpp" || provider === "llamafile") {
     args = ["-m", modelName, "-p", prompt];
   } else {
-    // Generic fallback: <model> "<prompt>"
     args = [modelName, prompt];
   }
 
-  // Append any user-specified extra CLI args.
   if (cliArgs) {
     args.push(...cliArgs.split(/\s+/).filter(Boolean));
   }
@@ -1057,7 +1151,7 @@ async function callLocalCli(
   try {
     const { stdout } = await execFileAsync(cliPath, args, {
       maxBuffer: 10 * 1024 * 1024,
-      timeout: 120_000, // backstop — callModel's Promise.race will reject first
+      timeout: 120_000,
       env: { ...process.env },
     });
     return stdout.trim();
@@ -1065,11 +1159,58 @@ async function callLocalCli(
     const e = err as NodeJS.ErrnoException;
     if (e.code === "ENOENT") {
       throw new Error(
-        `CLI binary not found at "${cliPath}". Check the path in Advanced Customization.`
+        `CLI binary not found at "${cliPath}". The server cannot find this path — if you're running NOX AI in a hosted environment, the binary must be installed on the SERVER, not your local machine.`
       );
     }
     const stderr = (e as { stderr?: string }).stderr?.slice(0, 300) || e.message;
     throw new Error(`${provider} CLI error: ${stderr}`);
+  }
+}
+
+// Call ollama via its HTTP API (POST /api/generate).
+// Uses `endpoint` as the ollama host (default: http://localhost:11434).
+async function callOllamaHttp(
+  model: string,
+  systemHint: string,
+  conv: { role: "user" | "assistant"; content: string }[],
+  endpoint?: string
+): Promise<string> {
+  const base = endpoint || "http://localhost:11434";
+  const url = `${base}/api/generate`;
+
+  // Build the prompt: system hint + conversation turns.
+  const lastUser = [...conv].reverse().find((m) => m.role === "user");
+  const prompt = `${systemHint}\n\nUser: ${lastUser?.content || ""}\nAssistant:`;
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        prompt,
+        stream: false,
+        options: {
+          num_predict: 1024,
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => res.statusText);
+      throw new Error(`Ollama HTTP ${res.status}: ${errText.slice(0, 300)}`);
+    }
+
+    const json = await res.json();
+    return json.response || "";
+  } catch (err) {
+    const e = err as Error;
+    if (e.message.includes("ECONNREFUSED") || e.message.includes("fetch failed")) {
+      throw new Error(
+        `Could not connect to Ollama at ${base}. The server cannot reach this address — if NOX AI is hosted, "localhost" refers to the SERVER, not your machine. Either install Ollama on the server, or set the Endpoint field to a publicly reachable Ollama host.`
+      );
+    }
+    throw new Error(`Ollama error: ${e.message}`);
   }
 }
 

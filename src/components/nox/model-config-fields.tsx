@@ -198,30 +198,54 @@ export function ModelConfigFields({
         </>
       ) : (
         <>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">CLI Path</Label>
-            <Input
-              className="h-9 font-mono"
-              value={assignment.cliPath || ""}
-              onChange={(e) =>
-                onChange({ ...assignment, cliPath: e.target.value })
-              }
-              placeholder="/usr/local/bin/ollama"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">
-              CLI Args (optional)
-            </Label>
-            <Input
-              className="h-9 font-mono"
-              value={assignment.cliArgs || ""}
-              onChange={(e) =>
-                onChange({ ...assignment, cliArgs: e.target.value })
-              }
-              placeholder="--port 11434"
-            />
-          </div>
+          {/* For ollama: show Endpoint (HTTP API host) instead of CLI path */}
+          {currentProvider?.id === "ollama" ? (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">
+                Ollama Endpoint (HTTP API)
+              </Label>
+              <Input
+                className="h-9 font-mono"
+                value={assignment.endpoint || ""}
+                onChange={(e) =>
+                  onChange({ ...assignment, endpoint: e.target.value })
+                }
+                placeholder="http://localhost:11434"
+              />
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                NOX AI's server connects to this address. If hosted,
+                "localhost" refers to the server — set this to a public Ollama
+                host you control.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">CLI Path</Label>
+                <Input
+                  className="h-9 font-mono"
+                  value={assignment.cliPath || ""}
+                  onChange={(e) =>
+                    onChange({ ...assignment, cliPath: e.target.value })
+                  }
+                  placeholder="/usr/local/bin/llama-cli"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  CLI Args (optional)
+                </Label>
+                <Input
+                  className="h-9 font-mono"
+                  value={assignment.cliArgs || ""}
+                  onChange={(e) =>
+                    onChange({ ...assignment, cliArgs: e.target.value })
+                  }
+                  placeholder="--port 11434"
+                />
+              </div>
+            </>
+          )}
         </>
       )}
 
