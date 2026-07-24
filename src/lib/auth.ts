@@ -80,16 +80,39 @@ export function createSessionToken(userId: string): string {
 
 // ─── Cookie helpers (server-side) ──────────────────────────────────────────
 
+// Detect whether the current request was served over HTTPS. The preview
+// gateway proxies to localhost:3000 over HTTPS, so even in dev mode we need
+// `secure: true` for the cookie to actually be sent back on subsequent
+// fetches. We check the x-forwarded-proto header (set by Caddy) and fall
+// back to NODE_ENV.
+async function isHttpsRequest(): Promise<boolean> {
+  try {
+    const store = await cookies();
+    // headers() is async in Next.js 15+ — but we can read the request headers
+    // via the cookie store's underlying request. Simpler: check NODE_ENV and
+    // the presence of a forwarded header by importing headers().
+    const { headers } = await import("next/headers");
+    const h = await headers();
+    const forwardedProto = h.get("x-forwarded-proto") || "";
+    return (
+      forwardedProto.includes("https") ||
+      process.env.NODE_ENV === "production"
+    );
+  } catch {
+    return process.env.NODE_ENV === "production";
+  }
+}
+
 export async function setSessionCookie(userId: string): Promise<void> {
   const token = createSessionToken(userId);
   const store = await cookies();
-  // Always use sameSite="lax" + secure only in production. The preview
-  // gateway proxies to localhost:3000 over HTTPS, and lax cookies are sent
-  // on same-site navigations and same-origin fetches, which covers our case.
+  const secure = await isHttpsRequest();
+  // Use sameSite="lax" for same-site navigations + same-origin fetches.
+  // `secure` is set based on the actual request scheme (HTTPS in preview).
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure,
     path: "/",
     maxAge: SESSION_TTL_MS / 1000,
   });
