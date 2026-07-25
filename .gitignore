@@ -50,5 +50,21 @@ test
 prompt
 
 server.log
+
+# database
+/db/
+
 # Skills directory
 /skills/
+
+# scripts (generation helpers)
+/scripts/
+
+# upload directory
+/upload/
+
+# z-scripts
+/.zscripts/
+
+# worklog
+worklog.md
