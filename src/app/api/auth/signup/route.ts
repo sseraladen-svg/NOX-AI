@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { hashPassword, setSessionCookie, createSessionToken } from "@/lib/auth";
+import { isRateLimited, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,15 @@ export const runtime = "nodejs";
 // by the frontend and sent as x-nox-session header on subsequent requests.
 export async function POST(req: NextRequest) {
   try {
+    // Rate limit: 3 signups per hour per IP (prevents account farming).
+    const ip = getClientIp(req.headers);
+    if (isRateLimited(ip, "auth/signup", RATE_LIMITS.SIGNUP.limit, RATE_LIMITS.SIGNUP.windowMs)) {
+      return NextResponse.json(
+        { ok: false, error: "Too many signups from this IP. Try again later." },
+        { status: 429 }
+      );
+    }
+
     const body = (await req.json()) as {
       email?: string;
       password?: string;

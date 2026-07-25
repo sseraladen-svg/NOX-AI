@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { verifyPassword, setSessionCookie, createSessionToken } from "@/lib/auth";
+import { isRateLimited, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -11,6 +12,15 @@ export const runtime = "nodejs";
 // as a fallback when cookies aren't sent (e.g. preview gateway HTTPS contexts).
 export async function POST(req: NextRequest) {
   try {
+    // Rate limit: 10 login attempts per minute per IP (brute-force protection).
+    const ip = getClientIp(req.headers);
+    if (isRateLimited(ip, "auth/login", RATE_LIMITS.AUTH.limit, RATE_LIMITS.AUTH.windowMs)) {
+      return NextResponse.json(
+        { ok: false, error: "Too many login attempts. Wait a minute and try again." },
+        { status: 429 }
+      );
+    }
+
     const body = (await req.json()) as {
       email?: string;
       password?: string;

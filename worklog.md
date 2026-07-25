@@ -269,3 +269,38 @@ Stage Summary:
 - Honest limits: the multi-agent confirmation dialog shows real reachability status instead of fake quota numbers.
 - Masked-key preservation: the #1 deployment blocker (dispatch broke after save-load-resave cycle) is fixed.
 - NOX AI is now ready for deployment.
+
+---
+Task ID: 9
+Agent: main (Super Z)
+Task: Final remaining items — context handoff (token truncation) + rate limiting.
+
+Work Log:
+- Context handoff (Host → specialist):
+  • Added estimateTokens() helper (chars / 4 heuristic — industry standard)
+  • Added estimateMessagesTokens() helper
+  • Added truncateForContext() — keeps the last user message + as many recent turns as fit within a 6000-token budget. If the last user message alone exceeds the budget, truncates it. Prepends a context-compression note so the model knows history was truncated.
+  • Updated orchestrator dispatch path to call truncateForContext() before forwarding to the specialist
+  • Updated the specialist step's `input` field in the dispatch trace to show "(routed by host, context truncated: 8500→5800 tokens)" when truncation happened — so the user can see it in the UI
+  • The Host's own context (analyze + synthesize) is NOT truncated — only the specialist's, since the specialist gets the full conversation forwarded
+
+- Rate limiting:
+  • Created src/lib/rate-limit.ts — in-memory sliding-window rate limiter
+  • isRateLimited(key, route, limit, windowMs) → returns true if the request should be blocked
+  • getClientIp(headers) → extracts client IP from x-forwarded-for (set by Caddy gateway)
+  • Auto-cleanup of expired buckets every 5 minutes to prevent memory growth
+  • Presets: AUTH (10/min), SIGNUP (3/hour), DISPATCH (30/min), TEST (10/min), CONFIG (20/min), GENERAL (60/min)
+  • Applied to /api/auth/login — 10 attempts/min per IP (brute-force protection)
+  • Applied to /api/auth/signup — 3 signups/hour per IP (account farming protection)
+  • Applied to /api/multi-model/dispatch — 30 dispatches/min per IP (API abuse protection)
+  • Applied to /api/multi-model/test — 10 test pings/min per IP (each test hits a real API)
+  • All rate-limited routes return HTTP 429 with a clear message when blocked
+  • Verified: hit login 12 times rapidly → 11th attempt got HTTP 429 "Too many login attempts. Wait a minute and try again." ✓
+
+- Lint clean (0 errors, 0 warnings).
+- All remaining items from the original design doc are now complete.
+
+Stage Summary:
+- Context handoff: long conversations no longer hit token limits — the specialist gets a truncated context with a note explaining what was compressed. The dispatch trace shows when truncation happened.
+- Rate limiting: all abuse-prone routes (login, signup, dispatch, test) are now rate-limited per IP. Brute-force login attempts, account farming, and API abuse are blocked automatically.
+- NOX AI is now feature-complete per the original design doc + all user-requested additions. Ready for deployment.

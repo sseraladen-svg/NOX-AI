@@ -1781,6 +1781,88 @@ async function callOllamaHttp(
   }
 }
 
+// ─── Context handoff: token counting + truncation ──────────────────────────
+//
+// Rough token estimate: ~4 characters per token (industry-standard heuristic
+// for English text). This is not exact but good enough for deciding when to
+// truncate. The actual token count comes from the provider's response usage
+// metadata, which we use for cost tracking.
+const CHARS_PER_TOKEN = 4;
+// Default context budget for specialist calls. Most models support 8K-128K
+// tokens; we use a conservative 6K budget to leave room for the system prompt
+// + the specialist's response. This prevents token-limit errors on long convos.
+const DEFAULT_SPECIALIST_TOKEN_BUDGET = 6000;
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / CHARS_PER_TOKEN);
+}
+
+function estimateMessagesTokens(messages: ChatMessage[]): number {
+  return messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+}
+
+// Truncate message history to fit within a token budget.
+// Strategy: always keep the system hint (added by realCall) + the last user
+// message + as many recent turns as fit. If even one message exceeds the
+// budget, keep only the last user message (truncated itself).
+//
+// Returns the (possibly truncated) messages array. If truncation happened,
+// prepends a note so the model knows context was compressed.
+function truncateForContext(
+  messages: ChatMessage[],
+  budgetTokens: number = DEFAULT_SPECIALIST_TOKEN_BUDGET
+): { messages: ChatMessage[]; truncated: boolean; originalTokens: number; keptTokens: number } {
+  const originalTokens = estimateMessagesTokens(messages);
+  if (originalTokens <= budgetTokens) {
+    return { messages, truncated: false, originalTokens, keptTokens: originalTokens };
+  }
+
+  // Always keep the last user message.
+  const lastUserIdx = [...messages].reverse().findIndex((m) => m.role === "user");
+  const lastUser = lastUserIdx >= 0 ? messages[messages.length - 1 - lastUserIdx] : null;
+  if (!lastUser) {
+    // No user message — keep as-is (shouldn't happen).
+    return { messages, truncated: false, originalTokens, keptTokens: originalTokens };
+  }
+
+  const lastUserTokens = estimateTokens(lastUser.content);
+  if (lastUserTokens >= budgetTokens) {
+    // Last user message alone exceeds budget — truncate it.
+    const maxChars = budgetTokens * CHARS_PER_TOKEN - 200; // leave room for note
+    const truncatedContent = lastUser.content.slice(0, maxChars) + "\n\n[...message truncated to fit context...]";
+    return {
+      messages: [{ ...lastUser, content: truncatedContent }],
+      truncated: true,
+      originalTokens,
+      keptTokens: estimateTokens(truncatedContent),
+    };
+  }
+
+  // Build from the end: keep the last user message + as many prior turns as fit.
+  const kept: ChatMessage[] = [lastUser];
+  let keptTokens = lastUserTokens;
+  for (let i = messages.length - 1 - lastUserIdx - 1; i >= 0; i--) {
+    const msg = messages[i];
+    const msgTokens = estimateTokens(msg.content);
+    if (keptTokens + msgTokens > budgetTokens) break;
+    kept.unshift(msg);
+    keptTokens += msgTokens;
+  }
+
+  // Prepend a note that context was compressed.
+  const note: ChatMessage = {
+    role: "assistant",
+    content: `[Context note: ${originalTokens} tokens of conversation history were truncated to ${keptTokens} tokens to fit the specialist's context window. The most recent messages are preserved.]`,
+  };
+
+  return {
+    messages: [note, ...kept],
+    truncated: true,
+    originalTokens,
+    keptTokens,
+  };
+}
+
 export async function dispatch(
   userId: string,
   messages: ChatMessage[],
@@ -1852,8 +1934,12 @@ export async function dispatch(
       timeoutOverrides[specialistAssignment.connectionType] ||
       DEFAULT_TIMEOUTS[specialistAssignment.connectionType];
 
+    // Context handoff: truncate the message history to fit the specialist's
+    // context window before forwarding. This prevents token-limit errors on
+    // long conversations and reduces cost (fewer input tokens).
+    const truncated = truncateForContext(messages);
     const specialistMessages: ChatMessage[] = [
-      ...messages,
+      ...truncated.messages,
       {
         role: "assistant",
         content: `[Host routed this to the ${plan.assignments[1].label} specialist. Fulfill the request.]`,
@@ -1902,7 +1988,9 @@ export async function dispatch(
       provider: specialistAssignment.provider,
       connectionType: specialistAssignment.connectionType,
       intent: plan.intent,
-      input: "(routed by host)",
+      input: truncated.truncated
+        ? `(routed by host, context truncated: ${truncated.originalTokens}→${truncated.keptTokens} tokens)`
+        : "(routed by host)",
       output: specialistResult.output,
       latencyMs: specialistResult.latencyMs,
       retries: specialistResult.retries,

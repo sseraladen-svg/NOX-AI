@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dispatch, saveUsage, type ChatMessage, type FeatureId } from "@/lib/multi-model-service";
 import { getCurrentUser } from "@/lib/auth";
+import { isRateLimited, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { ok: false, error: "Not authenticated." },
         { status: 401 }
+      );
+    }
+
+    // Rate limit: 30 dispatches per minute per IP (prevents API abuse).
+    const ip = getClientIp(req.headers);
+    if (isRateLimited(ip, "dispatch", RATE_LIMITS.DISPATCH.limit, RATE_LIMITS.DISPATCH.windowMs)) {
+      return NextResponse.json(
+        { ok: false, error: "Too many requests. Wait a minute and try again." },
+        { status: 429 }
       );
     }
     const body = (await req.json()) as {
