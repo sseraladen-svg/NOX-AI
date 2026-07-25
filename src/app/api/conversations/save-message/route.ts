@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { addMessage, type DispatchStep } from "@/lib/multi-model-service";
+import { addMessage, type DispatchStep, type TokenUsage, type CostBreakdown } from "@/lib/multi-model-service";
 
 export const runtime = "nodejs";
 
@@ -13,6 +13,7 @@ export const runtime = "nodejs";
 //   mode?: string,
 //   multiAgent?: boolean,
 //   error?: boolean,
+//   usage?: { tokens?: TokenUsage, cost?: CostBreakdown },
 // }
 export async function POST(req: NextRequest) {
   try {
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
       mode?: string;
       multiAgent?: boolean;
       error?: boolean;
+      usage?: { tokens?: TokenUsage; cost?: CostBreakdown };
     };
     if (!body.conversationId || !body.role || typeof body.content !== "string") {
       return NextResponse.json(
@@ -45,6 +47,7 @@ export async function POST(req: NextRequest) {
       mode: body.mode,
       multiAgent: body.multiAgent,
       error: body.error,
+      usage: body.usage,
     });
     return NextResponse.json({ ok: true });
   } catch (err) {

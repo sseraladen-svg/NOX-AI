@@ -181,3 +181,43 @@ Stage Summary:
 - Cost is computed via the pricing table (USD per 1M tokens × token count).
 - Two API routes expose the data: /api/usage/summary (aggregated) + /api/usage/recent (raw records).
 - Ready for the next step: a Usage dashboard UI component that consumes /api/usage/summary.
+
+---
+Task ID: 6
+Agent: main (Super Z)
+Task: Complete the cost tracking UI — show tokens + cost in dispatch trace + build Usage dashboard.
+
+Work Log:
+- Updated addMessage() in multi-model-service.ts to accept + persist `usage` field (aggregated tokens + cost per message) on the Message row.
+- Updated getConversation() to return the `usage` field when loading messages.
+- Updated /api/conversations/save-message route to accept `usage` in the body.
+- Added MessageUsage type to conversations-store.ts; updated ConversationMessage to include `usage?`.
+- Added aggregateUsage() helper to use-chat.ts — sums tokens + cost across all dispatch steps for one message.
+- Updated use-chat.ts sendMessage() to compute aggregated usage from r.steps and pass it to both the local ConversationMessage and the persist() call.
+- Updated DispatchTrace component in feature-uis.tsx (Multi mode): each step now shows a cyan "N tok" badge (with tooltip showing input/output split) + emerald "$X.XXXX" cost badge (with tooltip). Added a footer row with total tokens + total cost across all steps.
+- Updated MessageBubble in shared-chat.tsx (Single + Orchestrator modes): same per-step token/cost badges + per-message aggregate usage footer.
+- Created src/components/nox/usage-dashboard.tsx — full dashboard with:
+  • 4 stat cards: Total Cost, Total Tokens, Total Calls, Success Rate (color-coded emerald/cyan/violet/amber)
+  • Daily Cost bar chart (pure CSS, animated, last N days)
+  • Cost by Model breakdown (horizontal bars, top 8 models)
+  • Cost by Provider breakdown (horizontal bars with token in/out)
+  • Recent Calls list (scrollable, shows provider/model, status dot, tokens, cost, latency)
+  • 7d/30d/90d range toggle + refresh button
+- Updated page.tsx to route `?view=usage` to the UsageDashboard component.
+- Added "Usage" button to ModePicker header (TrendingUp icon) → navigates to /?view=usage.
+- Lint clean (0 errors, 0 warnings).
+- End-to-end verification:
+  • Dispatch captures tokens/cost/lastError on each step ✓
+  • Usage summary returns totalCalls, failedCalls, byProvider, byModel, byDay ✓
+  • Recent usage returns records with all fields ✓
+  • Per-message usage persistence works (save-message accepts usage field) ✓
+  • Browser: dashboard renders with all 4 stat cards, daily chart, model/provider breakdowns, recent calls list ✓
+  • Screenshot saved: nox-usage-dashboard.png
+
+Stage Summary:
+- Cost tracking UI complete and verified end-to-end.
+- Every dispatch trace now shows per-step tokens (cyan) + cost (emerald) badges.
+- Each message bubble shows an aggregate "Total: N tok ($X.XXXXXX)" footer.
+- Usage dashboard accessible via "Usage" button on mode picker → /?view=usage.
+- Dashboard shows: total cost, total tokens, total calls, success rate, daily cost chart, per-model breakdown, per-provider breakdown, recent calls list.
+- All cost tracking tasks from the original plan are now complete.

@@ -10,6 +10,7 @@ import { ModePicker } from "@/components/nox/mode-picker";
 import { SingleModePage } from "@/components/nox/single-mode-page";
 import { MultiModePage } from "@/components/nox/multi-mode-page";
 import { OrchestratorModePage } from "@/components/nox/orchestrator-mode-page";
+import { UsageDashboard } from "@/components/nox/usage-dashboard";
 import { Loader2 } from "lucide-react";
 
 /**
@@ -22,6 +23,7 @@ function HomeInner() {
   const convs = useConversations();
   const searchParams = useSearchParams();
   const modeParam = (searchParams.get("mode") || "").toLowerCase();
+  const view = (searchParams.get("view") || "").toLowerCase();
 
   // Bootstrap auth on mount
   React.useEffect(() => {
@@ -46,6 +48,17 @@ function HomeInner() {
 
   if (!auth.user) {
     return <AuthOverlay />;
+  }
+
+  // Usage dashboard view (no mode param needed)
+  if (view === "usage") {
+    return (
+      <UsageDashboard
+        onBack={() => {
+          window.location.href = "/?mode=";
+        }}
+      />
+    );
   }
 
   // Wait for multi-model config to load before rendering mode pages

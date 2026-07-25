@@ -4,11 +4,48 @@ import * as React from "react";
 import {
   useConversations,
   type ConversationMessage,
+  type MessageUsage,
 } from "@/store/conversations-store";
 import { useMultiModel, type LimitRow } from "@/store/multi-model-store";
 import { authFetch } from "@/lib/auth-fetch";
-import type { DispatchStep, Mode, FeatureId } from "@/lib/multi-model-types";
+import type { DispatchStep, Mode, FeatureId, TokenUsage, CostBreakdown } from "@/lib/multi-model-types";
 import { toast } from "sonner";
+
+// Sum token usage + cost across all dispatch steps for one message.
+// Returns undefined if no step had any token usage (e.g. all failed or LOCAL).
+function aggregateUsage(steps: DispatchStep[]): MessageUsage | undefined {
+  let input = 0;
+  let output = 0;
+  let total = 0;
+  let inputCost = 0;
+  let outputCost = 0;
+  let totalCost = 0;
+  let hasAny = false;
+
+  for (const s of steps) {
+    if (s.tokens) {
+      input += s.tokens.input;
+      output += s.tokens.output;
+      total += s.tokens.total;
+      hasAny = true;
+    }
+    if (s.cost) {
+      inputCost += s.cost.input;
+      outputCost += s.cost.output;
+      totalCost += s.cost.total;
+    }
+  }
+
+  if (!hasAny) return undefined;
+
+  const tokens: TokenUsage = { input, output, total };
+  const cost: CostBreakdown = {
+    input: Math.round(inputCost * 1_000_000) / 1_000_000,
+    output: Math.round(outputCost * 1_000_000) / 1_000_000,
+    total: Math.round(totalCost * 1_000_000) / 1_000_000,
+  };
+  return { tokens, cost };
+}
 
 // ───────────────────────────────────────────────────────────────────────────
 // useChat — shared chat logic for all three mode pages.
@@ -128,24 +165,30 @@ export function useChat() {
         return;
       }
 
+      // Aggregate token usage + cost across all dispatch steps.
+      const steps = (r.steps as DispatchStep[]) || [];
+      const aggUsage = aggregateUsage(steps);
+
       const aiMsg: ConversationMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
         content: r.finalReply || "(no response)",
-        trace: r.steps as DispatchStep[] | undefined,
+        trace: steps,
         mode: r.mode,
         multiAgent: r.multiAgent,
         error: false,
+        usage: aggUsage,
         createdAt: new Date().toISOString(),
       };
       convs.appendLocal(aiMsg);
       await persist(conversationId, {
         role: "assistant",
         content: r.finalReply || "",
-        trace: r.steps,
+        trace: steps,
         mode: r.mode,
         multiAgent: r.multiAgent,
         error: false,
+        usage: aggUsage,
       });
       convs.loadList();
     } catch (err) {

@@ -2,7 +2,12 @@
 
 import { create } from "zustand";
 import { authFetch } from "@/lib/auth-fetch";
-import type { DispatchStep, Mode } from "@/lib/multi-model-types";
+import type { DispatchStep, Mode, TokenUsage, CostBreakdown } from "@/lib/multi-model-types";
+
+export interface MessageUsage {
+  tokens?: TokenUsage;
+  cost?: CostBreakdown;
+}
 
 export interface ConversationMessage {
   id: string;
@@ -12,6 +17,7 @@ export interface ConversationMessage {
   mode?: string;
   multiAgent: boolean;
   error: boolean;
+  usage?: MessageUsage;
   createdAt: string;
 }
 

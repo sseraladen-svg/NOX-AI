@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { motion } from "framer-motion";
-import { Globe, Layers, Network, ChevronRight, Sparkles } from "lucide-react";
+import { Globe, Layers, Network, ChevronRight, Sparkles, TrendingUp } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMultiModel } from "@/store/multi-model-store";
 import { UserMenu } from "./shared-chat";
@@ -89,7 +89,16 @@ export function ModePicker() {
               </div>
             </div>
           </div>
-          <UserMenu />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => router.push("/?view=usage")}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-muted/30 hover:bg-muted/60 text-muted-foreground hover:text-foreground transition"
+            >
+              <TrendingUp className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Usage</span>
+            </button>
+            <UserMenu />
+          </div>
         </div>
       </header>
 

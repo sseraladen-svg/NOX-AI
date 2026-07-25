@@ -130,6 +130,22 @@ export function MessageBubble({ msg }: { msg: ConversationMessage }) {
                 <span className="text-muted-foreground ml-auto">
                   {s.latencyMs}ms
                 </span>
+                {s.tokens && (
+                  <span
+                    className="px-1.5 py-0 rounded bg-cyan-500/10 text-cyan-400 text-[9px]"
+                    title={`${s.tokens.input} input + ${s.tokens.output} output`}
+                  >
+                    {s.tokens.total} tok
+                  </span>
+                )}
+                {s.cost && s.cost.total > 0 && (
+                  <span
+                    className="px-1.5 py-0 rounded bg-emerald-500/10 text-emerald-400 text-[9px]"
+                    title={`$${s.cost.input.toFixed(6)} input + $${s.cost.output.toFixed(6)} output`}
+                  >
+                    ${s.cost.total.toFixed(4)}
+                  </span>
+                )}
                 {s.retries > 0 && (
                   <Badge
                     variant="outline"
@@ -148,6 +164,20 @@ export function MessageBubble({ msg }: { msg: ConversationMessage }) {
                 )}
               </div>
             ))}
+            {/* Per-message aggregate usage footer */}
+            {msg.usage?.tokens && (
+              <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono pt-1.5 mt-1 border-t border-border/60 text-muted-foreground">
+                <span className="uppercase tracking-wider">Total:</span>
+                <span className="text-cyan-400">
+                  {msg.usage.tokens.total} tok ({msg.usage.tokens.input} in + {msg.usage.tokens.output} out)
+                </span>
+                {msg.usage.cost && msg.usage.cost.total > 0 && (
+                  <span className="text-emerald-400">
+                    ${msg.usage.cost.total.toFixed(6)}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

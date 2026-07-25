@@ -63,6 +63,25 @@ function ThinkingIndicator() {
 
 function DispatchTrace({ steps }: { steps: DispatchStep[] }) {
   if (!steps || steps.length === 0) return null;
+
+  // Aggregate totals across all steps for a footer summary.
+  const totals = steps.reduce(
+    (acc, s) => {
+      if (s.tokens) {
+        acc.input += s.tokens.input;
+        acc.output += s.tokens.output;
+        acc.total += s.tokens.total;
+        acc.hasTokens = true;
+      }
+      if (s.cost) {
+        acc.cost += s.cost.total;
+        acc.hasCost = true;
+      }
+      return acc;
+    },
+    { input: 0, output: 0, total: 0, cost: 0, hasTokens: false, hasCost: false }
+  );
+
   return (
     <div className="w-full rounded-lg border border-border bg-card/40 p-2.5 space-y-1.5">
       <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase tracking-wider">
@@ -90,8 +109,44 @@ function DispatchTrace({ steps }: { steps: DispatchStep[] }) {
             </>
           )}
           <span className="text-muted-foreground ml-auto">{s.latencyMs}ms</span>
+          {s.tokens && (
+            <span
+              className="px-1.5 py-0 rounded bg-cyan-500/10 text-cyan-400 text-[9px]"
+              title={`${s.tokens.input} input + ${s.tokens.output} output`}
+            >
+              {s.tokens.total} tok
+            </span>
+          )}
+          {s.cost && s.cost.total > 0 && (
+            <span
+              className="px-1.5 py-0 rounded bg-emerald-500/10 text-emerald-400 text-[9px]"
+              title={`$${s.cost.input.toFixed(6)} input + $${s.cost.output.toFixed(6)} output`}
+            >
+              ${s.cost.total.toFixed(4)}
+            </span>
+          )}
+          {s.timedOut && (
+            <span className="px-1.5 py-0 rounded bg-red-500/10 text-red-400 text-[9px]">
+              timeout
+            </span>
+          )}
         </div>
       ))}
+      {(totals.hasTokens || totals.hasCost) && (
+        <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono pt-1.5 mt-1 border-t border-border/60 text-muted-foreground">
+          <span className="uppercase tracking-wider">Total:</span>
+          {totals.hasTokens && (
+            <span className="text-cyan-400">
+              {totals.total} tok ({totals.input} in + {totals.output} out)
+            </span>
+          )}
+          {totals.hasCost && totals.cost > 0 && (
+            <span className="text-emerald-400">
+              ${totals.cost.toFixed(6)}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

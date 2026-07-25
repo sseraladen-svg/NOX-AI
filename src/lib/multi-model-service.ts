@@ -1699,6 +1699,9 @@ export async function getConversation(
       mode: m.mode || undefined,
       multiAgent: m.multiAgent,
       error: m.error,
+      usage: m.usage
+        ? (JSON.parse(m.usage) as { tokens?: TokenUsage; cost?: CostBreakdown })
+        : undefined,
       createdAt: m.createdAt.toISOString(),
     })),
   };
@@ -1734,6 +1737,7 @@ export async function addMessage(
     mode?: string;
     multiAgent?: boolean;
     error?: boolean;
+    usage?: { tokens?: TokenUsage; cost?: CostBreakdown };
   }
 ): Promise<void> {
   // Verify ownership
@@ -1752,6 +1756,7 @@ export async function addMessage(
       mode: msg.mode || null,
       multiAgent: msg.multiAgent || false,
       error: msg.error || false,
+      usage: msg.usage ? JSON.stringify(msg.usage) : null,
     },
   });
 
