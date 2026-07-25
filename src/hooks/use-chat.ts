@@ -98,7 +98,9 @@ export function useChat() {
   const sendMessage = async (
     text: string,
     confirmMultiAgent = false,
-    feature?: FeatureId
+    feature?: FeatureId,
+    image?: { data: string; mimeType: string },
+    skipSpecialist = false
   ) => {
     if (!text.trim() || sending) return;
     setSending(true);
@@ -126,7 +128,7 @@ export function useChat() {
       ...convs.activeMessages
         .filter((m) => !m.error)
         .map((m) => ({ role: m.role, content: m.content })),
-      { role: "user" as const, content: text },
+      { role: "user" as const, content: text, image },
     ];
 
     try {
@@ -136,6 +138,7 @@ export function useChat() {
           messages: apiMessages,
           confirmMultiAgent,
           feature,
+          skipSpecialist,
         },
       });
       const json = await res.json();
@@ -228,6 +231,19 @@ export function useChat() {
     setPendingText(null);
   };
 
+  const onConfirmHostDirectly = () => {
+    setConfirmOpen(false);
+    if (pendingText !== null) {
+      const text = pendingText;
+      const feature = pendingFeature;
+      setPendingText(null);
+      setPendingFeature(undefined);
+      setConfirmLimits([]);
+      // Re-dispatch with skipSpecialist=true — Host answers directly.
+      sendMessage(text, false, feature, undefined, true);
+    }
+  };
+
   return {
     // state
     input,
@@ -250,5 +266,6 @@ export function useChat() {
     sendMessage,
     onConfirmContinue,
     onConfirmSwitchToSingle,
+    onConfirmHostDirectly,
   };
 }

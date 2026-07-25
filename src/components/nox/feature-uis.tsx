@@ -544,25 +544,89 @@ export function VoiceFeatureUI({
   scrollRef: React.RefObject<HTMLDivElement | null>;
   input: string;
   setInput: (s: string) => void;
-  onSend: () => void;
+  onSend: (image?: { data: string; mimeType: string }) => void;
 }) {
   const [recording, setRecording] = React.useState(false);
-  const [playing, setPlaying] = React.useState(false);
+  const [playingId, setPlayingId] = React.useState<string | null>(null);
+  const [sttSupported, setSttSupported] = React.useState(true);
+  const recognitionRef = React.useRef<any>(null);
+
+  // Check if Web Speech API (SpeechRecognition) is available.
+  React.useEffect(() => {
+    const SpeechRecognition =
+      (typeof window !== "undefined" && (window as any).SpeechRecognition) ||
+      (typeof window !== "undefined" && (window as any).webkitSpeechRecognition);
+    if (!SpeechRecognition) {
+      setSttSupported(false);
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event: any) => {
+      let transcript = "";
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      setInput(transcript);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error:", event.error);
+      setRecording(false);
+    };
+
+    recognition.onend = () => {
+      setRecording(false);
+    };
+
+    recognitionRef.current = recognition;
+  }, [setInput]);
 
   const toggleMic = () => {
-    setRecording((r) => !r);
-    if (!recording) {
-      setTimeout(() => {
+    if (!recognitionRef.current) return;
+    if (recording) {
+      recognitionRef.current.stop();
+      setRecording(false);
+    } else {
+      try {
+        recognitionRef.current.start();
+        setRecording(true);
+        setInput(""); // clear previous input
+      } catch (err) {
+        console.error("Failed to start recognition:", err);
         setRecording(false);
-        setInput(
-          (prev) =>
-            prev +
-            (prev ? " " : "") +
-            "[transcribed audio] Please analyze this speech input."
-        );
-      }, 2000);
+      }
     }
   };
+
+  // TTS: play an assistant message using the browser's speechSynthesis API.
+  const togglePlay = (msgId: string, text: string) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    if (playingId === msgId) {
+      window.speechSynthesis.cancel();
+      setPlayingId(null);
+      return;
+    }
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.onend = () => setPlayingId(null);
+    utterance.onerror = () => setPlayingId(null);
+    window.speechSynthesis.speak(utterance);
+    setPlayingId(msgId);
+  };
+
+  // Cleanup speech synthesis on unmount
+  React.useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   return (
     <div className="flex flex-col gap-3 min-h-0 flex-1">
@@ -570,11 +634,15 @@ export function VoiceFeatureUI({
       <div className="rounded-2xl border border-border bg-card/40 backdrop-blur p-4 flex items-center gap-4">
         <button
           onClick={toggleMic}
+          disabled={!sttSupported}
           className={`h-14 w-14 rounded-full flex items-center justify-center transition shrink-0 ${
             recording
               ? "bg-red-500/20 border-2 border-red-500 text-red-400 nox-glow-sm"
-              : "bg-primary/15 border-2 border-primary/40 text-primary hover:bg-primary/25"
+              : sttSupported
+              ? "bg-primary/15 border-2 border-primary/40 text-primary hover:bg-primary/25"
+              : "bg-muted/20 border-2 border-border text-muted-foreground cursor-not-allowed"
           }`}
+          title={!sttSupported ? "Speech recognition not supported in this browser" : undefined}
         >
           {recording ? (
             <motion.div
@@ -589,12 +657,14 @@ export function VoiceFeatureUI({
         </button>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium">
-            {recording ? "Recording…" : "Tap to speak"}
+            {recording ? "Listening…" : sttSupported ? "Tap to speak" : "Speech recognition not supported"}
           </div>
           <div className="text-[11px] text-muted-foreground">
             {recording
-              ? "Listening — your speech will be transcribed"
-              : "Speech-to-text powered by the voice model"}
+              ? "Speak now — your speech will be transcribed live"
+              : sttSupported
+              ? "Browser-native speech-to-text (Chrome/Edge recommended)"
+              : "Use Chrome or Edge for microphone support. You can still type below."}
           </div>
           {recording && (
             <div className="flex items-center gap-0.5 mt-2 h-6">
@@ -625,8 +695,9 @@ export function VoiceFeatureUI({
             <Volume2 className="h-10 w-10 mb-3 opacity-40" />
             <p className="font-medium">No transcript yet</p>
             <p className="text-xs mt-1 max-w-xs">
-              Record audio or type below. Responses include a TTS playback
-              button.
+              {sttSupported
+                ? "Tap the microphone to speak, or type below. AI responses include a Play button for text-to-speech."
+                : "Type below to send a message. AI responses include a Play button for text-to-speech."}
             </p>
           </div>
         ) : (
@@ -644,12 +715,12 @@ export function VoiceFeatureUI({
                   <Badge variant="outline" className="text-[9px] py-0">
                     {m.role === "user" ? "INPUT" : "TTS"}
                   </Badge>
-                  {m.role === "assistant" && (
+                  {m.role === "assistant" && typeof window !== "undefined" && window.speechSynthesis && (
                     <button
-                      onClick={() => setPlaying((p) => !p)}
+                      onClick={() => togglePlay(m.id, m.content)}
                       className="text-[10px] text-primary hover:underline flex items-center gap-1"
                     >
-                      {playing ? (
+                      {playingId === m.id ? (
                         <>
                           <Pause className="h-3 w-3" /> Stop
                         </>
@@ -661,10 +732,8 @@ export function VoiceFeatureUI({
                     </button>
                   )}
                 </div>
-                <div className="whitespace-pre-wrap leading-relaxed">
-                  {m.content}
-                </div>
-                {m.role === "assistant" && playing && (
+                <Markdown content={m.content} className="nox-prose" />
+                {m.role === "assistant" && playingId === m.id && (
                   <div className="flex items-center gap-0.5 mt-2 h-4">
                     {Array.from({ length: 30 }).map((_, i) => (
                       <motion.div
@@ -691,9 +760,9 @@ export function VoiceFeatureUI({
       <ChatInputBar
         input={input}
         setInput={setInput}
-        onSend={onSend}
+        onSend={() => onSend()}
         sending={sending}
-        placeholder="Or type text to synthesize speech…"
+        placeholder="Or type text to send…"
       />
     </div>
   );
@@ -716,17 +785,38 @@ export function VisionFeatureUI({
   scrollRef: React.RefObject<HTMLDivElement | null>;
   input: string;
   setInput: (s: string) => void;
-  onSend: () => void;
+  onSend: (image?: { data: string; mimeType: string }) => void;
 }) {
   const [preview, setPreview] = React.useState<string | null>(null);
+  const [imageData, setImageData] = React.useState<{ data: string; mimeType: string } | null>(null);
   const [dragOver, setDragOver] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   const handleFile = (file: File) => {
     if (!file.type.startsWith("image/")) return;
     const reader = new FileReader();
-    reader.onload = () => setPreview(reader.result as string);
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setPreview(dataUrl);
+      // Extract base64 data + mime type from the data URL.
+      // data:image/jpeg;base64,/9j/4AAQ... → { data: "/9j/4AAQ...", mimeType: "image/jpeg" }
+      const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+      if (match) {
+        setImageData({ mimeType: match[1], data: match[2] });
+      }
+    };
     reader.readAsDataURL(file);
+  };
+
+  const clearImage = () => {
+    setPreview(null);
+    setImageData(null);
+  };
+
+  const handleAnalyze = () => {
+    onSend(imageData || undefined);
+    // Clear the image after sending so the user can upload a new one.
+    clearImage();
   };
 
   return (
@@ -768,7 +858,7 @@ export function VisionFeatureUI({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  setPreview(null);
+                  clearImage();
                 }}
                 className="absolute top-3 right-3 h-7 w-7 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-black/80"
               >
@@ -813,7 +903,7 @@ export function VisionFeatureUI({
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                onSend();
+                handleAnalyze();
               }
             }}
             placeholder="Ask about the image… (e.g. 'What objects are in this photo?')"
@@ -823,7 +913,7 @@ export function VisionFeatureUI({
           <div className="flex justify-end mt-1">
             <Button
               size="sm"
-              onClick={onSend}
+              onClick={handleAnalyze}
               disabled={sending || !input.trim()}
               className="bg-primary text-primary-foreground hover:bg-primary/90 h-8"
             >

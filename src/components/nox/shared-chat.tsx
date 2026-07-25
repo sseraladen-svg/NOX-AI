@@ -473,6 +473,7 @@ export function ConfirmWrapper({
   onCancel,
   onSwitchToSingle,
   onOpenSettings,
+  onHostHandleDirectly,
 }: {
   open: boolean;
   limits: LimitRow[];
@@ -481,6 +482,7 @@ export function ConfirmWrapper({
   onCancel: () => void;
   onSwitchToSingle: () => void;
   onOpenSettings: () => void;
+  onHostHandleDirectly: () => void;
 }) {
   return (
     <MultiAgentConfirmDialog
@@ -491,6 +493,7 @@ export function ConfirmWrapper({
       onCancel={onCancel}
       onSwitchToGlobal={onSwitchToSingle}
       onOpenSettings={onOpenSettings}
+      onHostHandleDirectly={onHostHandleDirectly}
     />
   );
 }

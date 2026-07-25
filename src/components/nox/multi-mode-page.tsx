@@ -119,7 +119,8 @@ export function MultiModePage() {
       scrollRef: chat.scrollRef,
       input: chat.input,
       setInput: chat.setInput,
-      onSend: () => chat.sendMessage(chat.input, false, activeFeature),
+      onSend: (image?: { data: string; mimeType: string }) =>
+        chat.sendMessage(chat.input, false, activeFeature, image),
     };
 
     switch (activeFeature) {
@@ -244,6 +245,7 @@ export function MultiModePage() {
           chat.setPendingText(null);
         }}
         onSwitchToSingle={chat.onConfirmSwitchToSingle}
+        onHostHandleDirectly={chat.onConfirmHostDirectly}
         onOpenSettings={() => {
           chat.setConfirmOpen(false);
           chat.setAdvancedOpen(true);

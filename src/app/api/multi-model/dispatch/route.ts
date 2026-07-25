@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
       confirmMultiAgent?: boolean;
       feature?: FeatureId;
       conversationId?: string;
+      skipSpecialist?: boolean;
     };
     if (!body?.messages || !Array.isArray(body.messages)) {
       return NextResponse.json(
@@ -40,6 +41,7 @@ export async function POST(req: NextRequest) {
     const result = await dispatch(user.id, body.messages, {
       confirmMultiAgent: body.confirmMultiAgent,
       feature: body.feature,
+      skipSpecialist: body.skipSpecialist,
     });
 
     // Save usage records for cost tracking (only if dispatch produced steps

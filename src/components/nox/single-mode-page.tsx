@@ -143,6 +143,7 @@ export function SingleModePage() {
           chat.setPendingText(null);
         }}
         onSwitchToSingle={chat.onConfirmSwitchToSingle}
+        onHostHandleDirectly={chat.onConfirmHostDirectly}
         onOpenSettings={() => {
           chat.setConfirmOpen(false);
           chat.setAdvancedOpen(true);

@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, CheckCircle2, XCircle, Globe, Settings } from "lucide-react";
+import { AlertTriangle, CheckCircle2, XCircle, Globe, Settings, Bot } from "lucide-react";
 import type { LimitRow } from "@/store/multi-model-store";
 
 interface Props {
@@ -23,6 +23,7 @@ interface Props {
   onCancel: () => void;
   onSwitchToGlobal: () => void;
   onOpenSettings: () => void;
+  onHostHandleDirectly: () => void;
 }
 
 export function MultiAgentConfirmDialog({
@@ -33,6 +34,7 @@ export function MultiAgentConfirmDialog({
   onCancel,
   onSwitchToGlobal,
   onOpenSettings,
+  onHostHandleDirectly,
 }: Props) {
   const allCanFinish = limits.every((l) => l.canFinish);
   const blocked = limits.find((l) => !l.canFinish);
@@ -140,13 +142,21 @@ export function MultiAgentConfirmDialog({
                   className="w-full"
                 >
                   <Globe className="h-3.5 w-3.5 mr-1.5" />
-                  Switch to Global
+                  Switch to Single
                 </Button>
                 <Button variant="secondary" onClick={onOpenSettings} className="w-full">
                   <Settings className="h-3.5 w-3.5 mr-1.5" />
                   Change model
                 </Button>
               </div>
+              <Button
+                variant="secondary"
+                onClick={onHostHandleDirectly}
+                className="w-full"
+              >
+                <Bot className="h-3.5 w-3.5 mr-1.5" />
+                Let Host handle directly
+              </Button>
               <Button variant="ghost" onClick={onCancel} className="w-full">
                 Cancel
               </Button>

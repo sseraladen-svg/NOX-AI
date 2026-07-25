@@ -77,6 +77,13 @@ export interface ModelLimit {
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  // Optional image attachment (base64 data URL) for vision-capable models.
+  // When present, the provider call functions format this as a multimodal
+  // request (text + image) for OpenAI/Anthropic/Gemini.
+  image?: {
+    data: string;    // base64-encoded data (no data: prefix)
+    mimeType: string; // e.g. "image/jpeg", "image/png"
+  };
 }
 
 export interface DispatchStep {

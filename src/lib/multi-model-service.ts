@@ -858,13 +858,13 @@ async function realCall(
       ? `You are NOX ${role} specialist (intent: ${intent}). Answer the user's request focused on your specialty. Be concise and useful.`
       : "You are NOX AI. Respond helpfully and concisely.";
 
-  // Normalise the conversation into user/assistant turns (drop "system" role
-  // — it's folded into systemHint for each provider).
-  const conv: { role: "user" | "assistant"; content: string }[] = messages
+  // Normalise the conversation — preserve image attachments for vision.
+  const conv: ChatMessage[] = messages
     .filter((m) => m.role !== "system")
     .map((m) => ({
       role: m.role === "assistant" ? "assistant" : "user",
       content: m.content,
+      image: m.image,
     }));
 
   // Route based on the assignment's connection type.
@@ -880,7 +880,7 @@ async function realCall(
 async function callApi(
   assignment: ModelAssignment,
   systemHint: string,
-  conv: { role: "user" | "assistant"; content: string }[]
+  conv: ChatMessage[]
 ): Promise<ModelCallResult> {
   const { provider, modelName, apiKey, endpoint } = assignment;
 
@@ -906,11 +906,12 @@ async function callApi(
 }
 
 // OpenAI-compatible endpoint (openai, mistral, groq).
+// Supports multimodal (image) input for vision-capable models.
 async function callOpenAiCompatible(
   apiKey: string,
   model: string,
   systemHint: string,
-  conv: { role: "user" | "assistant"; content: string }[],
+  conv: ChatMessage[],
   provider: string,
   endpoint?: string
 ): Promise<ModelCallResult> {
@@ -921,6 +922,30 @@ async function callOpenAiCompatible(
   };
   const url = endpoint || defaultEndpoints[provider] || defaultEndpoints.openai;
 
+  // Build messages — if a message has an image, format as multimodal content
+  // array (text + image_url). Otherwise use plain string content.
+  const messages: Array<{ role: string; content: string | unknown[] }> = [
+    { role: "system", content: systemHint },
+    ...conv.map((m) => {
+      if (m.image) {
+        // Multimodal: text + image
+        return {
+          role: m.role,
+          content: [
+            { type: "text", text: m.content },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${m.image.mimeType};base64,${m.image.data}`,
+              },
+            },
+          ],
+        };
+      }
+      return { role: m.role, content: m.content };
+    }),
+  ];
+
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -930,10 +955,7 @@ async function callOpenAiCompatible(
     body: JSON.stringify({
       model,
       max_tokens: 1024,
-      messages: [
-        { role: "system", content: systemHint },
-        ...conv,
-      ],
+      messages,
     }),
   });
 
@@ -944,8 +966,6 @@ async function callOpenAiCompatible(
 
   const json = await res.json();
   const text = json.choices?.[0]?.message?.content ?? "";
-  // OpenAI-compatible providers return usage in this shape:
-  //   { usage: { prompt_tokens, completion_tokens, total_tokens } }
   const usage = json.usage;
   const tokens: TokenUsage | undefined = usage
     ? {
@@ -958,14 +978,38 @@ async function callOpenAiCompatible(
 }
 
 // Anthropic Messages API.
+// Supports multimodal (image) input for vision-capable Claude models.
 async function callAnthropic(
   apiKey: string,
   model: string,
   systemHint: string,
-  conv: { role: "user" | "assistant"; content: string }[],
+  conv: ChatMessage[],
   endpoint?: string
 ): Promise<ModelCallResult> {
   const url = endpoint || "https://api.anthropic.com/v1/messages";
+
+  // Build messages — if a message has an image, format as multimodal content
+  // array (text + image). Anthropic uses:
+  //   { type: "image", source: { type: "base64", media_type, data } }
+  const messages: Array<{ role: string; content: string | unknown[] }> = conv.map((m) => {
+    if (m.image) {
+      return {
+        role: m.role,
+        content: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: m.image.mimeType,
+              data: m.image.data,
+            },
+          },
+          { type: "text", text: m.content },
+        ],
+      };
+    }
+    return { role: m.role, content: m.content };
+  });
 
   const res = await fetch(url, {
     method: "POST",
@@ -978,7 +1022,7 @@ async function callAnthropic(
       model,
       max_tokens: 1024,
       system: systemHint,
-      messages: conv,
+      messages,
     }),
   });
 
@@ -989,8 +1033,6 @@ async function callAnthropic(
 
   const json = await res.json();
   const text = json.content?.[0]?.text ?? "";
-  // Anthropic returns usage as:
-  //   { usage: { input_tokens, output_tokens } }
   const usage = json.usage;
   const tokens: TokenUsage | undefined = usage
     ? {
@@ -1011,15 +1053,9 @@ async function callGemini(
   apiKey: string,
   model: string,
   systemHint: string,
-  conv: { role: "user" | "assistant"; content: string }[],
+  conv: ChatMessage[],
   endpoint?: string
 ): Promise<ModelCallResult> {
-  // ─── Fix #1: key format validation BEFORE any network call ───────────────
-  //
-  // A valid Generative Language API key from Google AI Studio starts with
-  // "AIzaSy" and is ~39 characters. OAuth tokens (ya29.*), Vertex AI service
-  // account tokens (AQ.*), and other formats are NOT supported by this
-  // endpoint — reject them up front with a clear, actionable error.
   const geminiKeyError = validateGeminiKey(apiKey);
   if (geminiKeyError) {
     throw new Error(geminiKeyError);
@@ -1029,10 +1065,23 @@ async function callGemini(
     endpoint || "https://generativelanguage.googleapis.com/v1beta/models";
   const url = `${base}/${model}:generateContent?key=${apiKey}`;
 
-  const contents = conv.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
+  // Build contents — if a message has an image, add inline_data part.
+  // Gemini uses: { inline_data: { mime_type, data } }
+  const contents = conv.map((m) => {
+    const parts: unknown[] = [{ text: m.content }];
+    if (m.image) {
+      parts.push({
+        inline_data: {
+          mime_type: m.image.mimeType,
+          data: m.image.data,
+        },
+      });
+    }
+    return {
+      role: m.role === "assistant" ? "model" : "user",
+      parts,
+    };
+  });
 
   const res = await fetch(url, {
     method: "POST",
@@ -1621,7 +1670,7 @@ export async function testOllamaConnection(
 async function callLocalCli(
   assignment: ModelAssignment,
   systemHint: string,
-  conv: { role: "user" | "assistant"; content: string }[]
+  conv: ChatMessage[]
 ): Promise<ModelCallResult> {
   const { provider, modelName, cliPath, cliArgs, endpoint } = assignment;
 
@@ -1677,7 +1726,7 @@ async function callLocalCli(
 async function callOllamaHttp(
   model: string,
   systemHint: string,
-  conv: { role: "user" | "assistant"; content: string }[],
+  conv: ChatMessage[],
   endpoint?: string
 ): Promise<ModelCallResult> {
   const base = endpoint || "http://localhost:11434";
@@ -1735,11 +1784,22 @@ async function callOllamaHttp(
 export async function dispatch(
   userId: string,
   messages: ChatMessage[],
-  opts: { confirmMultiAgent?: boolean; feature?: FeatureId } = {}
+  opts: { confirmMultiAgent?: boolean; feature?: FeatureId; skipSpecialist?: boolean } = {}
 ): Promise<DispatchResult> {
   const doc = await getConfigInternal(userId);
-  const plan = resolvePlan(doc, messages, opts.feature);
+  let plan = resolvePlan(doc, messages, opts.feature);
   const timeoutOverrides = doc.timeoutOverrides || {};
+
+  // If skipSpecialist is set (user chose "Let Host handle directly"),
+  // force the plan to be single-agent — Host only, no specialist routing.
+  if (opts.skipSpecialist && plan.multiAgent) {
+    plan = {
+      ...plan,
+      assignments: plan.assignments.slice(0, 1), // keep only the Host
+      multiAgent: false,
+      intent: "general (host direct)",
+    };
+  }
 
   if (plan.multiAgent && !opts.confirmMultiAgent) {
     const limits = await checkLimits(plan.assignments, "medium");
