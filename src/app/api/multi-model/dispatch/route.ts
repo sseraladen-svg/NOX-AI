@@ -1,15 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dispatch, type ChatMessage, type FeatureId } from "@/lib/multi-model-service";
+import { dispatch, saveUsage, type ChatMessage, type FeatureId } from "@/lib/multi-model-service";
 import { getCurrentUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
 // POST /api/multi-model/dispatch — routes a message through the active mode.
-// Body: { messages, confirmMultiAgent?, feature? }
+// Body: { messages, confirmMultiAgent?, feature?, conversationId? }
 //
 // `feature` is sent from the active tab in multi-mode-page.tsx and tells the
 // backend which feature's model to use in MULTI mode (instead of guessing from
 // keywords). SINGLE and ORCHESTRATOR modes ignore it.
+//
+// `conversationId` (optional) — if provided, usage records are linked to this
+// conversation for the cost dashboard's drill-down.
+//
+// After a successful dispatch, each step in the trace is saved as a
+// UsageRecord row (for cost tracking + the dashboard).
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser();
@@ -23,6 +29,7 @@ export async function POST(req: NextRequest) {
       messages: ChatMessage[];
       confirmMultiAgent?: boolean;
       feature?: FeatureId;
+      conversationId?: string;
     };
     if (!body?.messages || !Array.isArray(body.messages)) {
       return NextResponse.json(
@@ -34,6 +41,34 @@ export async function POST(req: NextRequest) {
       confirmMultiAgent: body.confirmMultiAgent,
       feature: body.feature,
     });
+
+    // Save usage records for cost tracking (only if dispatch produced steps
+    // — i.e. it actually ran, not just returned a confirmation request).
+    if (result.ok && result.steps.length > 0) {
+      try {
+        await saveUsage(
+          user.id,
+          result.steps.map((step) => ({
+            conversationId: body.conversationId,
+            mode: result.mode,
+            role: step.role,
+            provider: step.provider,
+            model: step.model,
+            connectionType: step.connectionType,
+            tokens: step.tokens,
+            cost: step.cost,
+            latencyMs: step.latencyMs,
+            retries: step.retries,
+            timedOut: step.timedOut,
+            error: !!step.lastError,
+          }))
+        );
+      } catch (usageErr) {
+        // Usage-save failure shouldn't fail the dispatch — log and continue.
+        console.error("[nox] Failed to save usage records:", usageErr);
+      }
+    }
+
     return NextResponse.json({ ok: true, result });
   } catch (err) {
     return NextResponse.json(

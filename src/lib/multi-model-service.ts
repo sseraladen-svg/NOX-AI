@@ -17,11 +17,14 @@ import {
   type ChatMessage,
   type DispatchStep,
   type DispatchResult,
+  type TokenUsage,
+  type CostBreakdown,
   FEATURES,
   SPECIALISTS,
   PROVIDERS,
   DEFAULT_TIMEOUTS,
   MAX_RETRY,
+  computeCost,
 } from "@/lib/multi-model-types";
 
 // Re-export for server-side imports that still want the types/catalogs.
@@ -37,6 +40,8 @@ export type {
   ChatMessage,
   DispatchStep,
   DispatchResult,
+  TokenUsage,
+  CostBreakdown,
 };
 export { FEATURES, SPECIALISTS, PROVIDERS, DEFAULT_TIMEOUTS, MAX_RETRY };
 
@@ -595,15 +600,17 @@ async function callModel(
   retries: number;
   timedOut: boolean;
   lastError?: string;
+  tokens?: TokenUsage;
 }> {
   const started = Date.now();
   let retries = 0;
   let timedOut = false;
   let lastError: string | undefined;
+  let tokens: TokenUsage | undefined;
 
   for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
     try {
-      const out = await Promise.race([
+      const result = await Promise.race([
         realCall(assignment, messages, opts.role, opts.intent),
         new Promise<never>((_, reject) =>
           setTimeout(
@@ -613,10 +620,11 @@ async function callModel(
         ),
       ]);
       return {
-        output: out,
+        output: result.text,
         latencyMs: Date.now() - started,
         retries,
         timedOut: false,
+        tokens: result.tokens,
       };
     } catch (err) {
       retries = attempt + 1;
@@ -633,7 +641,14 @@ async function callModel(
     retries,
     timedOut,
     lastError,
+    tokens,
   };
+}
+
+// Result of a single model call — text + token usage (when available).
+interface ModelCallResult {
+  text: string;
+  tokens?: TokenUsage;
 }
 
 async function realCall(
@@ -641,7 +656,7 @@ async function realCall(
   messages: ChatMessage[],
   role: string,
   intent?: string
-): Promise<string> {
+): Promise<ModelCallResult> {
   // Build the system hint the same way — this is the NOX persona prompt.
   const systemHint =
     role === "host"
@@ -673,7 +688,7 @@ async function callApi(
   assignment: ModelAssignment,
   systemHint: string,
   conv: { role: "user" | "assistant"; content: string }[]
-): Promise<string> {
+): Promise<ModelCallResult> {
   const { provider, modelName, apiKey, endpoint } = assignment;
 
   if (!apiKey) {
@@ -705,7 +720,7 @@ async function callOpenAiCompatible(
   conv: { role: "user" | "assistant"; content: string }[],
   provider: string,
   endpoint?: string
-): Promise<string> {
+): Promise<ModelCallResult> {
   const defaultEndpoints: Record<string, string> = {
     openai: "https://api.openai.com/v1/chat/completions",
     mistral: "https://api.mistral.ai/v1/chat/completions",
@@ -735,7 +750,18 @@ async function callOpenAiCompatible(
   }
 
   const json = await res.json();
-  return json.choices?.[0]?.message?.content ?? "";
+  const text = json.choices?.[0]?.message?.content ?? "";
+  // OpenAI-compatible providers return usage in this shape:
+  //   { usage: { prompt_tokens, completion_tokens, total_tokens } }
+  const usage = json.usage;
+  const tokens: TokenUsage | undefined = usage
+    ? {
+        input: usage.prompt_tokens || 0,
+        output: usage.completion_tokens || 0,
+        total: usage.total_tokens || (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
+      }
+    : undefined;
+  return { text, tokens };
 }
 
 // Anthropic Messages API.
@@ -745,7 +771,7 @@ async function callAnthropic(
   systemHint: string,
   conv: { role: "user" | "assistant"; content: string }[],
   endpoint?: string
-): Promise<string> {
+): Promise<ModelCallResult> {
   const url = endpoint || "https://api.anthropic.com/v1/messages";
 
   const res = await fetch(url, {
@@ -769,7 +795,18 @@ async function callAnthropic(
   }
 
   const json = await res.json();
-  return json.content?.[0]?.text ?? "";
+  const text = json.content?.[0]?.text ?? "";
+  // Anthropic returns usage as:
+  //   { usage: { input_tokens, output_tokens } }
+  const usage = json.usage;
+  const tokens: TokenUsage | undefined = usage
+    ? {
+        input: usage.input_tokens || 0,
+        output: usage.output_tokens || 0,
+        total: (usage.input_tokens || 0) + (usage.output_tokens || 0),
+      }
+    : undefined;
+  return { text, tokens };
 }
 
 // Google Gemini generateContent API.
@@ -783,7 +820,7 @@ async function callGemini(
   systemHint: string,
   conv: { role: "user" | "assistant"; content: string }[],
   endpoint?: string
-): Promise<string> {
+): Promise<ModelCallResult> {
   // ─── Fix #1: key format validation BEFORE any network call ───────────────
   //
   // A valid Generative Language API key from Google AI Studio starts with
@@ -824,10 +861,20 @@ async function callGemini(
 
   const json = await res.json();
   const parts = json.candidates?.[0]?.content?.parts;
-  if (Array.isArray(parts)) {
-    return parts.map((p: { text?: string }) => p.text || "").join("");
-  }
-  return "";
+  const text = Array.isArray(parts)
+    ? parts.map((p: { text?: string }) => p.text || "").join("")
+    : "";
+  // Gemini returns usage as:
+  //   { usageMetadata: { promptTokenCount, candidatesTokenCount, totalTokenCount } }
+  const usage = json.usageMetadata;
+  const tokens: TokenUsage | undefined = usage
+    ? {
+        input: usage.promptTokenCount || 0,
+        output: usage.candidatesTokenCount || 0,
+        total: usage.totalTokenCount || 0,
+      }
+    : undefined;
+  return { text, tokens };
 }
 
 // Validate a Gemini API key format before making any network call.
@@ -1261,7 +1308,7 @@ async function callLocalCli(
   assignment: ModelAssignment,
   systemHint: string,
   conv: { role: "user" | "assistant"; content: string }[]
-): Promise<string> {
+): Promise<ModelCallResult> {
   const { provider, modelName, cliPath, cliArgs, endpoint } = assignment;
 
   // Ollama: use HTTP API (no subprocess needed).
@@ -1297,7 +1344,8 @@ async function callLocalCli(
       timeout: 120_000,
       env: { ...process.env },
     });
-    return stdout.trim();
+    // LOCAL CLI models don't return token usage — return text only.
+    return { text: stdout.trim() };
   } catch (err) {
     const e = err as NodeJS.ErrnoException;
     if (e.code === "ENOENT") {
@@ -1317,7 +1365,7 @@ async function callOllamaHttp(
   systemHint: string,
   conv: { role: "user" | "assistant"; content: string }[],
   endpoint?: string
-): Promise<string> {
+): Promise<ModelCallResult> {
   const base = endpoint || "http://localhost:11434";
   const url = `${base}/api/generate`;
 
@@ -1345,7 +1393,20 @@ async function callOllamaHttp(
     }
 
     const json = await res.json();
-    return json.response || "";
+    const text = json.response || "";
+    // Ollama returns token counts in the response:
+    //   { prompt_eval_count, eval_count }  (input + output token counts)
+    const inputTokens = json.prompt_eval_count;
+    const outputTokens = json.eval_count;
+    const tokens: TokenUsage | undefined =
+      typeof inputTokens === "number" && typeof outputTokens === "number"
+        ? {
+            input: inputTokens,
+            output: outputTokens,
+            total: inputTokens + outputTokens,
+          }
+        : undefined;
+    return { text, tokens };
   } catch (err) {
     const e = err as Error;
     if (e.message.includes("ECONNREFUSED") || e.message.includes("fetch failed")) {
@@ -1457,6 +1518,9 @@ export async function dispatch(
       latencyMs: hostResult.latencyMs,
       retries: hostResult.retries,
       timedOut: hostResult.timedOut,
+      lastError: hostResult.lastError,
+      tokens: hostResult.tokens,
+      cost: hostResult.tokens ? computeCost(hostResult.tokens, hostAssignment.modelName) : undefined,
     });
     steps.push({
       role: plan.assignments[1].label,
@@ -1469,6 +1533,9 @@ export async function dispatch(
       latencyMs: specialistResult.latencyMs,
       retries: specialistResult.retries,
       timedOut: specialistResult.timedOut,
+      lastError: specialistResult.lastError,
+      tokens: specialistResult.tokens,
+      cost: specialistResult.tokens ? computeCost(specialistResult.tokens, specialistAssignment.modelName) : undefined,
     });
     steps.push({
       role: "host",
@@ -1481,6 +1548,9 @@ export async function dispatch(
       latencyMs: finalResult.latencyMs,
       retries: finalResult.retries,
       timedOut: finalResult.timedOut,
+      lastError: finalResult.lastError,
+      tokens: finalResult.tokens,
+      cost: finalResult.tokens ? computeCost(finalResult.tokens, hostAssignment.modelName) : undefined,
     });
 
     return {
@@ -1515,6 +1585,9 @@ export async function dispatch(
     latencyMs: result.latencyMs,
     retries: result.retries,
     timedOut: result.timedOut,
+    lastError: result.lastError,
+    tokens: result.tokens,
+    cost: result.tokens ? computeCost(result.tokens, a.modelName) : undefined,
   });
 
   // If the call failed (empty output after retries), surface the error as
@@ -1700,4 +1773,249 @@ export async function addMessage(
       data: { updatedAt: new Date() },
     });
   }
+}
+
+// ─── Usage / cost tracking ─────────────────────────────────────────────────
+//
+// After a successful dispatch, the dispatch route calls saveUsage() with the
+// steps from the DispatchResult. Each step becomes one UsageRecord row.
+// This powers the cost dashboard and per-message token/cost display.
+
+export interface UsageRecordInput {
+  conversationId?: string;
+  messageId?: string;
+  mode: string;
+  role: string;
+  provider: string;
+  model: string;
+  connectionType: string;
+  tokens?: TokenUsage;
+  cost?: CostBreakdown;
+  latencyMs: number;
+  retries: number;
+  timedOut: boolean;
+  error: boolean;
+}
+
+export async function saveUsage(
+  userId: string,
+  records: UsageRecordInput[]
+): Promise<void> {
+  if (records.length === 0) return;
+  await db.usageRecord.createMany({
+    data: records.map((r) => ({
+      userId,
+      conversationId: r.conversationId || null,
+      messageId: r.messageId || null,
+      mode: r.mode,
+      role: r.role,
+      provider: r.provider,
+      model: r.model,
+      connectionType: r.connectionType,
+      inputTokens: r.tokens?.input ?? null,
+      outputTokens: r.tokens?.output ?? null,
+      totalTokens: r.tokens?.total ?? null,
+      inputCost: r.cost?.input ?? null,
+      outputCost: r.cost?.output ?? null,
+      totalCost: r.cost?.total ?? null,
+      latencyMs: r.latencyMs,
+      retries: r.retries,
+      timedOut: r.timedOut,
+      error: r.error,
+    })),
+  });
+}
+
+// Aggregated usage summary for the cost dashboard.
+export interface UsageSummary {
+  totalCost: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  // Per-provider breakdown.
+  byProvider: {
+    provider: string;
+    calls: number;
+    totalCost: number;
+    inputTokens: number;
+    outputTokens: number;
+  }[];
+  // Per-model breakdown.
+  byModel: {
+    model: string;
+    provider: string;
+    calls: number;
+    totalCost: number;
+    inputTokens: number;
+    outputTokens: number;
+  }[];
+  // Per-day breakdown (last 30 days).
+  byDay: {
+    date: string; // YYYY-MM-DD
+    calls: number;
+    totalCost: number;
+  }[];
+}
+
+export async function getUsageSummary(
+  userId: string,
+  days = 30
+): Promise<UsageSummary> {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+
+  const records = await db.usageRecord.findMany({
+    where: {
+      userId,
+      createdAt: { gte: since },
+    },
+    select: {
+      provider: true,
+      model: true,
+      inputTokens: true,
+      outputTokens: true,
+      totalTokens: true,
+      inputCost: true,
+      outputCost: true,
+      totalCost: true,
+      error: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const totalCost = records.reduce((s, r) => s + (r.totalCost || 0), 0);
+  const totalInputTokens = records.reduce((s, r) => s + (r.inputTokens || 0), 0);
+  const totalOutputTokens = records.reduce((s, r) => s + (r.outputTokens || 0), 0);
+  const successfulCalls = records.filter((r) => !r.error).length;
+  const failedCalls = records.filter((r) => r.error).length;
+
+  // Group by provider.
+  const providerMap = new Map<string, {
+    provider: string;
+    calls: number;
+    totalCost: number;
+    inputTokens: number;
+    outputTokens: number;
+  }>();
+  for (const r of records) {
+    const key = r.provider;
+    const existing = providerMap.get(key) || {
+      provider: key,
+      calls: 0,
+      totalCost: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+    existing.calls += 1;
+    existing.totalCost += r.totalCost || 0;
+    existing.inputTokens += r.inputTokens || 0;
+    existing.outputTokens += r.outputTokens || 0;
+    providerMap.set(key, existing);
+  }
+
+  // Group by model.
+  const modelMap = new Map<string, {
+    model: string;
+    provider: string;
+    calls: number;
+    totalCost: number;
+    inputTokens: number;
+    outputTokens: number;
+  }>();
+  for (const r of records) {
+    const key = `${r.provider}/${r.model}`;
+    const existing = modelMap.get(key) || {
+      model: r.model,
+      provider: r.provider,
+      calls: 0,
+      totalCost: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+    existing.calls += 1;
+    existing.totalCost += r.totalCost || 0;
+    existing.inputTokens += r.inputTokens || 0;
+    existing.outputTokens += r.outputTokens || 0;
+    modelMap.set(key, existing);
+  }
+
+  // Group by day.
+  const dayMap = new Map<string, { calls: number; totalCost: number }>();
+  for (const r of records) {
+    const date = r.createdAt.toISOString().slice(0, 10); // YYYY-MM-DD
+    const existing = dayMap.get(date) || { calls: 0, totalCost: 0 };
+    existing.calls += 1;
+    existing.totalCost += r.totalCost || 0;
+    dayMap.set(date, existing);
+  }
+
+  return {
+    totalCost: Math.round(totalCost * 1_000_000) / 1_000_000,
+    totalInputTokens,
+    totalOutputTokens,
+    totalCalls: records.length,
+    successfulCalls,
+    failedCalls,
+    byProvider: Array.from(providerMap.values()).sort((a, b) => b.totalCost - a.totalCost),
+    byModel: Array.from(modelMap.values()).sort((a, b) => b.totalCost - a.totalCost),
+    byDay: Array.from(dayMap.entries())
+      .map(([date, v]) => ({
+        date,
+        calls: v.calls,
+        totalCost: Math.round(v.totalCost * 1_000_000) / 1_000_000,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date)),
+  };
+}
+
+// Get recent usage records (for a list view).
+export interface UsageRecordRow {
+  id: string;
+  conversationId: string | null;
+  mode: string;
+  role: string;
+  provider: string;
+  model: string;
+  connectionType: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  totalCost: number | null;
+  latencyMs: number;
+  retries: number;
+  timedOut: boolean;
+  error: boolean;
+  createdAt: string;
+}
+
+export async function getRecentUsage(
+  userId: string,
+  limit = 50
+): Promise<UsageRecordRow[]> {
+  const records = await db.usageRecord.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+  return records.map((r) => ({
+    id: r.id,
+    conversationId: r.conversationId,
+    mode: r.mode,
+    role: r.role,
+    provider: r.provider,
+    model: r.model,
+    connectionType: r.connectionType,
+    inputTokens: r.inputTokens,
+    outputTokens: r.outputTokens,
+    totalTokens: r.totalTokens,
+    totalCost: r.totalCost,
+    latencyMs: r.latencyMs,
+    retries: r.retries,
+    timedOut: r.timedOut,
+    error: r.error,
+    createdAt: r.createdAt.toISOString(),
+  }));
 }

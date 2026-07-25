@@ -28,6 +28,7 @@ model User {
 
   multiModelConfigs MultiModelConfig[]
   conversations     Conversation[]
+  usageRecords      UsageRecord[]
 }
 
 model MultiModelConfig {
@@ -91,7 +92,58 @@ model Message {
   mode           String?
   multiAgent     Boolean  @default(false)
   error          Boolean  @default(false)
+  // Aggregated token usage + cost for this message (sum across all steps).
+  // Stored as JSON: { input, output, total, cost: { input, output, total } }
+  usage          String?
   createdAt      DateTime @default(now())
 
   @@index([conversationId, createdAt])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// NOX AI — Usage records (cost tracking)
+//
+// One row per model call within a dispatch. A single user message can produce
+// multiple UsageRecords (e.g. ORCHESTRATOR mode = 3 records: host analyze +
+// specialist + host synthesize). Used to power the cost dashboard.
+// ───────────────────────────────────────────────────────────────────────────
+
+model UsageRecord {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Which conversation + message triggered this call (for drill-down).
+  conversationId String?
+  messageId      String?
+
+  // What was called.
+  mode           String   // SINGLE | MULTI | ORCHESTRATOR
+  role           String   // host | planning | coding | single model | etc.
+  provider       String   // openai | anthropic | gemini | ollama | etc.
+  model          String   // gpt-4o-mini | llama3.1:8b | etc.
+  connectionType String   // API | LOCAL
+
+  // Token usage (from provider response; null for LOCAL models that don't
+  // report token counts, or for failed calls).
+  inputTokens    Int?
+  outputTokens   Int?
+  totalTokens    Int?
+
+  // Cost in USD (null for LOCAL models — zero marginal cost).
+  inputCost      Float?
+  outputCost     Float?
+  totalCost      Float?
+
+  // Call metadata.
+  latencyMs      Int
+  retries        Int      @default(0)
+  timedOut       Boolean  @default(false)
+  error          Boolean  @default(false)
+
+  createdAt      DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, provider, model])
+  @@index([conversationId])
 }

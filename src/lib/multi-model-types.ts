@@ -90,6 +90,31 @@ export interface DispatchStep {
   latencyMs: number;
   retries: number;
   timedOut: boolean;
+  lastError?: string;
+  // Cost tracking (populated when connectionType === "API" and the provider
+  // returns usage metadata; LOCAL models have no cost)
+  tokens?: TokenUsage;
+  cost?: CostBreakdown;
+}
+
+// Token usage returned by the provider after a successful call.
+export interface TokenUsage {
+  input: number;   // prompt tokens
+  output: number;  // completion tokens
+  total: number;   // input + output
+}
+
+// Cost breakdown for a single model call (in USD).
+export interface CostBreakdown {
+  input: number;   // $ for input tokens
+  output: number;  // $ for output tokens
+  total: number;   // input + output
+}
+
+// Pricing for a model — USD per 1 million tokens.
+export interface ModelPricing {
+  inputPer1M: number;   // $ per 1M input tokens
+  outputPer1M: number;  // $ per 1M output tokens
 }
 
 export interface DispatchResult {
@@ -239,3 +264,69 @@ export const DEFAULT_TIMEOUTS = {
 } as const;
 
 export const MAX_RETRY = 2;
+
+// ─── Pricing table ─────────────────────────────────────────────────────────
+//
+// USD per 1 million tokens. Sourced from each provider's public pricing page.
+// LOCAL models (ollama, llamacpp, llamafile) have zero marginal cost.
+//
+// When a provider returns token usage, we multiply by these rates to compute
+// the cost of each call. Unknown models fall back to a sane default.
+//
+// IMPORTANT: keep this updated as providers change pricing. The fallback for
+// unknown models is intentionally conservative (median API price).
+export const MODEL_PRICING: Record<string, ModelPricing> = {
+  // OpenAI — https://openai.com/api/pricing/
+  "gpt-4o": { inputPer1M: 2.5, outputPer1M: 10 },
+  "gpt-4o-mini": { inputPer1M: 0.15, outputPer1M: 0.6 },
+  "gpt-4-turbo": { inputPer1M: 10, outputPer1M: 30 },
+  "o1-mini": { inputPer1M: 1.1, outputPer1M: 4.4 },
+
+  // Anthropic — https://www.anthropic.com/pricing
+  "claude-3-5-sonnet-latest": { inputPer1M: 3, outputPer1M: 15 },
+  "claude-3-5-haiku-latest": { inputPer1M: 0.8, outputPer1M: 4 },
+  "claude-3-opus-latest": { inputPer1M: 15, outputPer1M: 75 },
+
+  // Google Gemini — https://ai.google.dev/pricing
+  "gemini-1.5-flash": { inputPer1M: 0.075, outputPer1M: 0.3 },
+  "gemini-1.5-flash-8b": { inputPer1M: 0.0375, outputPer1M: 0.15 },
+  "gemini-1.5-pro": { inputPer1M: 1.25, outputPer1M: 5 },
+  "gemini-2.0-flash": { inputPer1M: 0.1, outputPer1M: 0.4 },
+  "gemini-2.0-flash-exp": { inputPer1M: 0.1, outputPer1M: 0.4 },
+  "gemini-2.5-pro": { inputPer1M: 1.25, outputPer1M: 10 },
+  "gemini-2.5-flash": { inputPer1M: 0.075, outputPer1M: 0.3 },
+
+  // Mistral — https://mistral.ai/products/la-plateforme#pricing
+  "mistral-large-latest": { inputPer1M: 2, outputPer1M: 6 },
+  "mistral-small-latest": { inputPer1M: 0.2, outputPer1M: 0.6 },
+
+  // Groq — https://groq.com/pricing/
+  "llama-3.3-70b-versatile": { inputPer1M: 0.59, outputPer1M: 0.79 },
+  "llama-3.1-8b-instant": { inputPer1M: 0.05, outputPer1M: 0.08 },
+};
+
+// Fallback for unknown models — conservative median API price.
+export const DEFAULT_PRICING: ModelPricing = {
+  inputPer1M: 1,
+  outputPer1M: 3,
+};
+
+// Look up pricing for a model name. Returns DEFAULT_PRICING if unknown.
+export function getPricing(modelName: string): ModelPricing {
+  return MODEL_PRICING[modelName] || DEFAULT_PRICING;
+}
+
+// Compute cost (USD) from token usage + model name.
+export function computeCost(
+  tokens: TokenUsage,
+  modelName: string
+): CostBreakdown {
+  const pricing = getPricing(modelName);
+  const input = (tokens.input / 1_000_000) * pricing.inputPer1M;
+  const output = (tokens.output / 1_000_000) * pricing.outputPer1M;
+  return {
+    input: Math.round(input * 1_000_000) / 1_000_000, // 6 decimal places
+    output: Math.round(output * 1_000_000) / 1_000_000,
+    total: Math.round((input + output) * 1_000_000) / 1_000_000,
+  };
+}
