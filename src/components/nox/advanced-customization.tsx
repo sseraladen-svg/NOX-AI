@@ -20,6 +20,8 @@ import {
   Clock,
   Info,
   CheckCircle2,
+  AlertTriangle,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -96,6 +98,15 @@ export function AdvancedCustomization() {
     if (ok) toast.success("Configuration saved", { description: "API keys encrypted at rest." });
     else toast.error("Save failed");
   };
+
+  // Block save if any tested role is in an error state. This prevents broken
+  // configs (e.g. invalid API key, unreachable CLI) from being persisted.
+  const hasTestErrors = Object.values(store.tests).some(
+    (t) => t?.status === "error"
+  );
+  const hasTestingInProgress = Object.values(store.tests).some(
+    (t) => t?.status === "testing"
+  );
 
   const handleExport = async () => {
     const doc = await store.exportConfig();
@@ -372,11 +383,23 @@ export function AdvancedCustomization() {
 
       {/* Bottom action bar */}
       <div className="flex flex-wrap items-center gap-2 justify-between">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Info className="h-3.5 w-3.5" />
-          <span>
-            Save is blocked when any tested connection is in an error state.
-          </span>
+        <div className="flex items-center gap-2 text-xs">
+          {hasTestErrors ? (
+            <span className="flex items-center gap-1.5 text-red-400">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Fix the test errors above before saving.
+            </span>
+          ) : hasTestingInProgress ? (
+            <span className="flex items-center gap-1.5 text-amber-400">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Tests in progress — wait for them to finish.
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <Info className="h-3.5 w-3.5" />
+              Save is blocked when any tested connection is in an error state.
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" size="sm" onClick={handleImport}>
@@ -391,8 +414,15 @@ export function AdvancedCustomization() {
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={store.saving || !store.dirty}
+            disabled={store.saving || !store.dirty || hasTestErrors || hasTestingInProgress}
             className="bg-primary text-primary-foreground hover:bg-primary/90"
+            title={
+              hasTestErrors
+                ? "Fix the test errors above before saving"
+                : hasTestingInProgress
+                ? "Wait for tests to finish"
+                : undefined
+            }
           >
             <Save className="h-3.5 w-3.5 mr-1.5" />
             {store.saving ? "Saving…" : "Save Configuration"}

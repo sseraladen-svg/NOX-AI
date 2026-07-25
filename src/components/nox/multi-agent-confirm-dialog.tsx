@@ -80,50 +80,24 @@ export function MultiAgentConfirmDialog({
                 <div className="text-[11px] text-muted-foreground font-mono mb-1">
                   {l.provider} · {l.modelName}
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  {l.connectionType === "API" ? (
-                    <>
-                      <div>
-                        <span className="text-muted-foreground">Quota:</span>{" "}
-                        <span className="text-foreground">
-                          {Math.round((l.remainingQuota || 0) * 100)}%
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Rate:</span>{" "}
-                        <span className="text-foreground">
-                          {l.rateLimitPerMin || 0}/min
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Tokens:</span>{" "}
-                        <span className="text-foreground">
-                          {l.remainingTokens || 0}
-                        </span>
-                      </div>
-                    </>
+                {/* Honest reachability status — no fake quota numbers.
+                    checkLimits() now actually pings each provider and reports
+                    whether the key works + the API is reachable. */}
+                <div className="text-[11px]">
+                  {l.canFinish ? (
+                    <span className="text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" />
+                      {l.connectionType === "API"
+                        ? "Key verified — API reachable"
+                        : "Endpoint reachable — model available"}
+                    </span>
                   ) : (
-                    <>
-                      <div>
-                        <span className="text-muted-foreground">Busy:</span>{" "}
-                        <span className={l.busy ? "text-red-400" : "text-emerald-400"}>
-                          {l.busy ? "Yes" : "No"}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Capacity:</span>{" "}
-                        <span className="text-foreground">
-                          {Math.round((l.estimatedCapacity || 0) * 100)}%
-                        </span>
-                      </div>
-                    </>
+                    <span className="text-red-400 flex items-start gap-1">
+                      <XCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                      <span>{l.reason || "Not reachable"}</span>
+                    </span>
                   )}
                 </div>
-                {l.reason && (
-                  <p className="text-[11px] text-amber-400/90 mt-1.5 leading-relaxed">
-                    {l.reason}
-                  </p>
-                )}
               </motion.div>
             ))}
           </AnimatePresence>

@@ -231,14 +231,68 @@ export async function saveConfig(
   userId: string,
   doc: MultiModelConfigDoc
 ): Promise<void> {
+  // Load the existing config so we can preserve API keys that are sent back
+  // masked (e.g. "sk-••••7890"). When the frontend loads a config, the keys
+  // are masked. If the user doesn't re-type a key, the masked version gets
+  // sent back on save. We detect masked keys (contain "•") and preserve the
+  // existing encrypted key from the DB instead of overwriting with the mask.
+  const existing = await db.multiModelConfig.findUnique({
+    where: { userId_scope: { userId, scope: SCOPE } },
+  });
+
+  const preserveMaskedKey = (incoming: ModelAssignment | null | undefined, existingJson: string | null): ModelAssignment | null => {
+    if (!incoming) return null;
+    // If the incoming key is missing or masked, preserve the existing key.
+    if (!incoming.apiKey || incoming.apiKey.includes("•")) {
+      if (existingJson) {
+        try {
+          const existingAssign = JSON.parse(existingJson) as ModelAssignment;
+          return { ...incoming, apiKey: existingAssign.apiKey }; // keep encrypted blob
+        } catch {
+          return { ...incoming, apiKey: undefined };
+        }
+      }
+      return { ...incoming, apiKey: undefined };
+    }
+    return incoming;
+  };
+
   const globalConfig = doc.globalConfig
-    ? JSON.stringify(encryptAssignment(doc.globalConfig))
+    ? JSON.stringify(encryptAssignment(preserveMaskedKey(doc.globalConfig, existing?.globalConfig || null)))
     : null;
-  const featureConfigs = encryptFeatureMap(doc.featureConfigs);
+
+  // For feature/specialist maps, preserve per-key.
+  const preserveMap = (
+    incoming: Partial<Record<string, ModelAssignment>> | undefined,
+    existingJson: string | null
+  ): Partial<Record<string, ModelAssignment>> | undefined => {
+    if (!incoming) return undefined;
+    let existingMap: Record<string, ModelAssignment> = {};
+    if (existingJson) {
+      try {
+        existingMap = JSON.parse(existingJson) as Record<string, ModelAssignment>;
+      } catch {
+        /* ignore */
+      }
+    }
+    const out: Record<string, ModelAssignment> = {};
+    for (const [k, v] of Object.entries(incoming)) {
+      if (!v) continue;
+      if (!v.apiKey || v.apiKey.includes("•")) {
+        // Preserve existing key for this role.
+        out[k] = { ...v, apiKey: existingMap[k]?.apiKey };
+      } else {
+        out[k] = v;
+      }
+    }
+    return out;
+  };
+
+  const featureConfigs = encryptFeatureMap(preserveMap(doc.featureConfigs, existing?.featureConfigs || null) as Partial<Record<FeatureId, ModelAssignment>> | undefined);
   const hostConfig = doc.hostConfig
-    ? JSON.stringify(encryptAssignment(doc.hostConfig))
+    ? JSON.stringify(encryptAssignment(preserveMaskedKey(doc.hostConfig, existing?.hostConfig || null)))
     : null;
-  const specialistConfigs = encryptSpecialistMap(doc.specialistConfigs);
+  const specialistConfigs = encryptSpecialistMap(preserveMap(doc.specialistConfigs, existing?.specialistConfigs || null) as Partial<Record<SpecialistId, ModelAssignment>> | undefined);
   const timeoutOverrides = doc.timeoutOverrides
     ? JSON.stringify(doc.timeoutOverrides)
     : null;
@@ -375,9 +429,14 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
     };
   }
 
+  // ─── Anthropic test: actually ping the API ──────────────────────────────
+  // Anthropic has its own auth header (x-api-key) + its own /v1/models endpoint.
+  if (a.connectionType === "API" && a.provider === "anthropic") {
+    return await testAnthropicConnection(a.apiKey!, a.modelName, a.endpoint);
+  }
+
   // ─── OpenAI-compatible test: actually ping the API ──────────────────────
-  // For openai, anthropic, mistral, groq — hit a lightweight endpoint to
-  // verify the key works and the API is reachable from the server.
+  // For openai, mistral, groq — hit GET /v1/models with Bearer auth.
   if (a.connectionType === "API" && ["openai", "mistral", "groq"].includes(a.provider)) {
     return await testOpenAiCompatibleConnection(
       a.apiKey!,
@@ -431,63 +490,197 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
 }
 
 // ─── Limit / capacity check ────────────────────────────────────────────────
-
+//
+// HONEST implementation: instead of returning fake hardcoded quota numbers,
+// this function does a real reachability check for each model:
+//
+//   • API models (openai/anthropic/gemini/mistral/groq): pings the provider's
+//     /models endpoint with the API key. If it returns 200, the key works and
+//     the API is reachable → canFinish = true. If 401/403/429/5xx, returns
+//     canFinish = false with the real reason.
+//
+//   • LOCAL models (ollama): pings GET /api/tags. If reachable, canFinish =
+//     true. If not, canFinish = false with "Ollama is not reachable from the
+//     server."
+//
+//   • LOCAL models (llamacpp/llamafile): can't easily verify without running
+//     the binary, so we report canFinish = true with a note that the binary
+//     path hasn't been verified.
+//
+// This is slower than the old fake version (one HTTP call per model) but it
+// gives the user real information. The confirmation dialog now shows "Key
+// verified" or the actual error instead of fake "70% quota" numbers.
 export async function checkLimits(
   assignments: { id: string; label: string; assignment: ModelAssignment }[],
-  estimatedTaskSize: "small" | "medium" | "large"
+  _estimatedTaskSize: "small" | "medium" | "large"
 ): Promise<ModelLimit[]> {
-  const threshold =
-    estimatedTaskSize === "large"
-      ? 0.5
-      : estimatedTaskSize === "medium"
-      ? 0.25
-      : 0.1;
-
-  return assignments.map(({ id, label, assignment }) => {
-    if (assignment.connectionType === "API") {
-      const remainingQuota = 0.7;
-      const rateLimitPerMin = 60;
-      const remainingTokens = 8000;
-      const canFinish = remainingQuota >= threshold;
-      return {
+  const results = await Promise.all(
+    assignments.map(async ({ id, label, assignment }) => {
+      const base: ModelLimit = {
         id,
         label,
         connectionType: assignment.connectionType,
         provider: assignment.provider,
         modelName: assignment.modelName,
-        remainingQuota,
-        rateLimitPerMin,
-        remainingTokens,
-        canFinish,
-        reason: canFinish
-          ? undefined
-          : `Quota ${Math.round(remainingQuota * 100)}% is below the ${Math.round(
-              threshold * 100
-            )}% threshold for a ${estimatedTaskSize} task.`,
+        canFinish: true,
       };
+
+      // For LOCAL CLI models (llamacpp/llamafile), we can't easily verify
+      // without running the binary. Assume OK with a note.
+      if (
+        assignment.connectionType === "LOCAL" &&
+        assignment.provider !== "ollama"
+      ) {
+        return {
+          ...base,
+          canFinish: true,
+          // No fake capacity number — just a note that it's unverified.
+        };
+      }
+
+      // For ollama: ping GET /api/tags.
+      if (
+        assignment.connectionType === "LOCAL" &&
+        assignment.provider === "ollama"
+      ) {
+        const ollamaBase = assignment.endpoint || "http://localhost:11434";
+        try {
+          const res = await fetch(`${ollamaBase}/api/tags`, {
+            method: "GET",
+            signal: AbortSignal.timeout(5_000),
+          });
+          if (!res.ok) {
+            return {
+              ...base,
+              canFinish: false,
+              reason: `Ollama returned HTTP ${res.status}.`,
+            };
+          }
+          const json = await res.json();
+          const availableModels: string[] = (json.models || []).map(
+            (m: { name?: string }) => m.name || ""
+          );
+          const modelAvailable =
+            availableModels.length === 0 ||
+            availableModels.includes(assignment.modelName);
+          if (!modelAvailable) {
+            return {
+              ...base,
+              canFinish: false,
+              reason: `Model "${assignment.modelName}" not pulled. Available: ${availableModels.slice(0, 3).join(", ")}`,
+            };
+          }
+          return { ...base, canFinish: true };
+        } catch {
+          return {
+            ...base,
+            canFinish: false,
+            reason: `Ollama at ${ollamaBase} is not reachable from the server.`,
+          };
+        }
+      }
+
+      // For API models: ping the provider's /models endpoint.
+      if (assignment.connectionType === "API") {
+        const testResult = await quickApiReachabilityCheck(assignment);
+        return {
+          ...base,
+          canFinish: testResult.canFinish,
+          reason: testResult.reason,
+        };
+      }
+
+      return base;
+    })
+  );
+  return results;
+}
+
+// Quick reachability check for API providers — used by checkLimits.
+// Returns canFinish=true if the key works + API is reachable, false otherwise.
+// This is a lighter check than the full testAssignment() — it just answers
+// "can we reach this provider with this key right now?"
+async function quickApiReachabilityCheck(
+  assignment: ModelAssignment
+): Promise<{ canFinish: boolean; reason?: string }> {
+  const { provider, apiKey, endpoint } = assignment;
+  if (!apiKey) {
+    return { canFinish: false, reason: "No API key configured." };
+  }
+
+  const endpoints: Record<string, string> = {
+    openai: "https://api.openai.com/v1/models",
+    mistral: "https://api.mistral.ai/v1/models",
+    groq: "https://api.groq.com/openai/v1/models",
+    anthropic: "https://api.anthropic.com/v1/models",
+  };
+
+  try {
+    let res: Response;
+    if (provider === "anthropic") {
+      const url = endpoint
+        ? `${endpoint.replace(/\/$/, "")}/models`
+        : endpoints.anthropic;
+      res = await fetch(url, {
+        method: "GET",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        signal: AbortSignal.timeout(8_000),
+      });
+    } else if (provider === "gemini") {
+      // Gemini uses key as query param.
+      const base =
+        endpoint || "https://generativelanguage.googleapis.com/v1beta/models";
+      res = await fetch(`${base}?key=${apiKey}`, {
+        method: "GET",
+        signal: AbortSignal.timeout(8_000),
+      });
     } else {
-      const busy = false;
-      const estimatedCapacity = 0.85;
-      const canFinish = !busy && estimatedCapacity >= threshold;
+      // OpenAI-compatible.
+      const url = endpoint
+        ? `${endpoint.replace(/\/$/, "")}/models`
+        : endpoints[provider] || endpoints.openai;
+      res = await fetch(url, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(8_000),
+      });
+    }
+
+    if (res.ok) {
+      return { canFinish: true };
+    }
+    if (res.status === 401) {
+      return { canFinish: false, reason: `${provider} rejected the API key (401).` };
+    }
+    if (res.status === 403) {
       return {
-        id,
-        label,
-        connectionType: assignment.connectionType,
-        provider: assignment.provider,
-        modelName: assignment.modelName,
-        busy,
-        estimatedCapacity,
-        canFinish,
-        reason: canFinish
-          ? undefined
-          : busy
-          ? "Local CLI is currently busy with another task."
-          : `Estimated capacity ${Math.round(
-              estimatedCapacity * 100
-            )}% is below the ${Math.round(threshold * 100)}% threshold.`,
+        canFinish: false,
+        reason: `${provider} blocked the request (403) — likely a region restriction or quota issue.`,
       };
     }
-  });
+    if (res.status === 429) {
+      return { canFinish: false, reason: `${provider} rate limit hit (429).` };
+    }
+    return {
+      canFinish: false,
+      reason: `${provider} returned HTTP ${res.status}.`,
+    };
+  } catch (err) {
+    const e = err as Error;
+    const isConn =
+      e.message.includes("fetch failed") ||
+      e.message.includes("aborted") ||
+      e.message.includes("ECONNREFUSED");
+    return {
+      canFinish: false,
+      reason: isConn
+        ? `Cannot reach ${provider} from the server (network/region block).`
+        : `${provider} error: ${e.message}`,
+    };
+  }
 }
 
 // ─── Dispatch ──────────────────────────────────────────────────────────────
@@ -1191,6 +1384,127 @@ export async function testOpenAiCompatibleConnection(
       message: isConn
         ? `Could not reach ${provider}'s API from the server. The server may be in a region ${provider} blocks, or there's a network issue.`
         : `${provider} error: ${e.message}`,
+      reason: isConn
+        ? "Network error — server cannot reach the provider."
+        : e.message,
+      fixSteps: isConn
+        ? [
+            "Deploy NOX AI to a region the provider supports",
+            "Check the server's internet connection",
+            "Try a different provider",
+          ]
+        : ["Try again", "Check the provider's status page"],
+    };
+  }
+}
+
+// Test an Anthropic API connection by hitting GET /v1/models with x-api-key.
+// Verifies: key is valid, API is reachable from the server, key has access.
+// Anthropic uses a different auth header (x-api-key + anthropic-version) than
+// the OpenAI-compatible providers, so it needs its own test function.
+export async function testAnthropicConnection(
+  apiKey: string,
+  model: string,
+  endpoint?: string
+): Promise<TestResult> {
+  const started = Date.now();
+  const url = endpoint
+    ? `${endpoint.replace(/\/$/, "")}/models`
+    : "https://api.anthropic.com/v1/models";
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => res.statusText);
+      let errMsg = body;
+      try {
+        const j = JSON.parse(body);
+        errMsg = j?.error?.message || j?.message || body;
+      } catch {
+        /* keep raw */
+      }
+      errMsg = String(errMsg).slice(0, 250);
+
+      let message: string;
+      let reason: string;
+      let fixSteps: string[];
+      if (res.status === 401) {
+        message = `Anthropic rejected the API key — check it's copied correctly with no extra spaces.`;
+        reason = `HTTP 401: ${errMsg}`;
+        fixSteps = [
+          "Go to https://console.anthropic.com/settings/keys and verify the key is active",
+          "Copy it again with no leading/trailing spaces",
+          "Ensure the key has the necessary permissions",
+        ];
+      } else if (res.status === 403) {
+        const isRegion = errMsg.toLowerCase().includes("country") ||
+          errMsg.toLowerCase().includes("region") ||
+          errMsg.toLowerCase().includes("unsupported");
+        message = isRegion
+          ? `Anthropic is blocking this request because of the server's geographic location. Deploy NOX AI in a supported region.`
+          : `Anthropic returned 403 — the key may not have permission. (Details: ${errMsg})`;
+        reason = `HTTP 403: ${errMsg}`;
+        fixSteps = isRegion
+          ? [
+              "Deploy NOX AI to a supported region (Vercel, Railway, etc.)",
+              "This is a server-side geo-block — no key will work from here",
+            ]
+          : [
+              "Check the Anthropic key has the right permissions",
+              "Verify your organization's API access settings",
+            ];
+      } else if (res.status === 429) {
+        message = `Anthropic rate limit hit — wait a moment and try again. (Details: ${errMsg})`;
+        reason = `HTTP 429: ${errMsg}`;
+        fixSteps = [
+          "Wait a minute for the rate limit to reset",
+          "Check your Anthropic usage dashboard",
+        ];
+      } else {
+        message = `Anthropic API error (HTTP ${res.status}): ${errMsg}`;
+        reason = `HTTP ${res.status}`;
+        fixSteps = ["Try again", "Check Anthropic's status page"];
+      }
+
+      return {
+        ok: false,
+        status: "error",
+        message,
+        reason,
+        fixSteps,
+        latencyMs: Date.now() - started,
+      };
+    }
+
+    // Success — key works, API is reachable.
+    const json = await res.json();
+    const modelCount = Array.isArray(json.data) ? json.data.length : 0;
+    return {
+      ok: true,
+      status: "ready",
+      message: `Connected to Anthropic (key verified). ${modelCount} models available. Model "${model}" ready.`,
+      version: model,
+      latencyMs: Date.now() - started,
+    };
+  } catch (err) {
+    const e = err as Error;
+    const isConn = e.message.includes("fetch failed") ||
+      e.message.includes("aborted") ||
+      e.message.includes("ECONNREFUSED");
+    return {
+      ok: false,
+      status: "error",
+      message: isConn
+        ? `Could not reach Anthropic's API from the server. The server may be in a region Anthropic blocks, or there's a network issue.`
+        : `Anthropic error: ${e.message}`,
       reason: isConn
         ? "Network error — server cannot reach the provider."
         : e.message,

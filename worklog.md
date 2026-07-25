@@ -221,3 +221,51 @@ Stage Summary:
 - Usage dashboard accessible via "Usage" button on mode picker → /?view=usage.
 - Dashboard shows: total cost, total tokens, total calls, success rate, daily cost chart, per-model breakdown, per-provider breakdown, recent calls list.
 - All cost tracking tasks from the original plan are now complete.
+
+---
+Task ID: 7
+Agent: main (Super Z)
+Task: Pre-deployment fixes — markdown rendering, block-save-on-test-failure, Anthropic test function, honest limits (remove fake quota numbers), masked-key preservation bug fix.
+
+Work Log:
+- Installed remark-gfm for GFM table/strikethrough/task-list support.
+- Created src/components/nox/markdown.tsx — Markdown component with:
+  • react-markdown + remark-gfm rendering
+  • CodeBlock wrapper with copy button (extracts raw text, clipboard API, 2s "Copied" feedback)
+  • Inline code styling (background + monospace)
+  • Tables (horizontal scroll, bordered cells)
+  • Blockquotes (left border accent)
+  • Links (target=_blank, rel=noopener)
+  • Headings, lists, paragraphs, hr — all with tight chat-appropriate spacing
+- Wired Markdown component into MessageBubble in both shared-chat.tsx (Single + Orchestrator) and feature-uis.tsx (Multi mode). Replaced the old `whitespace-pre-wrap` plain text div.
+- Block-save-on-test-failure: added hasTestErrors + hasTestingInProgress derived values in advanced-customization.tsx. Save button now disabled when any test status is "error" or "testing". Added dynamic warning banner: red "Fix the test errors above before saving" / amber "Tests in progress" / neutral info text.
+- Anthropic test function: added testAnthropicConnection() — pings GET /v1/models with x-api-key + anthropic-version headers. Returns specific errors for 401 (key rejected), 403 (region block + permission), 429 (rate limit), 5xx. Wired into testAssignment() so Anthropic tests now actually ping the API instead of just checking key length.
+- Honest limits: rewrote checkLimits() — instead of fake hardcoded 70%/85%, it now:
+  • API models: actually pings the provider's /models endpoint (quickApiReachabilityCheck) and reports canFinish=true if reachable, false with real reason if not
+  • Ollama: pings GET /api/tags, checks if model is available
+  • llamacpp/llamafile: can't verify without running binary, reports canFinish=true
+  • Runs all checks in parallel (Promise.all)
+- Updated MultiAgentConfirmDialog: removed the fake quota/capacity grid. Now shows honest status: "Key verified — API reachable" (green) or the actual error reason (red). No more misleading "70% quota" / "85% capacity" numbers.
+- CRITICAL BUG FIX: masked-key preservation. When the frontend loads a config, API keys are masked (sk-••••7890). When the user saves without re-typing, the masked key was being encrypted and stored — breaking dispatch (ByteString character error from the • character). Fixed saveConfig() to:
+  • Load the existing config before saving
+  • Detect masked keys (contain "•")
+  • Preserve the existing encrypted key from the DB instead of overwriting with the mask
+  • Applied to globalConfig, hostConfig, featureConfigs, specialistConfigs
+- Verified end-to-end: save fresh key → load (masked) → re-save with masked key → dispatch uses the REAL key (gets proper OpenAI 403 region error, not ByteString error).
+- Recreated /api/multi-model/test/route.ts (was missing again after server restart).
+- Lint clean (0 errors, 0 warnings).
+- Browser verification:
+  • Advanced panel: Local CLI + Ollama → Test → shows real "Could not connect to Ollama at http://localhost:11434" error with fix steps ✓
+  • Save button disabled when test status is "error" ✓
+  • "Fix the test errors above before saving." warning banner shows ✓
+  • Ollama Endpoint field visible with helpful note about localhost ✓
+  • Screenshot saved: nox-block-save-on-error.png
+
+Stage Summary:
+- All 4 pre-deploy fixes complete + 1 critical bug fix (masked-key preservation).
+- Markdown rendering: AI responses now render with code blocks (copy button), tables, lists, bold, links, blockquotes.
+- Block-save-on-test-failure: broken configs can no longer be persisted.
+- Anthropic test: actually pings the API now (was just checking key length).
+- Honest limits: the multi-agent confirmation dialog shows real reachability status instead of fake quota numbers.
+- Masked-key preservation: the #1 deployment blocker (dispatch broke after save-load-resave cycle) is fixed.
+- NOX AI is now ready for deployment.

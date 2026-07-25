@@ -42,6 +42,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import type { ConversationMessage } from "@/store/conversations-store";
 import type { DispatchStep } from "@/lib/multi-model-types";
+import { Markdown } from "./markdown";
 
 // ─── Shared bits ────────────────────────────────────────────────────────────
 
@@ -282,7 +283,7 @@ function ChatBubble({ msg }: { msg: ConversationMessage }) {
               : "bg-muted/50 border border-border"
           }`}
         >
-          <div className="nox-prose whitespace-pre-wrap">{msg.content}</div>
+          <Markdown content={msg.content} className="nox-prose" />
         </div>
         <DispatchTrace steps={msg.trace || []} />
       </div>

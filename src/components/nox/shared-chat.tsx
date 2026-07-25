@@ -40,6 +40,7 @@ import {
 import type { ConversationMessage } from "@/store/conversations-store";
 import { useAuth } from "@/store/auth-store";
 import { useConversations } from "@/store/conversations-store";
+import { Markdown } from "./markdown";
 import { useMultiModel } from "@/store/multi-model-store";
 import type { Mode } from "@/lib/multi-model-types";
 import { AdvancedCustomization } from "./advanced-customization";
@@ -98,7 +99,7 @@ export function MessageBubble({ msg }: { msg: ConversationMessage }) {
               : "bg-muted/50 border border-border"
           }`}
         >
-          <div className="nox-prose whitespace-pre-wrap">{msg.content}</div>
+          <Markdown content={msg.content} className="nox-prose" />
         </div>
 
         {msg.trace && msg.trace.length > 0 && (
