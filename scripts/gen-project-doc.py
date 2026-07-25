@@ -23,13 +23,19 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase.pdfmetrics import registerFontFamily
 
 # ─── Fonts ──────────────────────────────────────────────────────────────────
+# English-only fonts — Liberation Serif (body) + Liberation Sans (headings)
 FONT_DIR = '/usr/share/fonts'
-pdfmetrics.registerFont(TTFont('NotoSerifSC', f'{FONT_DIR}/truetype/noto-serif-sc/NotoSerifSC-Regular.ttf'))
-pdfmetrics.registerFont(TTFont('NotoSerifSC-Bold', f'{FONT_DIR}/truetype/noto-serif-sc/NotoSerifSC-Bold.ttf'))
-registerFontFamily('NotoSerifSC', normal='NotoSerifSC', bold='NotoSerifSC-Bold')
+pdfmetrics.registerFont(TTFont('BodyFont', f'{FONT_DIR}/truetype/liberation/LiberationSerif-Regular.ttf'))
+pdfmetrics.registerFont(TTFont('BodyFont-Bold', f'{FONT_DIR}/truetype/liberation/LiberationSerif-Bold.ttf'))
+pdfmetrics.registerFont(TTFont('BodyFont-Italic', f'{FONT_DIR}/truetype/liberation/LiberationSerif-Italic.ttf'))
+registerFontFamily('BodyFont', normal='BodyFont', bold='BodyFont-Bold', italic='BodyFont-Italic')
 
-BODY_FONT = 'NotoSerifSC'
-BOLD_FONT = 'NotoSerifSC-Bold'
+pdfmetrics.registerFont(TTFont('HeadFont', f'{FONT_DIR}/truetype/liberation/LiberationSans-Regular.ttf'))
+pdfmetrics.registerFont(TTFont('HeadFont-Bold', f'{FONT_DIR}/truetype/liberation/LiberationSans-Bold.ttf'))
+registerFontFamily('HeadFont', normal='HeadFont', bold='HeadFont-Bold')
+
+BODY_FONT = 'BodyFont'
+BOLD_FONT = 'BodyFont-Bold'
 
 # ─── Palette (minimal mode) ─────────────────────────────────────────────────
 PAGE_BG       = colors.HexColor('#ffffff')
@@ -53,7 +59,7 @@ SEM_INFO      = colors.HexColor('#2563eb')
 styles = getSampleStyleSheet()
 
 style_title = ParagraphStyle('Title', parent=styles['Title'],
-    fontName=BOLD_FONT, fontSize=28, leading=34, textColor=TEXT_PRIMARY,
+    fontName='HeadFont-Bold', fontSize=28, leading=34, textColor=TEXT_PRIMARY,
     alignment=TA_LEFT, spaceAfter=6*mm)
 
 style_subtitle = ParagraphStyle('Subtitle', parent=styles['Normal'],
@@ -61,15 +67,15 @@ style_subtitle = ParagraphStyle('Subtitle', parent=styles['Normal'],
     alignment=TA_LEFT, spaceAfter=12*mm)
 
 style_h1 = ParagraphStyle('H1', parent=styles['Heading1'],
-    fontName=BOLD_FONT, fontSize=20, leading=26, textColor=TEXT_PRIMARY,
+    fontName='HeadFont-Bold', fontSize=20, leading=26, textColor=TEXT_PRIMARY,
     spaceBefore=10*mm, spaceAfter=4*mm, keepWithNext=True)
 
 style_h2 = ParagraphStyle('H2', parent=styles['Heading2'],
-    fontName=BOLD_FONT, fontSize=15, leading=20, textColor=TEXT_PRIMARY,
+    fontName='HeadFont-Bold', fontSize=15, leading=20, textColor=TEXT_PRIMARY,
     spaceBefore=6*mm, spaceAfter=3*mm, keepWithNext=True)
 
 style_h3 = ParagraphStyle('H3', parent=styles['Heading3'],
-    fontName=BOLD_FONT, fontSize=12, leading=16, textColor=ACCENT,
+    fontName='HeadFont-Bold', fontSize=12, leading=16, textColor=ACCENT,
     spaceBefore=4*mm, spaceAfter=2*mm, keepWithNext=True)
 
 style_body = ParagraphStyle('Body', parent=styles['Normal'],
@@ -92,7 +98,7 @@ style_code = ParagraphStyle('Code', parent=styles['Code'],
     borderPadding=6)
 
 style_table_header = ParagraphStyle('TH', parent=styles['Normal'],
-    fontName=BOLD_FONT, fontSize=9, leading=12, textColor=colors.white,
+    fontName='HeadFont-Bold', fontSize=9, leading=12, textColor=colors.white,
     alignment=TA_LEFT)
 
 style_table_cell = ParagraphStyle('TC', parent=styles['Normal'],
@@ -135,7 +141,7 @@ def make_table(data, col_widths=None, header=True):
     style_cmds = [
         ('BACKGROUND', (0, 0), (-1, 0), HEADER_FILL) if header else ('BACKGROUND', (0,0), (-1,0), CARD_BG),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white) if header else ('TEXTCOLOR', (0,0), (-1,0), TEXT_PRIMARY),
-        ('FONTNAME', (0, 0), (-1, 0), BOLD_FONT),
+        ('FONTNAME', (0, 0), (-1, 0), 'HeadFont-Bold'),
         ('FONTSIZE', (0, 0), (-1, 0), 9),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
         ('TOPPADDING', (0, 0), (-1, 0), 6),
@@ -165,7 +171,7 @@ def info_box(title, text, color=SEM_INFO):
 
     inner = [
         Paragraph(f'<b>{title}</b>', ParagraphStyle('IBT', parent=style_body,
-            fontName=BOLD_FONT, fontSize=10, textColor=color, spaceAfter=2*mm)),
+            fontName='HeadFont-Bold', fontSize=10, textColor=color, spaceAfter=2*mm)),
         Paragraph(text, ParagraphStyle('IBB', parent=style_body,
             fontSize=9.5, leading=13, spaceAfter=0)),
     ]
@@ -188,7 +194,7 @@ def build_cover():
 
     # Logo box
     logo_data = [[Paragraph('<b>N</b>', ParagraphStyle('Logo', parent=styles['Normal'],
-        fontName=BOLD_FONT, fontSize=36, textColor=colors.white, alignment=TA_CENTER))]]
+        fontName='HeadFont-Bold', fontSize=36, textColor=colors.white, alignment=TA_CENTER))]]
     logo = Table(logo_data, colWidths=[25*mm], rowHeights=[25*mm])
     logo.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), ACCENT),
