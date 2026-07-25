@@ -5,6 +5,7 @@ NOX AI is a multi-model AI chat platform that lets you assign different AI model
 ## Features
 
 - **3 Modes**: Single, Multi (6 feature tabs), Orchestrator (Host + 5 specialists)
+- **Model-driven intent classification**: Orchestrator mode uses a Host model call (not keyword regex) to classify intent and route to specialists. Includes confidence threshold, JSON parsing, and keyword fallback on failure.
 - **8 Providers**: OpenAI, Anthropic, Gemini, Mistral, Groq, Ollama, llama.cpp, llamafile
 - **Per-role connections**: Each role independently API Key or Local CLI
 - **Real vision**: Upload images, sent to vision-capable models (GPT-4o, Claude 3.5, Gemini)
@@ -13,6 +14,9 @@ NOX AI is a multi-model AI chat platform that lets you assign different AI model
 - **Markdown rendering**: Code blocks with copy buttons, tables, lists, blockquotes
 - **Security**: AES-256-GCM API key encryption, scrypt passwords, HMAC sessions, rate limiting
 - **6 feature UIs**: Chat (bubbles), Coding (split editor), Voice (mic+TTS), Vision (image upload), Automation (node canvas), Robotics (sensor grid)
+- **Context truncation**: Long conversations are truncated to fit specialist context windows
+- **Classification trace**: The Host's classification call is logged in the dispatch trace with tokens, cost, and latency — same as any other pipeline step
+- **Cached classification**: When the user confirms a multi-agent task, the classification is cached and passed back to avoid re-running the classification call
 
 ## Tech Stack
 

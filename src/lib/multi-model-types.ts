@@ -124,6 +124,14 @@ export interface ModelPricing {
   outputPer1M: number;  // $ per 1M output tokens
 }
 
+// Result of the Host model's intent classification call.
+// The Host analyzes the user's message and outputs this as JSON.
+export interface IntentClassification {
+  specialist: SpecialistId | "none";
+  confidence: number;   // 0.0 - 1.0
+  reasoning: string;    // one sentence explaining the routing decision
+}
+
 export interface DispatchResult {
   ok: boolean;
   mode: Mode;
@@ -132,6 +140,9 @@ export interface DispatchResult {
   multiAgent: boolean;
   confirmationRequired: boolean;
   limits?: ModelLimit[];
+  // When the Host classified the intent, this is included so the
+  // confirmation dialog can show WHY it routed to a specialist.
+  classification?: IntentClassification;
   error?: string;
 }
 

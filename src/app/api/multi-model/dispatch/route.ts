@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dispatch, saveUsage, type ChatMessage, type FeatureId } from "@/lib/multi-model-service";
+import { dispatch, saveUsage, type ChatMessage, type FeatureId, type IntentClassification } from "@/lib/multi-model-service";
 import { getCurrentUser } from "@/lib/auth";
 import { isRateLimited, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
 
@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       feature?: FeatureId;
       conversationId?: string;
       skipSpecialist?: boolean;
+      cachedClassification?: IntentClassification;
     };
     if (!body?.messages || !Array.isArray(body.messages)) {
       return NextResponse.json(
@@ -52,6 +53,7 @@ export async function POST(req: NextRequest) {
       confirmMultiAgent: body.confirmMultiAgent,
       feature: body.feature,
       skipSpecialist: body.skipSpecialist,
+      cachedClassification: body.cachedClassification,
     });
 
     // Save usage records for cost tracking (only if dispatch produced steps

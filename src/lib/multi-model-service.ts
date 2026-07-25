@@ -19,6 +19,7 @@ import {
   type DispatchResult,
   type TokenUsage,
   type CostBreakdown,
+  type IntentClassification,
   FEATURES,
   SPECIALISTS,
   PROVIDERS,
@@ -42,6 +43,7 @@ export type {
   DispatchResult,
   TokenUsage,
   CostBreakdown,
+  IntentClassification,
 };
 export { FEATURES, SPECIALISTS, PROVIDERS, DEFAULT_TIMEOUTS, MAX_RETRY };
 
@@ -1863,25 +1865,447 @@ function truncateForContext(
   };
 }
 
+// ─── Host-model-driven intent classification ────────────────────────────────
+//
+// Instead of keyword regex matching, the Host model itself classifies the
+// user's intent. A lightweight call with a structured system prompt asks the
+// Host to output ONLY a JSON object:
+//   { "specialist": "coding"|"planning"|"vision"|"automation"|"robotics"|"none",
+//     "confidence": 0.0-1.0,
+//     "reasoning": "one sentence" }
+//
+// If the specialist is "none" or confidence < CLASSIFICATION_CONFIDENCE_THRESHOLD,
+// the Host answers directly (no specialist routing).
+//
+// If the classification call fails (timeout, error, invalid JSON), falls back
+// to the old keyword-based resolvePlan() — so a failed classification never
+// silently breaks the dispatch.
+const CLASSIFICATION_CONFIDENCE_THRESHOLD = 0.6;
+
+const CLASSIFICATION_SYSTEM_PROMPT = `You are NOX Host, an intent classification system. Analyze the user's message and determine which specialist should handle it.
+
+Available specialists:
+- "planning": Planning, architecture, design, roadmap, strategy, task decomposition
+- "coding": Code generation, bug fixing, code review, implementation, debugging
+- "vision": Image analysis, OCR, visual understanding, photo description
+- "automation": Workflow automation, API chaining, scheduling, pipelines
+- "robotics": Robotics, motion planning, sensor fusion, physical control
+- "none": General questions, conversation, explanations that don't need a specialist
+
+Respond with ONLY a JSON object. No markdown, no code blocks, no extra text:
+{"specialist": "coding", "confidence": 0.9, "reasoning": "User is asking to write a Python function."}`;
+
+// Parse the classification JSON from the Host model's response.
+// Handles: raw JSON, JSON wrapped in markdown code blocks, JSON with
+// surrounding text. Returns null if parsing fails.
+function parseClassificationResponse(output: string): IntentClassification | null {
+  try {
+    // Try to extract JSON from the response (may be wrapped in ```json ... ```)
+    const jsonMatch = output.match(/\{[\s\S]*?\}/);
+    if (!jsonMatch) return null;
+
+    const parsed = JSON.parse(jsonMatch[0]) as {
+      specialist?: string;
+      confidence?: number;
+      reasoning?: string;
+    };
+
+    // Validate specialist value
+    const validSpecialists = ["planning", "coding", "vision", "automation", "robotics", "none"];
+    if (!parsed.specialist || !validSpecialists.includes(parsed.specialist)) {
+      return null;
+    }
+
+    return {
+      specialist: parsed.specialist as SpecialistId | "none",
+      confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.5,
+      reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "No reasoning provided.",
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Result of a classification call — the parsed classification + call metadata
+// for the dispatch trace.
+interface ClassificationCallResult {
+  classification: IntentClassification | null;
+  output: string;
+  latencyMs: number;
+  retries: number;
+  timedOut: boolean;
+  lastError?: string;
+  tokens?: TokenUsage;
+}
+
+// Make a classification call to the Host model. Sends a single user message
+// containing the classification system prompt + the user's last message.
+// The Host responds with a JSON object that parseClassificationResponse extracts.
+//
+// Only the last user message is sent (not full history) to keep the call
+// fast and cheap — classification doesn't need conversation context.
+async function classifyIntent(
+  hostAssignment: ModelAssignment,
+  messages: ChatMessage[],
+  timeoutMs: number
+): Promise<ClassificationCallResult> {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  const userContent = lastUser?.content || "";
+
+  const classifyMessages: ChatMessage[] = [
+    {
+      role: "user",
+      content: `${CLASSIFICATION_SYSTEM_PROMPT}\n\n---\n\nUser message to classify:\n"${userContent}"\n\nRespond with ONLY the JSON object:`,
+      image: lastUser?.image,
+    },
+  ];
+
+  const result = await callModel(
+    hostAssignment,
+    classifyMessages,
+    {
+      timeoutMs,
+      role: "classify",
+      intent: "classify",
+    }
+  );
+
+  const classification = parseClassificationResponse(result.output);
+
+  return {
+    classification,
+    output: result.output,
+    latencyMs: result.latencyMs,
+    retries: result.retries,
+    timedOut: result.timedOut,
+    lastError: result.lastError,
+    tokens: result.tokens,
+  };
+}
+
 export async function dispatch(
   userId: string,
   messages: ChatMessage[],
-  opts: { confirmMultiAgent?: boolean; feature?: FeatureId; skipSpecialist?: boolean } = {}
+  opts: {
+    confirmMultiAgent?: boolean;
+    feature?: FeatureId;
+    skipSpecialist?: boolean;
+    cachedClassification?: IntentClassification;
+  } = {}
 ): Promise<DispatchResult> {
   const doc = await getConfigInternal(userId);
-  let plan = resolvePlan(doc, messages, opts.feature);
   const timeoutOverrides = doc.timeoutOverrides || {};
+  const steps: DispatchStep[] = [];
 
-  // If skipSpecialist is set (user chose "Let Host handle directly"),
-  // force the plan to be single-agent — Host only, no specialist routing.
-  if (opts.skipSpecialist && plan.multiAgent) {
-    plan = {
-      ...plan,
-      assignments: plan.assignments.slice(0, 1), // keep only the Host
-      multiAgent: false,
-      intent: "general (host direct)",
+  // ─── ORCHESTRATOR MODE: model-driven classification ─────────────────────
+  //
+  // Instead of keyword regex matching, the Host model classifies the intent
+  // via a lightweight JSON-output call. This replaces the old resolvePlan()
+  // keyword matching for ORCHESTRATOR mode. If the classification call fails,
+  // falls back to keyword matching.
+  if (doc.mode === "ORCHESTRATOR" && !opts.skipSpecialist) {
+    const hostAssignment = doc.hostConfig || emptyAssignment();
+    const hostTimeout =
+      timeoutOverrides[hostAssignment.connectionType] ||
+      DEFAULT_TIMEOUTS[hostAssignment.connectionType];
+
+    // Step 1: Classify the intent (or use cached classification from the
+    // confirmation round-trip to avoid paying for the call twice).
+    let classification: IntentClassification | null = null;
+    let classificationCallResult: ClassificationCallResult | null = null;
+
+    if (opts.cachedClassification) {
+      classification = opts.cachedClassification;
+    } else {
+      classificationCallResult = await classifyIntent(
+        hostAssignment,
+        messages,
+        hostTimeout
+      );
+      classification = classificationCallResult.classification;
+
+      // If classification call failed (timeout, error, invalid JSON),
+      // fall back to keyword-based resolvePlan().
+      if (!classification) {
+        // Fallback: use old keyword matching
+        const fallbackPlan = resolvePlan(doc, messages, opts.feature);
+        if (fallbackPlan.multiAgent && fallbackPlan.assignments[1]) {
+          classification = {
+            specialist: fallbackPlan.assignments[1].id as SpecialistId,
+            confidence: 0.5,
+            reasoning: `Classification call failed (${classificationCallResult.lastError || "invalid response"}). Fell back to keyword matching.`,
+          };
+        } else {
+          classification = {
+            specialist: "none",
+            confidence: 0.5,
+            reasoning: "Classification call failed. Host will answer directly.",
+          };
+        }
+      }
+    }
+
+    // Log the classification step in the trace (if we made a real call)
+    if (classificationCallResult) {
+      steps.push({
+        role: "host",
+        model: hostAssignment.modelName,
+        provider: hostAssignment.provider,
+        connectionType: hostAssignment.connectionType,
+        intent: "classify",
+        input: messages[messages.length - 1]?.content || "",
+        output: classificationCallResult.output || "(no output)",
+        latencyMs: classificationCallResult.latencyMs,
+        retries: classificationCallResult.retries,
+        timedOut: classificationCallResult.timedOut,
+        lastError: classificationCallResult.lastError,
+        tokens: classificationCallResult.tokens,
+        cost: classificationCallResult.tokens
+          ? computeCost(classificationCallResult.tokens, hostAssignment.modelName)
+          : undefined,
+      });
+    }
+
+    // Step 2: Decide routing based on classification
+    const shouldRouteToSpecialist =
+      classification.specialist !== "none" &&
+      classification.confidence >= CLASSIFICATION_CONFIDENCE_THRESHOLD;
+
+    if (!shouldRouteToSpecialist) {
+      // Host answers directly — no specialist needed.
+      // This is the same as the "Host handles it directly" fallback.
+      const result = await callModel(hostAssignment, messages, {
+        timeoutMs: hostTimeout,
+        role: "host",
+        intent: "direct",
+      });
+
+      steps.push({
+        role: "host",
+        model: hostAssignment.modelName,
+        provider: hostAssignment.provider,
+        connectionType: hostAssignment.connectionType,
+        intent: "direct",
+        input: messages[messages.length - 1]?.content || "",
+        output: result.output,
+        latencyMs: result.latencyMs,
+        retries: result.retries,
+        timedOut: result.timedOut,
+        lastError: result.lastError,
+        tokens: result.tokens,
+        cost: result.tokens
+          ? computeCost(result.tokens, hostAssignment.modelName)
+          : undefined,
+      });
+
+      const finalReply = result.output || (result.lastError
+        ? `⚠️ Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
+        : "⚠️ Model returned no response. Check your configuration in Advanced Customization.");
+
+      return {
+        ok: true,
+        mode: doc.mode,
+        steps,
+        finalReply,
+        multiAgent: false,
+        confirmationRequired: false,
+        classification: classification || undefined,
+      };
+    }
+
+    // Step 3: Specialist is needed — build the plan from classification
+    const specialistId = classification.specialist as SpecialistId;
+    const specialistAssignment =
+      doc.specialistConfigs?.[specialistId] || emptyAssignment();
+    const specialistTimeout =
+      timeoutOverrides[specialistAssignment.connectionType] ||
+      DEFAULT_TIMEOUTS[specialistAssignment.connectionType];
+
+    // Step 3a: Pre-flight confirmation (first call, no confirmMultiAgent)
+    if (!opts.confirmMultiAgent) {
+      const limits = await checkLimits(
+        [
+          { id: "host", label: "Host", assignment: hostAssignment },
+          { id: specialistId, label: specialistId, assignment: specialistAssignment },
+        ],
+        "medium"
+      );
+      return {
+        ok: false,
+        mode: doc.mode,
+        steps: [],
+        finalReply: "",
+        multiAgent: true,
+        confirmationRequired: true,
+        limits,
+        classification: classification || undefined,
+      };
+    }
+
+    // Step 3b: Confirmed — check limits
+    let limits: ModelLimit[] | undefined;
+    limits = await checkLimits(
+      [
+        { id: "host", label: "Host", assignment: hostAssignment },
+        { id: specialistId, label: specialistId, assignment: specialistAssignment },
+      ],
+      "medium"
+    );
+    const blocked = limits.find((l) => !l.canFinish);
+    if (blocked) {
+      return {
+        ok: false,
+        mode: doc.mode,
+        steps,
+        finalReply: "",
+        multiAgent: true,
+        confirmationRequired: false,
+        limits,
+        classification: classification || undefined,
+        error: `Cannot run: "${blocked.label}" cannot complete its part. ${
+          blocked.reason || ""
+        }`,
+      };
+    }
+
+    // Step 3c: Run the specialist pipeline (2 calls: specialist + synthesize)
+    // Note: the old "host analyze" step is replaced by the classification call above.
+
+    // Context handoff: truncate the message history to fit the specialist's
+    // context window before forwarding.
+    const truncated = truncateForContext(messages);
+    const specialistMessages: ChatMessage[] = [
+      ...truncated.messages,
+      {
+        role: "assistant",
+        content: `[Host routed this to the ${specialistId} specialist (confidence: ${Math.round(classification.confidence * 100)}%). Fulfill the request.]`,
+      },
+    ];
+    const specialistResult = await callModel(
+      specialistAssignment,
+      specialistMessages,
+      {
+        timeoutMs: specialistTimeout,
+        role: specialistId,
+        intent: specialistId,
+      }
+    );
+
+    // Host synthesizes the specialist's output
+    const finalMessages: ChatMessage[] = [
+      ...messages,
+      {
+        role: "assistant",
+        content: `Specialist ${specialistId} responded with:\n\n${specialistResult.output}\n\nReply to the user, incorporating the specialist's work.`,
+      },
+    ];
+    const finalResult = await callModel(hostAssignment, finalMessages, {
+      timeoutMs: hostTimeout,
+      role: "host",
+    });
+
+    // Log specialist step
+    steps.push({
+      role: specialistId,
+      model: specialistAssignment.modelName,
+      provider: specialistAssignment.provider,
+      connectionType: specialistAssignment.connectionType,
+      intent: specialistId,
+      input: truncated.truncated
+        ? `(routed by host, context truncated: ${truncated.originalTokens}→${truncated.keptTokens} tokens)`
+        : "(routed by host)",
+      output: specialistResult.output,
+      latencyMs: specialistResult.latencyMs,
+      retries: specialistResult.retries,
+      timedOut: specialistResult.timedOut,
+      lastError: specialistResult.lastError,
+      tokens: specialistResult.tokens,
+      cost: specialistResult.tokens
+        ? computeCost(specialistResult.tokens, specialistAssignment.modelName)
+        : undefined,
+    });
+
+    // Log synthesize step
+    steps.push({
+      role: "host",
+      model: hostAssignment.modelName,
+      provider: hostAssignment.provider,
+      connectionType: hostAssignment.connectionType,
+      intent: "synthesize",
+      input: "(specialist response)",
+      output: finalResult.output,
+      latencyMs: finalResult.latencyMs,
+      retries: finalResult.retries,
+      timedOut: finalResult.timedOut,
+      lastError: finalResult.lastError,
+      tokens: finalResult.tokens,
+      cost: finalResult.tokens
+        ? computeCost(finalResult.tokens, hostAssignment.modelName)
+        : undefined,
+    });
+
+    const finalReply = finalResult.output || (finalResult.lastError
+      ? `⚠️ Model call failed after ${finalResult.retries} attempt(s).\n\nError: ${finalResult.lastError}\n\nCheck your configuration in Advanced Customization.`
+      : "⚠️ Model returned no response. Check your configuration in Advanced Customization.");
+
+    return {
+      ok: true,
+      mode: doc.mode,
+      steps,
+      finalReply,
+      multiAgent: true,
+      confirmationRequired: false,
+      limits,
+      classification: classification || undefined,
     };
   }
+
+  // ─── skipSpecialist path (user chose "Let Host handle directly") ─────────
+  if (doc.mode === "ORCHESTRATOR" && opts.skipSpecialist) {
+    const hostAssignment = doc.hostConfig || emptyAssignment();
+    const hostTimeout =
+      timeoutOverrides[hostAssignment.connectionType] ||
+      DEFAULT_TIMEOUTS[hostAssignment.connectionType];
+    const result = await callModel(hostAssignment, messages, {
+      timeoutMs: hostTimeout,
+      role: "host",
+      intent: "direct",
+    });
+
+    steps.push({
+      role: "host",
+      model: hostAssignment.modelName,
+      provider: hostAssignment.provider,
+      connectionType: hostAssignment.connectionType,
+      intent: "direct (user override)",
+      input: messages[messages.length - 1]?.content || "",
+      output: result.output,
+      latencyMs: result.latencyMs,
+      retries: result.retries,
+      timedOut: result.timedOut,
+      lastError: result.lastError,
+      tokens: result.tokens,
+      cost: result.tokens
+        ? computeCost(result.tokens, hostAssignment.modelName)
+        : undefined,
+    });
+
+    const finalReply = result.output || (result.lastError
+      ? `⚠️ Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
+      : "⚠️ Model returned no response. Check your configuration in Advanced Customization.");
+
+    return {
+      ok: true,
+      mode: doc.mode,
+      steps,
+      finalReply,
+      multiAgent: false,
+      confirmationRequired: false,
+    };
+  }
+
+  // ─── SINGLE or MULTI mode (keyword-based resolvePlan, unchanged) ──────────
+  const plan = resolvePlan(doc, messages, opts.feature);
 
   if (plan.multiAgent && !opts.confirmMultiAgent) {
     const limits = await checkLimits(plan.assignments, "medium");
@@ -1914,116 +2338,6 @@ export async function dispatch(
         }`,
       };
     }
-  }
-
-  const steps: DispatchStep[] = [];
-
-  if (doc.mode === "ORCHESTRATOR" && plan.multiAgent) {
-    const hostAssignment = plan.assignments[0].assignment;
-    const hostTimeout =
-      timeoutOverrides[hostAssignment.connectionType] ||
-      DEFAULT_TIMEOUTS[hostAssignment.connectionType];
-    const hostResult = await callModel(hostAssignment, messages, {
-      timeoutMs: hostTimeout,
-      role: "host",
-      intent: plan.intent,
-    });
-
-    const specialistAssignment = plan.assignments[1].assignment;
-    const specialistTimeout =
-      timeoutOverrides[specialistAssignment.connectionType] ||
-      DEFAULT_TIMEOUTS[specialistAssignment.connectionType];
-
-    // Context handoff: truncate the message history to fit the specialist's
-    // context window before forwarding. This prevents token-limit errors on
-    // long conversations and reduces cost (fewer input tokens).
-    const truncated = truncateForContext(messages);
-    const specialistMessages: ChatMessage[] = [
-      ...truncated.messages,
-      {
-        role: "assistant",
-        content: `[Host routed this to the ${plan.assignments[1].label} specialist. Fulfill the request.]`,
-      },
-    ];
-    const specialistResult = await callModel(
-      specialistAssignment,
-      specialistMessages,
-      {
-        timeoutMs: specialistTimeout,
-        role: plan.assignments[1].label,
-        intent: plan.intent,
-      }
-    );
-
-    const finalMessages: ChatMessage[] = [
-      ...messages,
-      {
-        role: "assistant",
-        content: `Specialist ${plan.assignments[1].label} responded with:\n\n${specialistResult.output}\n\nReply to the user, incorporating the specialist's work.`,
-      },
-    ];
-    const finalResult = await callModel(hostAssignment, finalMessages, {
-      timeoutMs: hostTimeout,
-      role: "host",
-    });
-
-    steps.push({
-      role: "host",
-      model: hostAssignment.modelName,
-      provider: hostAssignment.provider,
-      connectionType: hostAssignment.connectionType,
-      intent: "analyze",
-      input: messages[messages.length - 1]?.content || "",
-      output: hostResult.output || "(host routing)",
-      latencyMs: hostResult.latencyMs,
-      retries: hostResult.retries,
-      timedOut: hostResult.timedOut,
-      lastError: hostResult.lastError,
-      tokens: hostResult.tokens,
-      cost: hostResult.tokens ? computeCost(hostResult.tokens, hostAssignment.modelName) : undefined,
-    });
-    steps.push({
-      role: plan.assignments[1].label,
-      model: specialistAssignment.modelName,
-      provider: specialistAssignment.provider,
-      connectionType: specialistAssignment.connectionType,
-      intent: plan.intent,
-      input: truncated.truncated
-        ? `(routed by host, context truncated: ${truncated.originalTokens}→${truncated.keptTokens} tokens)`
-        : "(routed by host)",
-      output: specialistResult.output,
-      latencyMs: specialistResult.latencyMs,
-      retries: specialistResult.retries,
-      timedOut: specialistResult.timedOut,
-      lastError: specialistResult.lastError,
-      tokens: specialistResult.tokens,
-      cost: specialistResult.tokens ? computeCost(specialistResult.tokens, specialistAssignment.modelName) : undefined,
-    });
-    steps.push({
-      role: "host",
-      model: hostAssignment.modelName,
-      provider: hostAssignment.provider,
-      connectionType: hostAssignment.connectionType,
-      intent: "synthesize",
-      input: "(specialist response)",
-      output: finalResult.output,
-      latencyMs: finalResult.latencyMs,
-      retries: finalResult.retries,
-      timedOut: finalResult.timedOut,
-      lastError: finalResult.lastError,
-      tokens: finalResult.tokens,
-      cost: finalResult.tokens ? computeCost(finalResult.tokens, hostAssignment.modelName) : undefined,
-    });
-
-    return {
-      ok: true,
-      mode: doc.mode,
-      steps,
-      finalReply: finalResult.output,
-      multiAgent: true,
-      confirmationRequired: false,
-      limits,
-    };
   }
 
   // SINGLE or MULTI (single-model path)

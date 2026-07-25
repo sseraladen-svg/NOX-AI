@@ -361,14 +361,19 @@ def build_content():
 
     story.append(Paragraph('3.3 Orchestrator Mode', style_h2))
     story.append(Paragraph(
-        'A Host model reads every prompt and decides whether to answer directly or route to a specialist. The system detects intent '
-        'using keyword matching (plan/design/architect triggers the Planning specialist, code/function/bug triggers Coding, image/photo '
-        'triggers Vision, automate/workflow triggers Automation, robot/move/arm triggers Robotics). When a specialist is triggered, '
-        'a multi-agent confirmation dialog appears showing real reachability checks for each involved model. The user can continue, '
-        'switch to Single mode, change the model, or let the Host handle the task directly without a specialist.',
+        'A Host model reads every prompt and classifies the intent using a model-driven classification call (not keyword regex). '
+        'The Host is prompted to output a JSON object: {"specialist": "coding"|"planning"|"vision"|"automation"|"robotics"|"none", '
+        '"confidence": 0.0-1.0, "reasoning": "one sentence"}. If the specialist is "none" or confidence is below 0.6, the Host '
+        'answers directly without routing. If a specialist is selected with sufficient confidence, a multi-agent confirmation dialog '
+        'appears showing the Host\'s classification reasoning (specialist, confidence percentage, and one-sentence explanation) so '
+        'the user can see WHY it routed there and override if wrong. The user can continue, switch to Single mode, change the model, '
+        'or let the Host handle the task directly. If the classification call fails (timeout, error, invalid JSON), the system '
+        'falls back to keyword-based matching as a safety net. The classification call is logged in the dispatch trace as a '
+        '"classify" step with its own tokens, cost, and latency. When the user confirms a multi-agent task, the classification '
+        'result is cached and passed back to avoid re-running the classification call.',
         style_body))
     story.append(Paragraph(
-        'If the user continues, the three-step pipeline runs: (1) Host analyzes the prompt, (2) Specialist handles the routed task '
+        'If the user continues, the pipeline runs: (1) Host classification call (already done), (2) Specialist handles the routed task '
         'with truncated context to fit token limits, (3) Host synthesizes the specialist\'s output into a final reply. The full '
         'pipeline is visible in the dispatch trace with per-step latency, token counts, cost, and retry/timeout status.',
         style_body))

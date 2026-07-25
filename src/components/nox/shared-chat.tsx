@@ -469,6 +469,7 @@ export function ConfirmWrapper({
   open,
   limits,
   mode,
+  classification,
   onContinue,
   onCancel,
   onSwitchToSingle,
@@ -478,6 +479,7 @@ export function ConfirmWrapper({
   open: boolean;
   limits: LimitRow[];
   mode: string;
+  classification?: { specialist: string; confidence: number; reasoning: string };
   onContinue: () => void;
   onCancel: () => void;
   onSwitchToSingle: () => void;
@@ -489,6 +491,7 @@ export function ConfirmWrapper({
       open={open}
       limits={limits}
       mode={mode}
+      classification={classification}
       onContinue={onContinue}
       onCancel={onCancel}
       onSwitchToGlobal={onSwitchToSingle}

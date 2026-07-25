@@ -19,6 +19,7 @@ interface Props {
   open: boolean;
   limits: LimitRow[];
   mode: string | null;
+  classification?: { specialist: string; confidence: number; reasoning: string };
   onContinue: () => void;
   onCancel: () => void;
   onSwitchToGlobal: () => void;
@@ -30,6 +31,7 @@ export function MultiAgentConfirmDialog({
   open,
   limits,
   mode,
+  classification,
   onContinue,
   onCancel,
   onSwitchToGlobal,
@@ -48,10 +50,33 @@ export function MultiAgentConfirmDialog({
             Multi-Agent Task Detected
           </DialogTitle>
           <DialogDescription>
-            The host model wants to route this request to one or more specialist
-            models. Review the per-model capacity before continuing.
+            The Host model classified this request and wants to route it to a
+            specialist. Review the reasoning and per-model status before continuing.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Host classification reasoning — shows WHY it routed here */}
+        {classification && (
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <Bot className="h-3.5 w-3.5 text-primary" />
+                <span className="text-xs font-medium text-primary uppercase tracking-wider">
+                  Host Classification
+                </span>
+              </div>
+              <Badge className="bg-primary/15 text-primary border-primary/30 text-[10px]">
+                {Math.round(classification.confidence * 100)}% confidence
+              </Badge>
+            </div>
+            <div className="text-sm font-medium capitalize">
+              Specialist: {classification.specialist}
+            </div>
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              {classification.reasoning}
+            </div>
+          </div>
+        )}
 
         {/* Limit summary */}
         <div className="space-y-2 max-h-72 overflow-y-auto nox-scroll py-1">

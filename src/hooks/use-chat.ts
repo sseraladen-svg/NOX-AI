@@ -8,7 +8,7 @@ import {
 } from "@/store/conversations-store";
 import { useMultiModel, type LimitRow } from "@/store/multi-model-store";
 import { authFetch } from "@/lib/auth-fetch";
-import type { DispatchStep, Mode, FeatureId, TokenUsage, CostBreakdown } from "@/lib/multi-model-types";
+import type { DispatchStep, Mode, FeatureId, TokenUsage, CostBreakdown, IntentClassification } from "@/lib/multi-model-types";
 import { toast } from "sonner";
 
 // Sum token usage + cost across all dispatch steps for one message.
@@ -63,6 +63,8 @@ export function useChat() {
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [pendingText, setPendingText] = React.useState<string | null>(null);
   const [pendingFeature, setPendingFeature] = React.useState<FeatureId | undefined>(undefined);
+  const [pendingClassification, setPendingClassification] = React.useState<IntentClassification | undefined>(undefined);
+  const [confirmClassification, setConfirmClassification] = React.useState<IntentClassification | undefined>(undefined);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [convDrawerOpen, setConvDrawerOpen] = React.useState(false);
 
@@ -100,7 +102,8 @@ export function useChat() {
     confirmMultiAgent = false,
     feature?: FeatureId,
     image?: { data: string; mimeType: string },
-    skipSpecialist = false
+    skipSpecialist = false,
+    cachedClassification?: IntentClassification
   ) => {
     if (!text.trim() || sending) return;
     setSending(true);
@@ -139,6 +142,7 @@ export function useChat() {
           confirmMultiAgent,
           feature,
           skipSpecialist,
+          cachedClassification,
         },
       });
       const json = await res.json();
@@ -161,9 +165,11 @@ export function useChat() {
 
       if (r.confirmationRequired) {
         setConfirmLimits(r.limits || []);
+        setConfirmClassification(r.classification || undefined);
         setConfirmOpen(true);
         setPendingText(text);
         setPendingFeature(feature);
+        setPendingClassification(r.classification || undefined);
         setSending(false);
         return;
       }
@@ -213,10 +219,16 @@ export function useChat() {
     if (pendingText !== null) {
       const text = pendingText;
       const feature = pendingFeature;
+      const classification = pendingClassification;
       setPendingText(null);
       setPendingFeature(undefined);
+      setPendingClassification(undefined);
       setConfirmLimits([]);
-      sendMessage(text, true, feature);
+      setConfirmClassification(undefined);
+      // Pass cached classification so the backend doesn't re-run the
+      // classification call — it already knows the specialist from the
+      // first round-trip.
+      sendMessage(text, true, feature, undefined, false, classification);
     }
   };
 
@@ -238,7 +250,9 @@ export function useChat() {
       const feature = pendingFeature;
       setPendingText(null);
       setPendingFeature(undefined);
+      setPendingClassification(undefined);
       setConfirmLimits([]);
+      setConfirmClassification(undefined);
       // Re-dispatch with skipSpecialist=true — Host answers directly.
       sendMessage(text, false, feature, undefined, true);
     }
@@ -250,6 +264,7 @@ export function useChat() {
     setInput,
     sending,
     confirmLimits,
+    confirmClassification,
     confirmOpen,
     setConfirmOpen,
     pendingText,

@@ -170,6 +170,7 @@ export function OrchestratorModePage() {
           chat.setPendingText(null);
         }}
         onSwitchToSingle={chat.onConfirmSwitchToSingle}
+        classification={chat.confirmClassification}
         onHostHandleDirectly={chat.onConfirmHostDirectly}
         onOpenSettings={() => {
           chat.setConfirmOpen(false);
