@@ -431,6 +431,8 @@ def build_content():
         ['Dispatch trace', 'Working', 'Per-step: model, provider, connection, tokens, cost, latency'],
         ['Multi-agent confirmation', 'Working', 'Real reachability checks, 3 fallback options'],
         ['Streaming responses', 'Not built', 'Future work — currently waits for full response'],
+        ['Heartbeat for LOCAL calls', 'Working', 'Ollama streaming + CLI spawn with stdout monitoring, 3x ceiling'],
+        ['Host pre-verification', 'Working', 'Orchestrator checks Host reachability before classification'],
     ], col_widths=[40*mm, 22*mm, 108*mm]))
 
     story.append(Paragraph('4.4 Feature-Specific UIs (Multi Mode)', style_h2))
@@ -821,7 +823,6 @@ def build_content():
         ['Password reset', 'Medium', '1 day', 'Email-based reset flow, no email service integrated yet'],
         ['Email verification', 'Low', '1 day', 'Any email accepted on signup currently'],
         ['Streaming responses', 'Medium', '1 day', 'SSE streaming for word-by-word display'],
-        ['Real heartbeat in timeout', 'Low', '1 day', 'Extend timeout when output is being produced'],
     ], col_widths=[45*mm, 22*mm, 22*mm, 81*mm]))
 
     story.append(Paragraph('14.2 Future Direction Options', style_h2))

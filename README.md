@@ -17,6 +17,8 @@ NOX AI is a multi-model AI chat platform that lets you assign different AI model
 - **Context truncation**: Long conversations are truncated to fit specialist context windows
 - **Classification trace**: The Host's classification call is logged in the dispatch trace with tokens, cost, and latency — same as any other pipeline step
 - **Cached classification**: When the user confirms a multi-agent task, the classification is cached and passed back to avoid re-running the classification call
+- **Heartbeat for LOCAL calls**: Ollama (streaming mode) and CLI subprocesses (spawn with stdout monitoring) reset the timeout on each data chunk, up to 3x the configured timeout — slow-but-working local models are no longer killed mid-generation
+- **Host pre-verification**: Orchestrator mode checks Host reachability before spending a classification call — if the Host is unreachable, returns immediately with a clear error instead of silently wasting a call
 
 ## Tech Stack
 
