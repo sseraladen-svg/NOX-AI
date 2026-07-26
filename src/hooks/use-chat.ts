@@ -79,8 +79,12 @@ export function useChat() {
   const ensureConversation = async (
     mode: Mode
   ): Promise<string | null> => {
-    if (convs.activeId) return convs.activeId;
-    return await convs.create(mode);
+    // Read CURRENT state from the store — not the stale closure value.
+    // This fixes the bug where switching conversations or creating a new one
+    // didn't update the activeId used by sendMessage.
+    const current = useConversations.getState();
+    if (current.activeId) return current.activeId;
+    return await current.create(mode);
   };
 
   const persist = async (
@@ -127,8 +131,13 @@ export function useChat() {
     await persist(conversationId, { role: "user", content: text });
     setInput("");
 
+    // Read CURRENT activeMessages from the store — not the stale closure.
+    // This ensures the API only receives messages from the CURRENT conversation,
+    // not messages from a previous conversation that were in the old closure.
+    const currentMessages = useConversations.getState().activeMessages;
+
     const apiMessages = [
-      ...convs.activeMessages
+      ...currentMessages
         .filter((m) => !m.error)
         .map((m) => ({ role: m.role, content: m.content })),
       { role: "user" as const, content: text, image },
