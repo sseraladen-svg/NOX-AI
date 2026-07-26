@@ -184,6 +184,27 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
         method: "POST",
         body: { assignment: a },
       });
+
+      // Check if the response is JSON before trying to parse it.
+      // If the route is missing (404), the server returns an HTML error page.
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        // Not JSON — likely a 404 HTML page or server error.
+        set((s) => ({
+          tests: {
+            ...s.tests,
+            [id]: {
+              status: "error",
+              message: res.status === 404
+                ? "The test endpoint is not available. Restart the dev server and try again."
+                : `Server returned ${res.status} (non-JSON response). The server may need to be restarted.`,
+              reason: `HTTP ${res.status} — expected JSON but got ${contentType || "unknown"}.`,
+            },
+          },
+        }));
+        return false;
+      }
+
       const json = await res.json();
       if (json.ok) {
         const r = json.result;
@@ -211,13 +232,19 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
       return false;
     } catch (err) {
       const e = err as Error;
+      // Check if this is a JSON parse error (response was HTML, not JSON)
+      const isParseError = e.message.includes("Unexpected token") || e.message.includes("is not valid JSON");
       set((s) => ({
         tests: {
           ...s.tests,
           [id]: {
             status: "error",
-            message: `Network error: ${e.message || "Request failed"}. Check your connection and that NOX AI is reachable.`,
-            reason: "The test request could not reach the server.",
+            message: isParseError
+              ? "The test endpoint returned an HTML page instead of JSON. Restart the dev server (bun run dev) and try again."
+              : `Network error: ${e.message || "Request failed"}. Check your connection and that NOX AI is reachable.`,
+            reason: isParseError
+              ? "The /api/multi-model/test route may be missing. Restart the server."
+              : "The test request could not reach the server.",
           },
         },
       }));
