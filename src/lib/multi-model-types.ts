@@ -98,6 +98,9 @@ export interface DispatchStep {
   retries: number;
   timedOut: boolean;
   lastError?: string;
+  // Heartbeat extensions (LOCAL calls only): number of times the timeout
+  // was reset because the model was still actively producing output.
+  heartbeats?: number;
   // Cost tracking (populated when connectionType === "API" and the provider
   // returns usage metadata; LOCAL models have no cost)
   tokens?: TokenUsage;

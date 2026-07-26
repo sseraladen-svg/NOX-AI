@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { encryptApiKey, decryptApiKey, maskApiKey } from "@/lib/crypto";
-import { execFile } from "child_process";
+import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
@@ -796,6 +796,7 @@ async function callModel(
   timedOut: boolean;
   lastError?: string;
   tokens?: TokenUsage;
+  heartbeats?: number;
 }> {
   const started = Date.now();
   let retries = 0;
@@ -806,7 +807,7 @@ async function callModel(
   for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
     try {
       const result = await Promise.race([
-        realCall(assignment, messages, opts.role, opts.intent),
+        realCall(assignment, messages, opts.role, opts.intent, opts.timeoutMs),
         new Promise<never>((_, reject) =>
           setTimeout(
             () => reject(new Error(`timeout after ${opts.timeoutMs}ms`)),
@@ -820,6 +821,7 @@ async function callModel(
         retries,
         timedOut: false,
         tokens: result.tokens,
+        heartbeats: result.heartbeats,
       };
     } catch (err) {
       retries = attempt + 1;
@@ -837,6 +839,7 @@ async function callModel(
     timedOut,
     lastError,
     tokens,
+    heartbeats: 0,
   };
 }
 
@@ -844,13 +847,15 @@ async function callModel(
 interface ModelCallResult {
   text: string;
   tokens?: TokenUsage;
+  heartbeats?: number;
 }
 
 async function realCall(
   assignment: ModelAssignment,
   messages: ChatMessage[],
   role: string,
-  intent?: string
+  intent?: string,
+  timeoutMs?: number
 ): Promise<ModelCallResult> {
   // Build the system hint the same way — this is the NOX persona prompt.
   const systemHint =
@@ -871,7 +876,7 @@ async function realCall(
 
   // Route based on the assignment's connection type.
   if (assignment.connectionType === "LOCAL") {
-    return callLocalCli(assignment, systemHint, conv);
+    return callLocalCli(assignment, systemHint, conv, timeoutMs);
   }
 
   return callApi(assignment, systemHint, conv);
@@ -1658,6 +1663,87 @@ export async function testOllamaConnection(
   }
 }
 
+// ─── Heartbeat-based subprocess execution ───────────────────────────────────
+//
+// spawnWithHeartbeat: runs a CLI binary via spawn() and monitors stdout for
+// incoming data. Each time new stdout data arrives, the timeout clock resets
+// (extends by the original timeoutMs). This prevents slow-but-working local
+// models from being killed mid-generation while still protecting against truly
+// stuck processes.
+//
+// Hard ceiling: 3x the configured timeout (HEARTBEAT_MAX_EXTENSIONS = 3).
+// If the process exceeds this total wall time, it's killed.
+const HEARTBEAT_MAX_EXTENSIONS = 3;
+
+function spawnWithHeartbeat(
+  command: string,
+  args: string[],
+  options: { env?: NodeJS.ProcessEnv },
+  timeoutMs: number
+): Promise<{ stdout: string; stderr: string; heartbeats: number }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      env: options.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let heartbeats = 0;
+    let extensionsUsed = 0;
+    const maxTotalMs = timeoutMs * (1 + HEARTBEAT_MAX_EXTENSIONS);
+    const startedAt = Date.now();
+
+    // Initial timeout timer.
+    let timer: NodeJS.Timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error(`timeout after ${timeoutMs}ms (no stdout for ${timeoutMs}ms, ${heartbeats} heartbeats received)`));
+    }, timeoutMs);
+
+    // Hard ceiling timer — kills even if heartbeats keep coming.
+    const hardCeilingTimer = setTimeout(() => {
+      clearTimeout(timer);
+      child.kill("SIGTERM");
+      reject(new Error(`hard timeout after ${maxTotalMs}ms (${heartbeats} heartbeats, ceiling reached)`));
+    }, maxTotalMs);
+
+    child.stdout?.on("data", (data: Buffer) => {
+      stdout += data.toString();
+
+      // Heartbeat: reset the idle timer (if we haven't hit the ceiling).
+      if (extensionsUsed < HEARTBEAT_MAX_EXTENSIONS) {
+        clearTimeout(timer);
+        extensionsUsed++;
+        heartbeats++;
+        timer = setTimeout(() => {
+          child.kill("SIGTERM");
+          reject(new Error(`timeout after ${timeoutMs}ms idle (extended ${heartbeats} times, ${Date.now() - startedAt}ms total)`));
+        }, timeoutMs);
+      }
+    });
+
+    child.stderr?.on("data", (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    child.on("error", (err: Error) => {
+      clearTimeout(timer);
+      clearTimeout(hardCeilingTimer);
+      reject(err);
+    });
+
+    child.on("close", (code: number | null) => {
+      clearTimeout(timer);
+      clearTimeout(hardCeilingTimer);
+      if (code === 0) {
+        resolve({ stdout, stderr, heartbeats });
+      } else {
+        reject(new Error(`Process exited with code ${code}. ${stderr.slice(0, 300)}`));
+      }
+    });
+  });
+}
+
 // ─── LOCAL CLI connection ───────────────────────────────────────────────────
 //
 // For ollama: uses the HTTP API (POST /api/generate) instead of spawning a
@@ -1672,13 +1758,14 @@ export async function testOllamaConnection(
 async function callLocalCli(
   assignment: ModelAssignment,
   systemHint: string,
-  conv: ChatMessage[]
+  conv: ChatMessage[],
+  timeoutMs?: number
 ): Promise<ModelCallResult> {
   const { provider, modelName, cliPath, cliArgs, endpoint } = assignment;
 
   // Ollama: use HTTP API (no subprocess needed).
   if (provider === "ollama") {
-    return callOllamaHttp(modelName, systemHint, conv, endpoint);
+    return callOllamaHttp(modelName, systemHint, conv, endpoint, timeoutMs);
   }
 
   // llamacpp / llamafile: subprocess call.
@@ -1704,13 +1791,14 @@ async function callLocalCli(
   }
 
   try {
-    const { stdout } = await execFileAsync(cliPath, args, {
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 120_000,
+    // Use spawn() instead of execFile() so we can monitor stdout for heartbeat
+    // signals. Each time new stdout data arrives, the timeout clock resets
+    // (up to a hard ceiling of 3x the configured timeout).
+    const result = await spawnWithHeartbeat(cliPath, args, {
       env: { ...process.env },
-    });
+    }, timeoutMs || DEFAULT_TIMEOUTS.LOCAL);
     // LOCAL CLI models don't return token usage — return text only.
-    return { text: stdout.trim() };
+    return { text: result.stdout.trim(), heartbeats: result.heartbeats };
   } catch (err) {
     const e = err as NodeJS.ErrnoException;
     if (e.code === "ENOENT") {
@@ -1725,14 +1813,21 @@ async function callLocalCli(
 
 // Call ollama via its HTTP API (POST /api/generate).
 // Uses `endpoint` as the ollama host (default: http://localhost:11434).
+// Uses streaming mode (stream: true) so each NDJSON chunk acts as a heartbeat
+// signal — the timeout clock resets on each chunk, up to 3x the configured
+// timeout. This prevents slow-but-working local models from being killed
+// mid-generation.
 async function callOllamaHttp(
   model: string,
   systemHint: string,
   conv: ChatMessage[],
-  endpoint?: string
+  endpoint?: string,
+  timeoutMs?: number
 ): Promise<ModelCallResult> {
   const base = endpoint || "http://localhost:11434";
   const url = `${base}/api/generate`;
+  const effectiveTimeout = timeoutMs || DEFAULT_TIMEOUTS.LOCAL;
+  const maxTotalMs = effectiveTimeout * (1 + HEARTBEAT_MAX_EXTENSIONS);
 
   // Build the prompt: system hint + conversation turns.
   const lastUser = [...conv].reverse().find((m) => m.role === "user");
@@ -1745,7 +1840,7 @@ async function callOllamaHttp(
       body: JSON.stringify({
         model,
         prompt,
-        stream: false,
+        stream: true, // streaming mode — each chunk is a heartbeat
         options: {
           num_predict: 1024,
         },
@@ -1757,12 +1852,103 @@ async function callOllamaHttp(
       throw new Error(`Ollama HTTP ${res.status}: ${errText.slice(0, 300)}`);
     }
 
-    const json = await res.json();
-    const text = json.response || "";
-    // Ollama returns token counts in the response:
-    //   { prompt_eval_count, eval_count }  (input + output token counts)
-    const inputTokens = json.prompt_eval_count;
-    const outputTokens = json.eval_count;
+    // Read the streaming response (NDJSON — one JSON object per line per chunk).
+    // Each chunk resets the idle timer. Hard ceiling = 3x the timeout.
+    let text = "";
+    let inputTokens: number | undefined;
+    let outputTokens: number | undefined;
+    let heartbeats = 0;
+    let extensionsUsed = 0;
+
+    const reader = res.body?.getReader();
+    if (!reader) {
+      throw new Error("Ollama response had no readable body stream");
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    const startedAt = Date.now();
+
+    // Read chunks with heartbeat-based timeout extension.
+    while (true) {
+      // Set up the idle timeout for this chunk read.
+      const chunkPromise = reader.read();
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(
+            `Ollama stream timeout after ${effectiveTimeout}ms idle (${heartbeats} heartbeats, ${Date.now() - startedAt}ms total)`
+          ));
+        }, effectiveTimeout);
+      });
+
+      let done: boolean;
+      let value: Uint8Array | undefined;
+      try {
+        const result = await Promise.race([chunkPromise, timeoutPromise]);
+        done = result.done;
+        value = result.value;
+      } catch (err) {
+        // Idle timeout — no data for effectiveTimeout ms.
+        throw err;
+      }
+
+      if (done) break;
+
+      // Got a chunk — this is a heartbeat. Reset the idle timer.
+      if (extensionsUsed < HEARTBEAT_MAX_EXTENSIONS) {
+        extensionsUsed++;
+        heartbeats++;
+      }
+
+      // Check hard ceiling.
+      if (Date.now() - startedAt > maxTotalMs) {
+        throw new Error(`Ollama hard timeout after ${maxTotalMs}ms (${heartbeats} heartbeats, ceiling reached)`);
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Process complete NDJSON lines.
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || ""; // keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const chunk = JSON.parse(line);
+          if (chunk.response) {
+            text += chunk.response;
+          }
+          // Token counts come in the final chunk.
+          if (typeof chunk.prompt_eval_count === "number") {
+            inputTokens = chunk.prompt_eval_count;
+          }
+          if (typeof chunk.eval_count === "number") {
+            outputTokens = chunk.eval_count;
+          }
+        } catch {
+          // Incomplete JSON — skip, will be in buffer.
+        }
+      }
+    }
+
+    // Process any remaining buffer.
+    if (buffer.trim()) {
+      try {
+        const chunk = JSON.parse(buffer);
+        if (chunk.response) {
+          text += chunk.response;
+        }
+        if (typeof chunk.prompt_eval_count === "number") {
+          inputTokens = chunk.prompt_eval_count;
+        }
+        if (typeof chunk.eval_count === "number") {
+          outputTokens = chunk.eval_count;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const tokens: TokenUsage | undefined =
       typeof inputTokens === "number" && typeof outputTokens === "number"
         ? {
@@ -1771,7 +1957,7 @@ async function callOllamaHttp(
             total: inputTokens + outputTokens,
           }
         : undefined;
-    return { text, tokens };
+    return { text, tokens, heartbeats };
   } catch (err) {
     const e = err as Error;
     if (e.message.includes("ECONNREFUSED") || e.message.includes("fetch failed")) {
@@ -2008,6 +2194,36 @@ export async function dispatch(
     const hostTimeout =
       timeoutOverrides[hostAssignment.connectionType] ||
       DEFAULT_TIMEOUTS[hostAssignment.connectionType];
+
+    // ─── GAP 2 FIX: Pre-verify Host reachability before classification ─────
+    //
+    // Before spending a classification call, verify the Host model is actually
+    // reachable. If it's not, return immediately with a clear error — no point
+    // attempting classification with a broken Host.
+    //
+    // This check is ONLY for Orchestrator mode's classify step. The specialist
+    // reachability check in Step 3a/3b is separate and unchanged.
+    //
+    // Skip this pre-check if we have a cached classification (the Host was
+    // already verified in the first round-trip).
+    if (!opts.cachedClassification) {
+      const hostCheck = await checkLimits(
+        [{ id: "host", label: "Host", assignment: hostAssignment }],
+        "small"
+      );
+      const hostBlocked = hostCheck.find((l) => !l.canFinish);
+      if (hostBlocked) {
+        return {
+          ok: false,
+          mode: doc.mode,
+          steps: [],
+          finalReply: "",
+          multiAgent: false,
+          confirmationRequired: false,
+          error: `Host model is unreachable: ${hostBlocked.reason || "unknown error"}. Fix the Host configuration in Advanced Customization before using Orchestrator mode.`,
+        };
+      }
+    }
 
     // Step 1: Classify the intent (or use cached classification from the
     // confirmation round-trip to avoid paying for the call twice).
