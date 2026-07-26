@@ -35,6 +35,28 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Basic email format validation — must have a domain with a dot
+    const emailParts = email.split("@");
+    if (emailParts.length !== 2 || !emailParts[1].includes(".") || emailParts[0].length < 1) {
+      return NextResponse.json(
+        { ok: false, error: "Email format is invalid. Use a real email like you@example.com" },
+        { status: 400 }
+      );
+    }
+
+    // Check for disposable email domains
+    const disposableDomains = [
+      "tempmail.com", "throwaway.email", "10minutemail.com", "guerrillamail.com",
+      "mailinator.com", "yopmail.com", "trashmail.com", "sharklasers.com",
+    ];
+    if (disposableDomains.includes(emailParts[1])) {
+      return NextResponse.json(
+        { ok: false, error: "Disposable email addresses are not allowed." },
+        { status: 400 }
+      );
+    }
+
     if (password.length < 6) {
       return NextResponse.json(
         { ok: false, error: "Password must be at least 6 characters." },

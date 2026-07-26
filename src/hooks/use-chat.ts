@@ -150,7 +150,8 @@ export function useChat() {
     ];
 
     try {
-      const res = await authFetch("/api/multi-model/dispatch", {
+      // Use streaming endpoint for progressive text display
+      const streamRes = await authFetch("/api/multi-model/dispatch-stream", {
         method: "POST",
         body: {
           messages: apiMessages,
@@ -160,7 +161,141 @@ export function useChat() {
           cachedClassification,
         },
       });
-      const json = await res.json();
+
+      // Check if response is SSE stream
+      const contentType = streamRes.headers.get("content-type") || "";
+      if (contentType.includes("text/event-stream")) {
+        // Read the SSE stream
+        const reader = streamRes.body?.getReader();
+        if (!reader) throw new Error("No stream body");
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let progressiveText = "";
+        let aiMsgId = crypto.randomUUID();
+        let finalResult: any = null;
+        let confirmationData: any = null;
+        let errorData: any = null;
+
+        // Create an initial empty assistant message that we'll update progressively
+        const initialMsg: ConversationMessage = {
+          id: aiMsgId,
+          role: "assistant",
+          content: "",
+          multiAgent: false,
+          error: false,
+          createdAt: new Date().toISOString(),
+        };
+        convs.appendLocal(initialMsg);
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              if (data.type === "thinking") {
+                // UI already shows spinner — nothing to do
+              } else if (data.type === "step") {
+                // A dispatch step completed — could show trace info
+              } else if (data.type === "chunk") {
+                // Progressive text chunk — append to the assistant message
+                progressiveText += data.text;
+                // Update the message in the store
+                useConversations.setState((s) => ({
+                  activeMessages: s.activeMessages.map((m) =>
+                    m.id === aiMsgId ? { ...m, content: progressiveText } : m
+                  ),
+                }));
+              } else if (data.type === "confirmationRequired") {
+                confirmationData = data;
+              } else if (data.type === "error") {
+                errorData = data;
+              } else if (data.type === "done") {
+                finalResult = data.result;
+              }
+            } catch {
+              // incomplete JSON
+            }
+          }
+        }
+
+        // Handle confirmation required
+        if (confirmationData) {
+          // Remove the empty assistant message
+          useConversations.setState((s) => ({
+            activeMessages: s.activeMessages.filter((m) => m.id !== aiMsgId),
+          }));
+          setConfirmLimits(confirmationData.limits || []);
+          setConfirmClassification(confirmationData.classification || undefined);
+          setConfirmOpen(true);
+          setPendingText(text);
+          setPendingFeature(feature);
+          setPendingClassification(confirmationData.classification || undefined);
+          setSending(false);
+          return;
+        }
+
+        // Handle error
+        if (errorData) {
+          useConversations.setState((s) => ({
+            activeMessages: s.activeMessages.map((m) =>
+              m.id === aiMsgId
+                ? { ...m, content: errorData.error || "Dispatch failed.", error: true }
+                : m
+            ),
+          }));
+          setSending(false);
+          return;
+        }
+
+        // Finalize the assistant message with trace + usage
+        if (finalResult) {
+          const steps = (finalResult.steps as DispatchStep[]) || [];
+          const aggUsage = aggregateUsage(steps);
+          const finalText = finalResult.finalReply || progressiveText || "(no response)";
+
+          useConversations.setState((s) => ({
+            activeMessages: s.activeMessages.map((m) =>
+              m.id === aiMsgId
+                ? {
+                    ...m,
+                    content: finalText,
+                    trace: steps,
+                    mode: finalResult.mode,
+                    multiAgent: finalResult.multiAgent,
+                    usage: aggUsage,
+                  }
+                : m
+            ),
+          }));
+
+          // Persist the final message
+          await persist(conversationId, {
+            role: "assistant",
+            content: finalText,
+            trace: steps,
+            mode: finalResult.mode,
+            multiAgent: finalResult.multiAgent,
+            error: false,
+            usage: aggUsage,
+          });
+          convs.loadList();
+        }
+
+        setSending(false);
+        return;
+      }
+
+      // Fallback: non-streaming response (if SSE not supported)
+      const json = await streamRes.json();
 
       if (!json.ok) {
         const errMsg: ConversationMessage = {
