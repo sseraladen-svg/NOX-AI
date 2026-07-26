@@ -19,11 +19,13 @@ import {
 import { useRouter } from "next/navigation";
 import { useChat } from "@/hooks/use-chat";
 import { useMultiModel } from "@/store/multi-model-store";
+import { useConversations } from "@/store/conversations-store";
 import {
   FEATURES,
   type FeatureId,
   type ConnectionType,
   type ModelAssignment,
+  type Mode,
 } from "@/lib/multi-model-types";
 import { ConversationDrawer, UserMenu, AdvancedDialog, ConfirmWrapper, IconButton } from "./shared-chat";
 import {
@@ -87,11 +89,41 @@ const EXAMPLES_BY_FEATURE: Record<FeatureId, string[]> = {
   ],
 };
 
+// Labels for per-tab conversation titles
+const FEATURE_TITLES: Record<FeatureId, string> = {
+  chat: "Chat",
+  voice: "Voice",
+  vision: "Vision",
+  coding: "Coding",
+  automation: "Automation",
+  robotics: "Robotics",
+};
+
 export function MultiModePage() {
   const router = useRouter();
   const chat = useChat();
   const mm = useMultiModel();
+  const convs = useConversations();
   const [activeFeature, setActiveFeature] = React.useState<FeatureId>("chat");
+
+  // ─── Per-feature conversation tracking ─────────────────────────────────
+  //
+  // Each feature tab gets its own conversation ID. When the user switches
+  // tabs, we save the current tab's conversation ID and load/create the
+  // new tab's conversation. This ensures each tab has its own isolated
+  // message history — Chat has its own messages, Coding has its own, etc.
+  //
+  // Using state (not ref) so the tab indicators update when conversations
+  // are created.
+  const [tabConversationIds, setTabConversationIds] = React.useState<Record<string, string | null>>({
+    chat: null,
+    voice: null,
+    vision: null,
+    coding: null,
+    automation: null,
+    robotics: null,
+  });
+  const initialized = React.useRef(false);
 
   // Ensure mode is MULTI
   React.useEffect(() => {
@@ -100,6 +132,54 @@ export function MultiModePage() {
       mm.save();
     }
   }, [mm.loaded]);
+
+  // Initialize: clear any existing active conversation so each tab starts fresh
+  React.useEffect(() => {
+    if (!initialized.current && mm.loaded) {
+      initialized.current = true;
+      // Clear the active conversation — each tab will create its own on first message
+      convs.clearActive();
+    }
+  }, [mm.loaded, convs]);
+
+  // When switching tabs, save the current conversation ID for the old tab
+  // and load the new tab's conversation (or clear if none exists yet).
+  const handleTabSwitch = React.useCallback(
+    async (newFeature: FeatureId) => {
+      if (newFeature === activeFeature) return;
+
+      // Save the current tab's conversation ID
+      const convState = useConversations.getState();
+      setTabConversationIds((prev) => ({
+        ...prev,
+        [activeFeature]: convState.activeId,
+      }));
+
+      // Load the new tab's conversation
+      const newConvId = tabConversationIds[newFeature];
+      if (newConvId) {
+        // Tab already has a conversation — load its messages
+        await convs.select(newConvId);
+      } else {
+        // Tab doesn't have a conversation yet — clear so it shows the welcome screen
+        convs.clearActive();
+      }
+
+      setActiveFeature(newFeature);
+    },
+    [activeFeature, convs, tabConversationIds]
+  );
+
+  // When a new conversation is created (first message in a tab), record its ID
+  React.useEffect(() => {
+    const convState = useConversations.getState();
+    if (convState.activeId && tabConversationIds[activeFeature] !== convState.activeId) {
+      setTabConversationIds((prev) => ({
+        ...prev,
+        [activeFeature]: convState.activeId,
+      }));
+    }
+  }, [convs.activeId, activeFeature, tabConversationIds]);
 
   const assignment: ModelAssignment = mm.featureConfigs[activeFeature] || {
     connectionType: "API" as ConnectionType,
@@ -141,6 +221,11 @@ export function MultiModePage() {
     }
   };
 
+  // Show which tabs have conversations
+  const tabHasConversation = (feature: FeatureId): boolean => {
+    return !!tabConversationIds[feature];
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-background nox-aurora">
       {/* Header */}
@@ -167,7 +252,7 @@ export function MultiModePage() {
               <div className="leading-none">
                 <div className="font-semibold text-sm">Multi Mode</div>
                 <div className="text-[10px] text-muted-foreground">
-                  Right model for each job
+                  Right model for each job — each tab is separate
                 </div>
               </div>
             </div>
@@ -184,17 +269,18 @@ export function MultiModePage() {
         </div>
       </header>
 
-      {/* Feature tabs */}
+      {/* Feature tabs — each tab is an independent conversation */}
       <div className="mx-auto w-full max-w-6xl px-3 sm:px-4 pt-4">
         <div className="flex items-center gap-1.5 overflow-x-auto nox-scroll pb-1">
           {FEATURES.map((f) => {
             const Icon = FEATURE_ICONS[f.id];
             const active = activeFeature === f.id;
-            const has = !!mm.featureConfigs[f.id];
+            const hasConv = tabHasConversation(f.id);
+            const hasConfig = !!mm.featureConfigs[f.id];
             return (
               <button
                 key={f.id}
-                onClick={() => setActiveFeature(f.id)}
+                onClick={() => handleTabSwitch(f.id)}
                 className={cn(
                   "shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition",
                   active
@@ -204,8 +290,11 @@ export function MultiModePage() {
               >
                 <Icon className="h-3.5 w-3.5" />
                 {f.label}
-                {has && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                {hasConv && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" title="Has conversation history" />
+                )}
+                {hasConfig && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" title="Has model configured" />
                 )}
               </button>
             );
@@ -276,7 +365,7 @@ function FeatureModelStrip({
         </div>
         <div className="leading-tight">
           <div className="text-xs text-muted-foreground">
-            {feature.label} feature
+            {feature.label} feature — separate history
           </div>
           <div className="text-sm font-medium font-mono">
             {assignment.modelName}

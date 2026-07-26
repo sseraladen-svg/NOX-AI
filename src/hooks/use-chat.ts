@@ -77,14 +77,15 @@ export function useChat() {
   }, [convs.activeMessages, sending]);
 
   const ensureConversation = async (
-    mode: Mode
+    mode: Mode,
+    title?: string
   ): Promise<string | null> => {
     // Read CURRENT state from the store — not the stale closure value.
     // This fixes the bug where switching conversations or creating a new one
     // didn't update the activeId used by sendMessage.
     const current = useConversations.getState();
     if (current.activeId) return current.activeId;
-    return await current.create(mode);
+    return await current.create(mode, title);
   };
 
   const persist = async (
@@ -112,7 +113,12 @@ export function useChat() {
     if (!text.trim() || sending) return;
     setSending(true);
 
-    const conversationId = await ensureConversation(mm.mode as Mode);
+    // In MULTI mode, create the conversation with the feature name as title
+    // so the sidebar shows which feature each conversation belongs to.
+    const convTitle = mm.mode === "MULTI" && feature
+      ? `${feature.charAt(0).toUpperCase() + feature.slice(1)} — ${text.slice(0, 40)}`
+      : undefined;
+    const conversationId = await ensureConversation(mm.mode as Mode, convTitle);
     if (!conversationId) {
       toast.error("Could not start conversation");
       setSending(false);
