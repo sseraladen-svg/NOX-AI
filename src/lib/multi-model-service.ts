@@ -1006,38 +1006,132 @@ async function callOpenAiCompatible(
 
 // Z.ai — built-in SDK provider. No API key needed.
 // Uses the z-ai-web-dev-sdk which is pre-installed and works from any region.
+// If the SDK config file is missing, falls back to a direct HTTP call to the
+// Z.ai API using the config from /etc/.z-ai-config or environment variables.
 async function callZai(
   model: string,
   systemHint: string,
   conv: ChatMessage[]
 ): Promise<ModelCallResult> {
-  const ZAI = (await import("z-ai-web-dev-sdk")).default;
-  const zai = await ZAI.create();
+  // Try the SDK first — it handles auth automatically if the config file exists.
+  try {
+    const ZAI = (await import("z-ai-web-dev-sdk")).default;
+    const zai = await ZAI.create();
 
-  const completion = await zai.chat.completions.create({
-    model,
-    messages: [
-      { role: "assistant", content: systemHint },
-      ...conv.map((m) => ({
-        role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
-        content: m.content,
-      })),
-    ],
-    thinking: { type: "disabled" },
-  } as any);
+    const completion = await zai.chat.completions.create({
+      model,
+      messages: [
+        { role: "assistant", content: systemHint },
+        ...conv.map((m) => ({
+          role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
+          content: m.content,
+        })),
+      ],
+      thinking: { type: "disabled" },
+    } as any);
 
-  const text = completion.choices[0]?.message?.content || "";
-  // Z.ai SDK returns usage metadata
-  const usage = (completion as any).usage;
-  const tokens: TokenUsage | undefined = usage
-    ? {
-        input: usage.prompt_tokens || usage.input_tokens || 0,
-        output: usage.completion_tokens || usage.output_tokens || 0,
-        total: usage.total_tokens || (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
-      }
-    : undefined;
+    const text = completion.choices[0]?.message?.content || "";
+    const usage = (completion as any).usage;
+    const tokens: TokenUsage | undefined = usage
+      ? {
+          input: usage.prompt_tokens || usage.input_tokens || 0,
+          output: usage.completion_tokens || usage.output_tokens || 0,
+          total: usage.total_tokens || (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
+        }
+      : undefined;
 
-  return { text, tokens };
+    return { text, tokens };
+  } catch (sdkErr) {
+    // SDK failed — likely missing .z-ai-config file.
+    // Fall back to direct HTTP call to Z.ai API.
+    const fallbackResult = await callZaiHttpFallback(model, systemHint, conv);
+    if (fallbackResult) return fallbackResult;
+
+    // If fallback also fails, throw the original SDK error
+    throw new Error(
+      `Z.ai SDK error: ${(sdkErr as Error).message}. ` +
+      `On your local machine, create a .z-ai-config file in your home directory. ` +
+      `Run: z-ai chat --prompt "test" to auto-generate it, or use a different provider.`
+    );
+  }
+}
+
+// Fallback: call Z.ai API directly via HTTP.
+// Reads the config from /etc/.z-ai-config, ~/.z-ai-config, or ./.z-ai-config.
+async function callZaiHttpFallback(
+  model: string,
+  systemHint: string,
+  conv: ChatMessage[]
+): Promise<ModelCallResult | null> {
+  const fs = await import("fs");
+  const path = await import("path");
+  const os = await import("os");
+
+  // Try to find the config file
+  const configPaths = [
+    "/etc/.z-ai-config",
+    path.join(os.default.homedir(), ".z-ai-config"),
+    ".z-ai-config",
+  ];
+
+  let config: { baseUrl?: string; apiKey?: string; token?: string } | null = null;
+  for (const p of configPaths) {
+    try {
+      const raw = fs.readFileSync(p, "utf-8");
+      config = JSON.parse(raw);
+      break;
+    } catch {
+      // file doesn't exist at this path
+    }
+  }
+
+  if (!config) {
+    return null; // No config found — caller will show the error
+  }
+
+  const baseUrl = config.baseUrl || "https://internal-api.z.ai/v1";
+  const url = `${baseUrl}/chat/completions`;
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${config.apiKey || "Z.ai"}`,
+        ...(config.token ? { "X-Chat-Token": config.token } : {}),
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: systemHint },
+          ...conv.map((m) => ({
+            role: m.role === "assistant" ? "assistant" : "user",
+            content: m.content,
+          })),
+        ],
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => res.statusText);
+      return null;
+    }
+
+    const json = await res.json();
+    const text = json.choices?.[0]?.message?.content || "";
+    const usage = json.usage;
+    const tokens: TokenUsage | undefined = usage
+      ? {
+          input: usage.prompt_tokens || 0,
+          output: usage.completion_tokens || 0,
+          total: usage.total_tokens || 0,
+        }
+      : undefined;
+
+    return { text, tokens };
+  } catch {
+    return null;
+  }
 }
 
 // Anthropic Messages API.
