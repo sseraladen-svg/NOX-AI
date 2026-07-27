@@ -342,6 +342,16 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
   }
 
   if (a.connectionType === "API") {
+    // Z.ai doesn't need an API key — it's always ready.
+    if (a.provider === "zai") {
+      return {
+        ok: true,
+        status: "ready",
+        message: `Connected to Z.ai (built-in). Model "${a.modelName}" ready. No API key needed.`,
+        version: a.modelName,
+        latencyMs: 0,
+      };
+    }
     if (!a.apiKey || a.apiKey.length < 8) {
       return {
         ok: false,
@@ -606,6 +616,10 @@ async function quickApiReachabilityCheck(
   assignment: ModelAssignment
 ): Promise<{ canFinish: boolean; reason?: string }> {
   const { provider, apiKey, endpoint } = assignment;
+  // Z.ai is always reachable — it uses the built-in SDK.
+  if (provider === "zai") {
+    return { canFinish: true };
+  }
   if (!apiKey) {
     return { canFinish: false, reason: "No API key configured." };
   }
@@ -891,7 +905,8 @@ async function callApi(
 ): Promise<ModelCallResult> {
   const { provider, modelName, apiKey, endpoint } = assignment;
 
-  if (!apiKey) {
+  // Z.ai doesn't need an API key — it uses the built-in SDK.
+  if (provider !== "zai" && !apiKey) {
     throw new Error(
       `No API key configured for ${provider}/${modelName}. Add one in Advanced Customization.`
     );
@@ -900,6 +915,11 @@ async function callApi(
   // Anthropic has its own request/response format.
   if (provider === "anthropic") {
     return callAnthropic(apiKey, modelName, systemHint, conv, endpoint);
+  }
+
+  // Z.ai — built-in SDK, no API key needed.
+  if (provider === "zai") {
+    return callZai(modelName, systemHint, conv);
   }
 
   // Google Gemini uses a different URL structure + API key as query param.
@@ -981,6 +1001,42 @@ async function callOpenAiCompatible(
         total: usage.total_tokens || (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
       }
     : undefined;
+  return { text, tokens };
+}
+
+// Z.ai — built-in SDK provider. No API key needed.
+// Uses the z-ai-web-dev-sdk which is pre-installed and works from any region.
+async function callZai(
+  model: string,
+  systemHint: string,
+  conv: ChatMessage[]
+): Promise<ModelCallResult> {
+  const ZAI = (await import("z-ai-web-dev-sdk")).default;
+  const zai = await ZAI.create();
+
+  const completion = await zai.chat.completions.create({
+    model,
+    messages: [
+      { role: "assistant", content: systemHint },
+      ...conv.map((m) => ({
+        role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
+        content: m.content,
+      })),
+    ],
+    thinking: { type: "disabled" },
+  } as any);
+
+  const text = completion.choices[0]?.message?.content || "";
+  // Z.ai SDK returns usage metadata
+  const usage = (completion as any).usage;
+  const tokens: TokenUsage | undefined = usage
+    ? {
+        input: usage.prompt_tokens || usage.input_tokens || 0,
+        output: usage.completion_tokens || usage.output_tokens || 0,
+        total: usage.total_tokens || (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
+      }
+    : undefined;
+
   return { text, tokens };
 }
 

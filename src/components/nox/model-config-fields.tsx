@@ -167,6 +167,14 @@ export function ModelConfigFields({
       {/* Connection-type-specific fields */}
       {assignment.connectionType === "API" ? (
         <>
+          {/* Z.ai doesn't need an API key or endpoint — show info instead */}
+          {currentProvider?.id === "zai" ? (
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-400">
+              <strong>No API key needed.</strong> Z.ai is built into NOX AI and works
+              from any region. Just pick a model and click Test.
+            </div>
+          ) : (
+            <>
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">API Key</Label>
             <Input
@@ -195,6 +203,8 @@ export function ModelConfigFields({
               placeholder="https://api.provider.com/v1"
             />
           </div>
+            </>
+          )}
         </>
       ) : (
         <>

@@ -257,6 +257,13 @@ export const PROVIDERS = [
     models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
   },
   {
+    id: "zai",
+    label: "Z.ai (Built-in, No Key Needed)",
+    connectionType: "API" as ConnectionType,
+    defaultModel: "glm-4-flash",
+    models: ["glm-4-flash", "glm-4"],
+  },
+  {
     id: "ollama",
     label: "Ollama (Local CLI)",
     connectionType: "LOCAL" as ConnectionType,
@@ -324,6 +331,10 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   // Groq — https://groq.com/pricing/
   "llama-3.3-70b-versatile": { inputPer1M: 0.59, outputPer1M: 0.79 },
   "llama-3.1-8b-instant": { inputPer1M: 0.05, outputPer1M: 0.08 },
+
+  // Z.ai — built-in, very low cost
+  "glm-4-flash": { inputPer1M: 0.01, outputPer1M: 0.01 },
+  "glm-4": { inputPer1M: 0.1, outputPer1M: 0.1 },
 };
 
 // Fallback for unknown models — conservative median API price.
