@@ -186,7 +186,7 @@ export function ChatFeatureUI({
   scrollRef: React.RefObject<HTMLDivElement | null>;
   input: string;
   setInput: (s: string) => void;
-  onSend: () => void;
+  onSend: (image?: { data: string; mimeType: string }) => void;
   examples: string[];
 }) {
   return (
@@ -301,7 +301,7 @@ function ChatInputBar({
 }: {
   input: string;
   setInput: (s: string) => void;
-  onSend: () => void;
+  onSend: (image?: { data: string; mimeType: string }) => void;
   sending: boolean;
   placeholder: string;
 }) {
@@ -323,7 +323,7 @@ function ChatInputBar({
         />
         <Button
           size="icon"
-          onClick={onSend}
+          onClick={() => onSend()}
           disabled={sending || !input.trim()}
           className="h-9 w-9 shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
         >
@@ -355,7 +355,7 @@ export function CodingFeatureUI({
   scrollRef: React.RefObject<HTMLDivElement | null>;
   input: string;
   setInput: (s: string) => void;
-  onSend: () => void;
+  onSend: (image?: { data: string; mimeType: string }) => void;
 }) {
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
   const codeBlocks = lastAssistant ? extractCodeBlocks(lastAssistant.content) : [];
@@ -397,7 +397,7 @@ export function CodingFeatureUI({
             </span>
             <Button
               size="sm"
-              onClick={onSend}
+              onClick={() => onSend()}
               disabled={sending || !input.trim()}
               className="bg-primary text-primary-foreground hover:bg-primary/90 h-8"
             >
@@ -988,7 +988,7 @@ export function AutomationFeatureUI({
   scrollRef: React.RefObject<HTMLDivElement | null>;
   input: string;
   setInput: (s: string) => void;
-  onSend: () => void;
+  onSend: (image?: { data: string; mimeType: string }) => void;
 }) {
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
   const steps = lastAssistant ? extractWorkflowSteps(lastAssistant.content) : [];
@@ -1157,7 +1157,7 @@ export function AutomationFeatureUI({
           <div className="flex justify-end mt-1">
             <Button
               size="sm"
-              onClick={onSend}
+              onClick={() => onSend()}
               disabled={sending || !input.trim()}
               className="bg-primary text-primary-foreground hover:bg-primary/90 h-8"
             >
@@ -1240,7 +1240,7 @@ export function RoboticsFeatureUI({
   scrollRef: React.RefObject<HTMLDivElement | null>;
   input: string;
   setInput: (s: string) => void;
-  onSend: () => void;
+  onSend: (image?: { data: string; mimeType: string }) => void;
 }) {
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
   const plan = lastAssistant ? extractMotionPlan(lastAssistant.content) : null;
@@ -1378,7 +1378,7 @@ export function RoboticsFeatureUI({
           <div className="flex justify-end mt-1">
             <Button
               size="sm"
-              onClick={onSend}
+              onClick={() => onSend()}
               disabled={sending || !input.trim()}
               className="bg-primary text-primary-foreground hover:bg-primary/90 h-8"
             >
