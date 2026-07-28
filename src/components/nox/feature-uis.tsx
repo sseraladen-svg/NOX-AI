@@ -34,6 +34,7 @@ import {
   Wind,
   Battery,
   Settings2,
+  CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -992,9 +993,40 @@ export function AutomationFeatureUI({
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
   const steps = lastAssistant ? extractWorkflowSteps(lastAssistant.content) : [];
 
+  // Interactive workflow state — each step can be checked off
+  const [checkedSteps, setCheckedSteps] = React.useState<Set<number>>(new Set());
+  const [running, setRunning] = React.useState(false);
+
+  // Reset checked steps when new workflow arrives
+  React.useEffect(() => {
+    setCheckedSteps(new Set());
+  }, [lastAssistant?.id]);
+
+  const toggleStep = (i: number) => {
+    setCheckedSteps((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  };
+
+  // Simulate running the workflow step by step
+  const runWorkflow = async () => {
+    setRunning(true);
+    for (let i = 0; i < steps.length; i++) {
+      await new Promise((r) => setTimeout(r, 800));
+      setCheckedSteps((prev) => new Set(prev).add(i));
+    }
+    setRunning(false);
+  };
+
+  const completedCount = checkedSteps.size;
+  const progress = steps.length > 0 ? Math.round((completedCount / steps.length) * 100) : 0;
+
   return (
     <div className="flex flex-col lg:flex-row gap-3 min-h-0 flex-1">
-      {/* Left: workflow canvas */}
+      {/* Left: interactive workflow canvas */}
       <div className="lg:w-1/2 flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
@@ -1002,13 +1034,40 @@ export function AutomationFeatureUI({
             <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Workflow
             </span>
+            {steps.length > 0 && (
+              <Badge variant="outline" className="text-[10px]">
+                {completedCount}/{steps.length} done
+              </Badge>
+            )}
           </div>
           {steps.length > 0 && (
-            <Badge variant="outline" className="text-[10px]">
-              {steps.length} steps
-            </Badge>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={runWorkflow}
+              disabled={running}
+              className="h-7 text-xs"
+            >
+              {running ? (
+                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+              ) : (
+                <Play className="h-3 w-3 mr-1" />
+              )}
+              {running ? "Running..." : "Run All"}
+            </Button>
           )}
         </div>
+
+        {/* Progress bar */}
+        {steps.length > 0 && (
+          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+            <motion.div
+              className="h-full bg-gradient-to-r from-primary to-emerald-500"
+              animate={{ width: `${progress}%` }}
+              transition={{ duration: 0.3 }}
+            />
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto nox-scroll rounded-xl border border-border bg-card/20 p-4 min-h-0">
           {steps.length === 0 ? (
@@ -1016,39 +1075,59 @@ export function AutomationFeatureUI({
               <Workflow className="h-10 w-10 mb-3 opacity-40" />
               <p className="font-medium">No workflow yet</p>
               <p className="text-xs mt-1 max-w-xs">
-                Describe an automation (e.g. &ldquo;Daily report pipeline&rdquo;)
-                and the steps will render here as a node chain.
+                Describe an automation task (e.g. &ldquo;Daily report pipeline&rdquo;).
+                The AI will break it into steps you can check off and run.
               </p>
             </div>
           ) : (
             <div className="space-y-1">
-              {steps.map((step, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.1 }}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-lg bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
-                      <span className="text-xs font-mono text-primary">
-                        {i + 1}
-                      </span>
-                    </div>
-                    <div className="flex-1 rounded-lg border border-border bg-card/60 px-3 py-2">
-                      <div className="text-sm font-medium">{step.name}</div>
-                      {step.detail && (
-                        <div className="text-[11px] text-muted-foreground mt-0.5">
-                          {step.detail}
+              {steps.map((step, i) => {
+                const isChecked = checkedSteps.has(i);
+                return (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.08 }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => toggleStep(i)}
+                        className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 transition ${
+                          isChecked
+                            ? "bg-emerald-500/20 border border-emerald-500/40"
+                            : "bg-primary/15 border border-primary/30 hover:bg-primary/25"
+                        }`}
+                      >
+                        {isChecked ? (
+                          <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                        ) : (
+                          <span className="text-xs font-mono text-primary">{i + 1}</span>
+                        )}
+                      </button>
+                      <div
+                        className={`flex-1 rounded-lg border px-3 py-2 transition ${
+                          isChecked
+                            ? "border-emerald-500/30 bg-emerald-500/5"
+                            : "border-border bg-card/60"
+                        }`}
+                      >
+                        <div className={`text-sm font-medium ${isChecked ? "line-through text-muted-foreground" : ""}`}>
+                          {step.name}
                         </div>
-                      )}
+                        {step.detail && (
+                          <div className="text-[11px] text-muted-foreground mt-0.5">
+                            {step.detail}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  {i < steps.length - 1 && (
-                    <div className="ml-4 h-4 w-px bg-border" />
-                  )}
-                </motion.div>
-              ))}
+                    {i < steps.length - 1 && (
+                      <div className="ml-4 h-4 w-px bg-border" />
+                    )}
+                  </motion.div>
+                );
+              })}
               {lastAssistant && (
                 <div className="mt-3">
                   <DispatchTrace steps={lastAssistant.trace || []} />
@@ -1114,9 +1193,7 @@ export function AutomationFeatureUI({
                   <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">
                     {m.role}
                   </div>
-                  <div className="whitespace-pre-wrap leading-relaxed line-clamp-4">
-                    {m.content}
-                  </div>
+                  <Markdown content={m.content} className="nox-prose" />
                 </div>
               ))}
               {sending && <ThinkingIndicator />}
@@ -1168,46 +1245,116 @@ export function RoboticsFeatureUI({
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
   const plan = lastAssistant ? extractMotionPlan(lastAssistant.content) : null;
 
+  // Interactive joint sliders — user can manually control the arm
+  const jointNames = ["Base", "Shoulder", "Elbow", "Wrist", "Gripper"];
+  const [jointAngles, setJointAngles] = React.useState<number[]>([45, 30, 60, 90, 0]);
+  const [executing, setExecuting] = React.useState(false);
+  const [activeWaypoint, setActiveWaypoint] = React.useState(-1);
+
+  // Simulate executing the motion plan — animates joints through waypoints
+  const executePlan = async () => {
+    if (!plan || plan.waypoints.length === 0) return;
+    setExecuting(true);
+    for (let i = 0; i < plan.waypoints.length; i++) {
+      setActiveWaypoint(i);
+      // Animate joints to a new position for each waypoint
+      const newAngles = jointNames.map((_, j) => {
+        const base = jointAngles[j];
+        const variation = Math.sin((i + 1) * (j + 1)) * 30;
+        return Math.max(0, Math.min(180, Math.round(base + variation)));
+      });
+      setJointAngles(newAngles);
+      await new Promise((r) => setTimeout(r, 1200));
+    }
+    setActiveWaypoint(-1);
+    setExecuting(false);
+  };
+
+  const setJoint = (index: number, value: number) => {
+    setJointAngles((prev) => prev.map((v, i) => (i === index ? value : v)));
+  };
+
   return (
     <div className="flex flex-col lg:flex-row gap-3 min-h-0 flex-1">
-      {/* Left: sensor + status grid */}
+      {/* Left: interactive sensor + joint control */}
       <div className="lg:w-1/2 flex flex-col gap-2 min-h-0">
-        <div className="flex items-center gap-2 px-1">
-          <Cpu className="h-4 w-4 text-primary" />
-          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            System
-          </span>
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <Cpu className="h-4 w-4 text-primary" />
+            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Robot Control
+            </span>
+          </div>
+          {plan && plan.waypoints.length > 0 && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={executePlan}
+              disabled={executing}
+              className="h-7 text-xs"
+            >
+              {executing ? (
+                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+              ) : (
+                <Play className="h-3 w-3 mr-1" />
+              )}
+              {executing ? "Executing..." : "Execute Plan"}
+            </Button>
+          )}
         </div>
 
+        {/* Live sensor cards */}
         <div className="grid grid-cols-2 gap-2">
-          <SensorCard icon={Battery} label="Power" value="98%" color="emerald" />
-          <SensorCard icon={Activity} label="CPU" value="34%" color="cyan" />
-          <SensorCard icon={Wind} label="Temp" value="42°C" color="amber" />
+          <SensorCard icon={Battery} label="Power" value={`${100 - Math.round(jointAngles.reduce((a,b)=>a+b,0) / 10)}%`} color="emerald" />
+          <SensorCard icon={Activity} label="CPU" value={`${30 + Math.round(jointAngles[2] / 3)}%`} color="cyan" />
+          <SensorCard icon={Wind} label="Temp" value={`${35 + Math.round(jointAngles[1] / 4)}°C`} color="amber" />
           <SensorCard icon={Radio} label="Signal" value="Strong" color="violet" />
         </div>
 
+        {/* Interactive joint sliders */}
         <div className="flex-1 overflow-y-auto nox-scroll rounded-xl border border-border bg-card/20 p-3 min-h-0">
           <div className="flex items-center gap-1.5 mb-2 text-[10px] text-muted-foreground uppercase tracking-wider">
             <Gauge className="h-3 w-3" />
-            Joint telemetry
+            Joint Control — drag to move
           </div>
-          <div className="space-y-1.5">
-            {["Base", "Shoulder", "Elbow", "Wrist", "Gripper"].map((joint, i) => (
-              <div key={joint} className="flex items-center gap-2 text-xs">
-                <span className="w-16 text-muted-foreground">{joint}</span>
-                <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                  <motion.div
-                    className="h-full bg-gradient-to-r from-primary to-fuchsia-500"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${30 + (plan?.joints?.[i] ?? (i + 1) * 15) % 100}%` }}
-                    transition={{ duration: 0.8, delay: i * 0.1 }}
-                  />
+          <div className="space-y-2.5">
+            {jointNames.map((joint, i) => (
+              <div key={joint} className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">{joint}</span>
+                  <span className="font-mono text-primary">{jointAngles[i]}°</span>
                 </div>
-                <span className="w-10 text-right font-mono text-muted-foreground">
-                  {(30 + (plan?.joints?.[i] ?? (i + 1) * 15)) % 100}°
-                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={180}
+                  value={jointAngles[i]}
+                  onChange={(e) => setJoint(i, parseInt(e.target.value))}
+                  disabled={executing}
+                  className="w-full h-2 rounded-full appearance-none cursor-pointer bg-muted
+                    [&::-webkit-slider-thumb]:appearance-none
+                    [&::-webkit-slider-thumb]:h-4
+                    [&::-webkit-slider-thumb]:w-4
+                    [&::-webkit-slider-thumb]:rounded-full
+                    [&::-webkit-slider-thumb]:bg-primary
+                    [&::-webkit-slider-thumb]:cursor-pointer
+                    [&::-webkit-slider-thumb]:disabled:opacity-50"
+                  style={{
+                    background: `linear-gradient(to right, oklch(0.7 0.22 295) ${jointAngles[i] / 1.8}%, oklch(0.22 0.025 285) ${jointAngles[i] / 1.8}%)`,
+                  }}
+                />
               </div>
             ))}
+          </div>
+          <div className="mt-3 pt-2 border-t border-border/60">
+            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+              <span className="font-mono">TCP:</span>
+              <span>
+                X: {Math.round(Math.cos(jointAngles[0] * Math.PI / 180) * (jointAngles[1] + jointAngles[2]))}mm,
+                Y: {Math.round(Math.sin(jointAngles[0] * Math.PI / 180) * (jointAngles[1] + jointAngles[2]))}mm,
+                Z: {jointAngles[3]}mm
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -1254,8 +1401,8 @@ export function RoboticsFeatureUI({
               <Cpu className="h-10 w-10 mb-3 opacity-40" />
               <p className="font-medium">No motion plan</p>
               <p className="text-xs mt-1 max-w-xs">
-                Describe a robotics task and the motion plan will render here
-                with waypoints.
+                Describe a robotics task and the AI will generate a motion plan
+                with waypoints. Then click Execute Plan to animate the arm.
               </p>
             </div>
           ) : (
@@ -1273,12 +1420,23 @@ export function RoboticsFeatureUI({
                         initial={{ opacity: 0, x: -8 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: i * 0.12 }}
-                        className="flex items-center gap-2 text-xs"
+                        className={`flex items-center gap-2 text-xs rounded px-2 py-1 transition ${
+                          activeWaypoint === i
+                            ? "bg-primary/20 border border-primary/30"
+                            : ""
+                        }`}
                       >
-                        <span className="h-5 w-5 rounded-full bg-primary/20 flex items-center justify-center font-mono text-primary text-[10px]">
+                        <span className={`h-5 w-5 rounded-full flex items-center justify-center font-mono text-[10px] ${
+                          activeWaypoint === i
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-primary/20 text-primary"
+                        }`}>
                           {i + 1}
                         </span>
                         <span className="flex-1">{wp}</span>
+                        {activeWaypoint === i && (
+                          <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                        )}
                       </motion.div>
                     ))}
                   </div>
@@ -1296,6 +1454,7 @@ export function RoboticsFeatureUI({
                   <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">
                     {m.role}
                   </div>
+                  <Markdown content={m.content} className="nox-prose" />
                   <div className="whitespace-pre-wrap leading-relaxed">
                     {m.content}
                   </div>
