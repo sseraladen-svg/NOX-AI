@@ -14,6 +14,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useChat } from "@/hooks/use-chat";
 import { useMultiModel } from "@/store/multi-model-store";
+import { useConversations } from "@/store/conversations-store";
 import type { ConnectionType, ModelAssignment } from "@/lib/multi-model-types";
 import {
   ChatInput,
@@ -38,13 +39,17 @@ export function SingleModePage() {
   const router = useRouter();
   const chat = useChat();
   const mm = useMultiModel();
+  const convs = useConversations();
 
-  // Ensure mode is SINGLE
+  // Ensure mode is SINGLE + clear conversation from other modes
   React.useEffect(() => {
     if (mm.loaded && mm.mode !== "SINGLE") {
       mm.setMode("SINGLE");
       mm.save();
     }
+    // Clear any active conversation from Multi/Orchestrator modes
+    // so this mode starts with a clean slate
+    convs.clearActive();
   }, [mm.loaded]);
 
   const assignment = mm.globalConfig || {

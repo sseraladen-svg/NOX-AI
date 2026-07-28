@@ -18,6 +18,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useChat } from "@/hooks/use-chat";
 import { useMultiModel } from "@/store/multi-model-store";
+import { useConversations } from "@/store/conversations-store";
 import {
   SPECIALISTS,
   type SpecialistId,
@@ -57,13 +58,16 @@ export function OrchestratorModePage() {
   const router = useRouter();
   const chat = useChat();
   const mm = useMultiModel();
+  const convs = useConversations();
 
-  // Ensure mode is ORCHESTRATOR
+  // Ensure mode is ORCHESTRATOR + clear conversation from other modes
   React.useEffect(() => {
     if (mm.loaded && mm.mode !== "ORCHESTRATOR") {
       mm.setMode("ORCHESTRATOR");
       mm.save();
     }
+    // Clear any active conversation from Single/Multi modes
+    convs.clearActive();
   }, [mm.loaded]);
 
   const hostAssignment: ModelAssignment = mm.hostConfig || {

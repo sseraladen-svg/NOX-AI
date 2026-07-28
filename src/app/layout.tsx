@@ -29,7 +29,7 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "NOX AI" }],
   icons: {
-    icon: "/logo.svg",
+    icon: "/logo.png",
   },
   openGraph: {
     title: "NOX AI — Intelligence in the Dark",

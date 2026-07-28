@@ -125,28 +125,35 @@ export function useChat() {
       return;
     }
 
-    const userMsg: ConversationMessage = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: text,
-      multiAgent: false,
-      error: false,
-      createdAt: new Date().toISOString(),
-    };
-    convs.appendLocal(userMsg);
-    await persist(conversationId, { role: "user", content: text });
+    // Only append + persist the user message if this is NOT a confirmation
+    // re-dispatch (confirmMultiAgent=true means the user message was already
+    // saved in the first round-trip). This prevents double execution.
+    if (!confirmMultiAgent) {
+      const userMsg: ConversationMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: text,
+        multiAgent: false,
+        error: false,
+        createdAt: new Date().toISOString(),
+      };
+      convs.appendLocal(userMsg);
+      await persist(conversationId, { role: "user", content: text });
+    }
     setInput("");
 
     // Read CURRENT activeMessages from the store — not the stale closure.
-    // This ensures the API only receives messages from the CURRENT conversation,
-    // not messages from a previous conversation that were in the old closure.
     const currentMessages = useConversations.getState().activeMessages;
 
     const apiMessages = [
       ...currentMessages
         .filter((m) => !m.error)
         .map((m) => ({ role: m.role, content: m.content })),
-      { role: "user" as const, content: text, image },
+      // Only add the user message if it's not already in the history
+      // (on confirmation re-dispatch, it's already there)
+      ...(confirmMultiAgent
+        ? []
+        : [{ role: "user" as const, content: text, image }]),
     ];
 
     try {
