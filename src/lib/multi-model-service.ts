@@ -1291,20 +1291,20 @@ export function validateGeminiKey(apiKey: string): string | null {
     // We don't auto-fix here â€” we tell the user so they can re-paste cleanly.
     return "The API key has leading or trailing whitespace. Copy it again from https://aistudio.google.com/apikey with no extra spaces.";
   }
-  // Known-wrong prefixes: OAuth bearer tokens, Vertex service-account tokens,
-  // Google Cloud API keys with the wrong prefix, etc.
-  const wrongPrefixes = ["ya29.", "AQ.", "1//", "AIza"];
-  // Note: real AI Studio keys DO start with "AIzaSy" â€” we check that below.
+  // Known-wrong prefixes: OAuth bearer tokens and Vertex service-account tokens.
+  // Google also issues newer Gemini API keys that start with "AQ".
+  const wrongPrefixes = ["ya29.", "1//"];
   // "AIza" alone (without "Sy") is the older Google Cloud API key prefix and
   // does NOT work with the Generative Language API.
   if (trimmed.startsWith("AIza") && !trimmed.startsWith("AIzaSy")) {
-    return "This looks like a Google Cloud API key (prefix 'AIza') but not a Generative Language API key. Get one from https://aistudio.google.com/apikey â€” it should start with 'AIzaSy'.";
+    return "This looks like a Google Cloud API key (prefix 'AIza') but not a Generative Language API key. Get one from https://aistudio.google.com/apikey — it should start with 'AIzaSy' or 'AQ'.";
   }
-  if (wrongPrefixes.some((p) => trimmed.startsWith(p)) && !trimmed.startsWith("AIzaSy")) {
-    return "This doesn't look like a valid Gemini API key. Get one from https://aistudio.google.com/apikey â€” it should start with 'AIzaSy'. OAuth tokens are not supported here.";
+  if (wrongPrefixes.some((p) => trimmed.startsWith(p))) {
+    return "This doesn't look like a valid Gemini API key. Get one from https://aistudio.google.com/apikey — it should start with 'AIzaSy' or 'AQ'. OAuth tokens are not supported here.";
   }
-  if (!trimmed.startsWith("AIzaSy")) {
-    return "This doesn't look like a valid Gemini API key. Get one from https://aistudio.google.com/apikey â€” it should start with 'AIzaSy'. OAuth tokens are not supported here.";
+  const allowedPrefixes = ["AIzaSy", "AQ"];
+  if (!allowedPrefixes.some((p) => trimmed.startsWith(p))) {
+    return "This doesn't look like a valid Gemini API key. Get one from https://aistudio.google.com/apikey — it should start with 'AIzaSy' or 'AQ'. OAuth tokens are not supported here.";
   }
   // AI Studio keys are ~39 chars. Allow some slack but flag obviously wrong lengths.
   if (trimmed.length < 35 || trimmed.length > 45) {
@@ -1377,7 +1377,7 @@ export async function testGeminiConnection(
       reason: "Gemini API key format is invalid.",
       fixSteps: [
         "Go to https://aistudio.google.com/apikey",
-        "Create or copy an API key (starts with 'AIzaSy')",
+        "Create or copy an API key (starts with 'AIzaSy' or 'AQ')",
         "Paste it into the API Key field",
       ],
     };
@@ -1455,7 +1455,7 @@ function geminiFixStepsForStatus(status: number): string[] {
       return [
         "Copy the API key again from https://aistudio.google.com/apikey",
         "Make sure there are no leading/trailing spaces",
-        "Ensure you're using an AI Studio key (starts with 'AIzaSy'), not an OAuth token",
+        "Ensure you're using an AI Studio key (starts with 'AIzaSy' or 'AQ'), not an OAuth token",
       ];
     case 401:
     case 403:
@@ -3166,4 +3166,5 @@ export async function getRecentUsage(
     createdAt: r.createdAt.toISOString(),
   }));
 }
+
 
