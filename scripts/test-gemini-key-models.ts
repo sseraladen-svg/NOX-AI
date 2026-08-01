@@ -1,9 +1,14 @@
+﻿export {}
+
 // Test multiple Gemini model names against the same key to determine if
 // the key is valid (just the wrong model) or invalid.
 // Usage: bun run /home/z/my-project/scripts/test-gemini-key-models.ts "<key>"
 
 const key = process.argv[2];
-if (!key) { console.error("Missing API key"); process.exit(1); }
+if (!key) {
+  console.error("Missing API key");
+  process.exit(1);
+}
 
 const models = [
   "gemini-1.5-flash",
@@ -55,7 +60,6 @@ for (const model of models) {
   }
 }
 
-// Also call ListModels to see what this key can actually access
 console.log("\n--- ListModels check ---");
 try {
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);

@@ -1,3 +1,5 @@
+﻿export {}
+
 // Test a Gemini API key against Google's generativelanguage API.
 // Usage: bun run /home/z/my-project/scripts/test-gemini-key.ts "<key>"
 

@@ -1,70 +1,40 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+﻿# Node
+node_modules/
 
-# dependencies
-node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+# Next.js
+.next/
+out/
+build/
 
-# testing
-/coverage
+# Build artifacts
+*.tsbuildinfo
 
-# next.js
-/.next/
-/out/
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
 
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-local-*
-.claude
-.z-ai-config
+pnpm-debug.log*
 *.log
-dev.log
-dev.out.log
-test
-prompt
 
-server.log
+# Vercel
+.vercel/
 
-# database
-/db/
+# Local database files
+db/
+*.db
 
-# Skills directory
-/skills/
+# OS and editor files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+.vscode/
+.idea/
 
-# scripts (generation helpers)
-/scripts/
-
-# upload directory
-/upload/
-
-# z-scripts
-/.zscripts/
-
-# worklog
-worklog.md
+# Ignore generated credentials or runtime files
+*.pem

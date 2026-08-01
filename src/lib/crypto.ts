@@ -1,32 +1,28 @@
-import crypto from "crypto";
-
-// ───────────────────────────────────────────────────────────────────────────
-// API key encryption at rest
-//
-// Uses AES-256-GCM with a key derived from NOX_AI_SECRET (or a deterministic
-// fallback when the env var is missing — clearly logged so it can be fixed).
-// Encrypted blobs are stored as `iv:tag:ciphertext` (all hex).
-// ───────────────────────────────────────────────────────────────────────────
+﻿import crypto from "crypto";
 
 const ALGO = "aes-256-gcm";
 const KEY_LEN = 32;
 const IV_LEN = 12;
 
 function getRootKey(): Buffer {
-  const secret =
-    process.env.NOX_AI_SECRET ||
-    // Deterministic dev fallback. NOT for production. Logged on boot.
+  const configured = process.env.NOX_AI_SECRET || process.env.AUTH_SECRET;
+  const secret = configured ||
     "nox-ai-dev-secret-please-override-in-production-32b";
   return crypto.createHash("sha256").update(secret).digest().subarray(0, KEY_LEN);
 }
 
 let warned = false;
 export function ensureCryptoSecretConfigured() {
-  if (!process.env.NOX_AI_SECRET && !warned) {
+  const configured = process.env.NOX_AI_SECRET || process.env.AUTH_SECRET;
+  if (!configured && !warned) {
     warned = true;
-    console.warn(
-      "[nox] NOX_AI_SECRET is not set — using deterministic dev fallback. Set NOX_AI_SECRET in production."
-    );
+    if (process.env.NODE_ENV === "production") {
+      console.warn("[nox] NOX_AI_SECRET or AUTH_SECRET is not set in production.");
+    } else {
+      console.warn(
+        "[nox] NOX_AI_SECRET is not set — using deterministic dev fallback. Set NOX_AI_SECRET in production."
+      );
+    }
   }
 }
 
@@ -59,8 +55,6 @@ export function decryptApiKey(blob: string): string {
   }
 }
 
-// Mask an API key for display: show last 4 chars only.
-//   "sk-abcdef1234567890" → "sk-••••••••••••••7890"
 export function maskApiKey(plaintext: string): string {
   if (!plaintext) return "";
   if (plaintext.length <= 4) return "••••";

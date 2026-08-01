@@ -1,0 +1,4 @@
+{
+  "baseUrl": "https://internal-api.z.ai/v1",
+  "apiKey": "<your-zai-api-key>"
+}

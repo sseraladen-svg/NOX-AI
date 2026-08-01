@@ -1,28 +1,21 @@
-import "server-only";
+﻿import "server-only";
 import crypto from "crypto";
 import { db } from "@/lib/db";
 import { cookies } from "next/headers";
 
-// ───────────────────────────────────────────────────────────────────────────
-// NOX AI — Local auth (email + password, server-side sessions)
-//
-// • Passwords are hashed with scrypt (salt + 64-byte hash, formatted as
-//   `saltHex:hashHex`).
-// • Sessions are signed HMAC tokens stored in an httpOnly cookie. The token
-//   payload is `userId.expiresAtMs`. No session DB table needed.
-// ───────────────────────────────────────────────────────────────────────────
-
 const SESSION_COOKIE = "nox_session";
-const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 
 function getAuthSecret(): string {
-  const s =
-    process.env.NOX_AI_SECRET ||
-    "nox-ai-dev-secret-please-override-in-production-32b";
-  return s;
-}
+  const configured = process.env.NOX_AI_SECRET || process.env.AUTH_SECRET;
+  if (configured) return configured;
 
-// ─── Password hashing (scrypt) ─────────────────────────────────────────────
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("NOX_AI_SECRET or AUTH_SECRET must be set in production.");
+  }
+
+  return "nox-ai-dev-secret-please-override-in-production-32b";
+}
 
 export function hashPassword(plaintext: string): string {
   const salt = crypto.randomBytes(16);
@@ -42,8 +35,6 @@ export function verifyPassword(plaintext: string, stored: string): boolean {
     return false;
   }
 }
-
-// ─── Session tokens (HMAC-signed) ──────────────────────────────────────────
 
 function sign(payload: string): string {
   const secret = getAuthSecret();
@@ -65,7 +56,6 @@ function verify(token: string): string | null {
   if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
     return null;
   }
-  // payload = userId.expiresAtMs
   const [userId, expiresStr] = payload.split("|");
   if (!userId || !expiresStr) return null;
   const expires = parseInt(expiresStr, 10);
@@ -78,37 +68,10 @@ export function createSessionToken(userId: string): string {
   return sign(`${userId}|${expiresAt}`);
 }
 
-// ─── Cookie helpers (server-side) ──────────────────────────────────────────
-
-// Detect whether the current request was served over HTTPS. The preview
-// gateway proxies to localhost:3000 over HTTPS, so even in dev mode we need
-// `secure: true` for the cookie to actually be sent back on subsequent
-// fetches. We check the x-forwarded-proto header (set by Caddy) and fall
-// back to NODE_ENV.
-async function isHttpsRequest(): Promise<boolean> {
-  try {
-    const store = await cookies();
-    // headers() is async in Next.js 15+ — but we can read the request headers
-    // via the cookie store's underlying request. Simpler: check NODE_ENV and
-    // the presence of a forwarded header by importing headers().
-    const { headers } = await import("next/headers");
-    const h = await headers();
-    const forwardedProto = h.get("x-forwarded-proto") || "";
-    return (
-      forwardedProto.includes("https") ||
-      process.env.NODE_ENV === "production"
-    );
-  } catch {
-    return process.env.NODE_ENV === "production";
-  }
-}
-
 export async function setSessionCookie(userId: string): Promise<void> {
   const token = createSessionToken(userId);
   const store = await cookies();
-  const secure = await isHttpsRequest();
-  // Use sameSite="lax" for same-site navigations + same-origin fetches.
-  // `secure` is set based on the actual request scheme (HTTPS in preview).
+  const secure = process.env.NODE_ENV === "production";
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
@@ -125,20 +88,13 @@ export async function clearSessionCookie(): Promise<void> {
 
 export async function getCurrentUser(): Promise<{ id: string; email: string; name: string | null } | null> {
   try {
-    // Primary auth path: session cookie.
     const store = await cookies();
     let token = store.get(SESSION_COOKIE)?.value;
-
-    // Fallback auth path: x-nox-session header (for preview gateway contexts
-    // where SameSite cookies aren't sent on fetch). The frontend stores the
-    // token in localStorage after login and sends it as a header on every
-    // API call.
     if (!token) {
       const { headers } = await import("next/headers");
       const h = await headers();
       token = h.get("x-nox-session") || undefined;
     }
-
     if (!token) return null;
     const userId = verify(token);
     if (!userId) return null;
@@ -152,9 +108,6 @@ export async function getCurrentUser(): Promise<{ id: string; email: string; nam
   }
 }
 
-// Return the raw session token for the current request (cookie or header).
-// Used by login/signup routes to echo the token back in the JSON response so
-// the frontend can store it in localStorage and send it as a header.
 export async function getCurrentSessionToken(): Promise<string | null> {
   try {
     const store = await cookies();

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import { motion } from "framer-motion";
@@ -65,7 +65,7 @@ export function SingleModePage() {
       <header className="sticky top-0 z-30 glass border-b border-border">
         <div className="mx-auto max-w-4xl px-3 sm:px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <IconButton onClick={() => setConvDrawerOpen(true)} label="Conversations">
+            <IconButton onClick={() => chat.setConvDrawerOpen(true)} label="Conversations">
               <PanelLeft className="h-4 w-4" />
             </IconButton>
             <button
@@ -126,7 +126,7 @@ export function SingleModePage() {
           setInput={chat.setInput}
           onSend={() => chat.sendMessage(chat.input)}
           sending={chat.sending}
-          placeholder="Message your single model…"
+          placeholder="Message your single modelâ€¦"
         />
       </main>
 
@@ -217,3 +217,4 @@ function ModelStrip({
     </div>
   );
 }
+

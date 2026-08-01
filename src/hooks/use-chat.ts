@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import {
@@ -47,12 +47,12 @@ function aggregateUsage(steps: DispatchStep[]): MessageUsage | undefined {
   return { tokens, cost };
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// useChat — shared chat logic for all three mode pages.
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// useChat â€” shared chat logic for all three mode pages.
 //
 // Handles: message sending, DB persistence, multi-agent confirmation flow,
 // conversation creation, and the advanced-settings dialog state.
-// ───────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function useChat() {
   const convs = useConversations();
@@ -80,7 +80,7 @@ export function useChat() {
     mode: Mode,
     title?: string
   ): Promise<string | null> => {
-    // Read CURRENT state from the store — not the stale closure value.
+    // Read CURRENT state from the store â€” not the stale closure value.
     // This fixes the bug where switching conversations or creating a new one
     // didn't update the activeId used by sendMessage.
     const current = useConversations.getState();
@@ -116,7 +116,7 @@ export function useChat() {
     // In MULTI mode, create the conversation with the feature name as title
     // so the sidebar shows which feature each conversation belongs to.
     const convTitle = mm.mode === "MULTI" && feature
-      ? `${feature.charAt(0).toUpperCase() + feature.slice(1)} — ${text.slice(0, 40)}`
+      ? `${feature.charAt(0).toUpperCase() + feature.slice(1)} â€” ${text.slice(0, 40)}`
       : undefined;
     const conversationId = await ensureConversation(mm.mode as Mode, convTitle);
     if (!conversationId) {
@@ -138,11 +138,11 @@ export function useChat() {
         createdAt: new Date().toISOString(),
       };
       convs.appendLocal(userMsg);
-      await persist(conversationId, { role: "user", content: text });
+      await persist(conversationId, { role: "user", content: text, multiAgent: false, error: false });
     }
     setInput("");
 
-    // Read CURRENT activeMessages from the store — not the stale closure.
+    // Read CURRENT activeMessages from the store â€” not the stale closure.
     const currentMessages = useConversations.getState().activeMessages;
 
     const apiMessages = [
@@ -209,11 +209,11 @@ export function useChat() {
               const data = JSON.parse(line.slice(6));
 
               if (data.type === "thinking") {
-                // UI already shows spinner — nothing to do
+                // UI already shows spinner â€” nothing to do
               } else if (data.type === "step") {
-                // A dispatch step completed — could show trace info
+                // A dispatch step completed â€” could show trace info
               } else if (data.type === "chunk") {
-                // Progressive text chunk — append to the assistant message
+                // Progressive text chunk â€” append to the assistant message
                 progressiveText += data.text;
                 // Update the message in the store
                 useConversations.setState((s) => ({
@@ -383,7 +383,7 @@ export function useChat() {
       setConfirmLimits([]);
       setConfirmClassification(undefined);
       // Pass cached classification so the backend doesn't re-run the
-      // classification call — it already knows the specialist from the
+      // classification call â€” it already knows the specialist from the
       // first round-trip.
       sendMessage(text, true, feature, undefined, false, classification);
     }
@@ -410,7 +410,7 @@ export function useChat() {
       setPendingClassification(undefined);
       setConfirmLimits([]);
       setConfirmClassification(undefined);
-      // Re-dispatch with skipSpecialist=true — Host answers directly.
+      // Re-dispatch with skipSpecialist=true â€” Host answers directly.
       sendMessage(text, false, feature, undefined, true);
     }
   };
@@ -441,3 +441,4 @@ export function useChat() {
     onConfirmHostDirectly,
   };
 }
+

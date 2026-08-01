@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -36,29 +36,12 @@ model MultiModelConfig {
   userId  String
   user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // Single row per user. Sentinel so we can upsert deterministically.
   scope String @default("default")
-
-  // SINGLE | MULTI | ORCHESTRATOR
   mode String @default("SINGLE")
-
-  // JSON-encoded ModelAssignment (encrypted apiKey inside).
-  // Used when mode = SINGLE.
   globalConfig String?
-
-  // JSON-encoded Record<FeatureId, ModelAssignment>.
-  // Used when mode = MULTI.
   featureConfigs String?
-
-  // JSON-encoded ModelAssignment for the Host router.
-  // Used when mode = ORCHESTRATOR.
   hostConfig String?
-
-  // JSON-encoded Record<SpecialistId, ModelAssignment>.
-  // Used when mode = ORCHESTRATOR.
   specialistConfigs String?
-
-  // Per-connection-type timeout overrides (ms). JSON-encoded.
   timeoutOverrides String?
 
   createdAt DateTime @default(now())
@@ -72,7 +55,7 @@ model Conversation {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String   @default("New conversation")
-  mode      String   @default("SINGLE") // SINGLE | MULTI | ORCHESTRATOR
+  mode      String   @default("SINGLE")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -85,62 +68,39 @@ model Message {
   id             String   @id @default(cuid())
   conversationId String
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  role           String   // user | assistant
+  role           String
   content        String
-  // JSON-encoded dispatch trace (steps with model, provider, latency, etc.)
   trace          String?
   mode           String?
   multiAgent     Boolean  @default(false)
   error          Boolean  @default(false)
-  // Aggregated token usage + cost for this message (sum across all steps).
-  // Stored as JSON: { input, output, total, cost: { input, output, total } }
   usage          String?
   createdAt      DateTime @default(now())
 
   @@index([conversationId, createdAt])
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// NOX AI — Usage records (cost tracking)
-//
-// One row per model call within a dispatch. A single user message can produce
-// multiple UsageRecords (e.g. ORCHESTRATOR mode = 3 records: host analyze +
-// specialist + host synthesize). Used to power the cost dashboard.
-// ───────────────────────────────────────────────────────────────────────────
-
 model UsageRecord {
   id             String   @id @default(cuid())
   userId         String
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Which conversation + message triggered this call (for drill-down).
   conversationId String?
   messageId      String?
-
-  // What was called.
-  mode           String   // SINGLE | MULTI | ORCHESTRATOR
-  role           String   // host | planning | coding | single model | etc.
-  provider       String   // openai | anthropic | gemini | ollama | etc.
-  model          String   // gpt-4o-mini | llama3.1:8b | etc.
-  connectionType String   // API | LOCAL
-
-  // Token usage (from provider response; null for LOCAL models that don't
-  // report token counts, or for failed calls).
+  mode           String
+  role           String
+  provider       String
+  model          String
+  connectionType String
   inputTokens    Int?
   outputTokens   Int?
   totalTokens    Int?
-
-  // Cost in USD (null for LOCAL models — zero marginal cost).
   inputCost      Float?
   outputCost     Float?
   totalCost      Float?
-
-  // Call metadata.
   latencyMs      Int
   retries        Int      @default(0)
   timedOut       Boolean  @default(false)
   error          Boolean  @default(false)
-
   createdAt      DateTime @default(now())
 
   @@index([userId, createdAt])
