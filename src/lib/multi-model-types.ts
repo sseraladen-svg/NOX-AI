@@ -210,11 +210,25 @@ export const SPECIALISTS: {
 
 export const PROVIDERS = [
   {
+    id: "auto",
+    label: "Auto-detect",
+    connectionType: "API" as ConnectionType,
+    defaultModel: "gpt-4o-mini",
+    models: ["gpt-4o-mini"],
+  },
+  {
     id: "openai",
     label: "OpenAI",
     connectionType: "API" as ConnectionType,
     defaultModel: "gpt-4o-mini",
     models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1-mini"],
+  },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    connectionType: "API" as ConnectionType,
+    defaultModel: "openai/gpt-4o-mini",
+    models: ["openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "google/gemini-2.0-flash-exp"],
   },
   {
     id: "anthropic",

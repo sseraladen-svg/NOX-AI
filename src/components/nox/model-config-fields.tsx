@@ -184,10 +184,10 @@ export function ModelConfigFields({
               onChange={(e) =>
                 onChange({ ...assignment, apiKey: e.target.value })
               }
-              placeholder="sk-…"
+              placeholder="Paste your API key"
             />
             <p className="text-[10px] text-muted-foreground">
-              Encrypted at rest. Masked when reloaded.
+              Encrypted at rest. Masked when reloaded. The Test button sends a real request to the official provider API and shows the provider response if authentication fails.
             </p>
           </div>
           <div className="space-y-1.5">

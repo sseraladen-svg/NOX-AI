@@ -67,6 +67,132 @@ export { FEATURES, SPECIALISTS, PROVIDERS, DEFAULT_TIMEOUTS, MAX_RETRY };
 
 const SCOPE = "default";
 
+const PROVIDER_TIMEOUT_MS = 15_000;
+const PROVIDER_RETRY_DELAY_MS = 400;
+
+type ProviderKind = "openai" | "openrouter" | "anthropic" | "gemini" | "mistral" | "groq" | "ollama" | "zai" | "auto";
+
+interface ProviderRuntimeConfig {
+  provider: ProviderKind;
+  displayName: string;
+  defaultBase: string;
+  testPath: string;
+  chatPath: string;
+  auth: { type: "bearer" | "x-api-key" | "query"; headerName?: string };
+}
+
+function normalizeApiKey(value?: string): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeProviderSelection(provider: string, apiKey?: string, endpoint?: string): ProviderKind {
+  const normalized = provider?.trim().toLowerCase();
+  if (normalized && normalized !== "auto") return normalized as ProviderKind;
+
+  if (endpoint) {
+    const lowered = endpoint.toLowerCase();
+    if (lowered.includes("openrouter")) return "openrouter";
+    if (lowered.includes("anthropic")) return "anthropic";
+    if (lowered.includes("generativelanguage") || lowered.includes("gemini")) return "gemini";
+    if (lowered.includes("mistral")) return "mistral";
+    if (lowered.includes("groq")) return "groq";
+  }
+
+  return "openai";
+}
+
+function resolveProviderConfig(provider: string, apiKey?: string, endpoint?: string): ProviderRuntimeConfig {
+  const resolvedProvider = normalizeProviderSelection(provider, apiKey, endpoint);
+  const defaults: Record<ProviderKind, ProviderRuntimeConfig> = {
+    openai: { provider: "openai", displayName: "OpenAI", defaultBase: "https://api.openai.com/v1", testPath: "/models", chatPath: "/chat/completions", auth: { type: "bearer" } },
+    openrouter: { provider: "openrouter", displayName: "OpenRouter", defaultBase: "https://openrouter.ai/api/v1", testPath: "/models", chatPath: "/chat/completions", auth: { type: "bearer" } },
+    anthropic: { provider: "anthropic", displayName: "Anthropic", defaultBase: "https://api.anthropic.com/v1", testPath: "/models", chatPath: "/messages", auth: { type: "x-api-key", headerName: "x-api-key" } },
+    gemini: { provider: "gemini", displayName: "Google Gemini", defaultBase: "https://generativelanguage.googleapis.com/v1beta", testPath: "/models", chatPath: "/:generateContent", auth: { type: "query" } },
+    mistral: { provider: "mistral", displayName: "Mistral", defaultBase: "https://api.mistral.ai/v1", testPath: "/models", chatPath: "/chat/completions", auth: { type: "bearer" } },
+    groq: { provider: "groq", displayName: "Groq", defaultBase: "https://api.groq.com/openai/v1", testPath: "/models", chatPath: "/chat/completions", auth: { type: "bearer" } },
+    ollama: { provider: "ollama", displayName: "Ollama", defaultBase: "http://localhost:11434", testPath: "/api/tags", chatPath: "/api/chat", auth: { type: "bearer" } },
+    zai: { provider: "zai", displayName: "Z.ai", defaultBase: "https://api.z.ai", testPath: "/models", chatPath: "/chat/completions", auth: { type: "bearer" } },
+    auto: { provider: "auto", displayName: "Auto-detect", defaultBase: "https://api.openai.com/v1", testPath: "/models", chatPath: "/chat/completions", auth: { type: "bearer" } },
+  };
+
+  const cfg = defaults[resolvedProvider];
+  const base = endpoint?.trim() ? endpoint.trim().replace(/\/+$/, "") : cfg.defaultBase;
+  return { ...cfg, defaultBase: base };
+}
+
+function buildProviderUrl(base: string | undefined, suffix: string): string {
+  const normalizedBase = (base || "").trim().replace(/\/+$/, "");
+  if (!normalizedBase) return suffix;
+  return normalizedBase.endsWith(suffix) ? normalizedBase : `${normalizedBase}${suffix}`;
+}
+
+function buildGeminiGenerateUrl(endpoint: string | undefined, model: string, apiKey: string): string {
+  const base = (endpoint || "https://generativelanguage.googleapis.com/v1beta").trim().replace(/\/+$/, "");
+  const modelsBase = base.endsWith("/models") ? base : `${base}/models`;
+  return `${modelsBase}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = PROVIDER_TIMEOUT_MS): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+}
+
+async function fetchWithRetry(url: string, init: RequestInit, timeoutMs = PROVIDER_TIMEOUT_MS): Promise<Response> {
+  let lastError: Error | undefined;
+  for (let attempt = 0; attempt <= 2; attempt += 1) {
+    try {
+      return await fetchWithTimeout(url, init, timeoutMs);
+    } catch (err) {
+      lastError = err as Error;
+      if (attempt >= 2) break;
+      await new Promise((resolve) => setTimeout(resolve, PROVIDER_RETRY_DELAY_MS * (attempt + 1)));
+    }
+  }
+  throw lastError || new Error("Provider request failed");
+}
+
+function parseErrorBody(body: string): string {
+  if (!body) return "";
+  try {
+    const json = JSON.parse(body);
+    return String(json?.error?.message || json?.message || body).slice(0, 300);
+  } catch {
+    return body.slice(0, 300);
+  }
+}
+
+function classifyProviderError(provider: string, status: number, body: string): { message: string; reason: string; fixSteps: string[] } {
+  const detail = parseErrorBody(body);
+  const lowered = detail.toLowerCase();
+  const displayName = provider.charAt(0).toUpperCase() + provider.slice(1);
+  if (status === 401 || /invalid api key|api key/i.test(lowered)) {
+    return { message: `Invalid API key for ${displayName}. Verify the key is active and copied correctly.`, reason: `HTTP 401: ${detail || "invalid API key"}`, fixSteps: ["Copy the key again without extra whitespace", "Verify it is still active in the provider dashboard", "Ensure the key has access to the requested model"] };
+  }
+  if (status === 403 || /permission|forbidden|access denied/i.test(lowered)) {
+    return { message: `Missing permissions for ${displayName}. The key may not be allowed to use this endpoint or model.`, reason: `HTTP 403: ${detail || "access denied"}`, fixSteps: ["Check the provider account permissions", "Enable the relevant API access", "Ensure your organization allows this model"] };
+  }
+  if (status === 404 || /not found|unsupported model|model not found/i.test(lowered)) {
+    return { message: `Unsupported model or endpoint for ${displayName}. Confirm the model name and endpoint are correct.`, reason: `HTTP 404: ${detail || "model not found"}`, fixSteps: ["Use a supported model from the provider catalog", "Confirm the endpoint points to the official API gateway"] };
+  }
+  if (status === 429 || /rate limit|quota|too many requests/i.test(lowered)) {
+    return { message: `Rate limit exceeded for ${displayName}. Retry after a short delay.`, reason: `HTTP 429: ${detail || "rate limit"}`, fixSteps: ["Wait a moment and try again", "Check the provider usage and quota dashboard"] };
+  }
+  if (status === 402 || /billing|credit|insufficient/i.test(lowered)) {
+    return { message: `Billing is disabled or insufficient for ${displayName}.`, reason: `HTTP 402: ${detail || "billing required"}`, fixSteps: ["Top up or enable billing for the provider account", "Confirm the account can access this model"] };
+  }
+  if (status >= 500 || /unavailable|temporarily|overloaded|service unavailable/i.test(lowered)) {
+    return { message: `Provider unavailable for ${displayName}. The provider service is currently failing.`, reason: `HTTP ${status}: ${detail || "service unavailable"}`, fixSteps: ["Retry in a few minutes", "Check the provider status page"] };
+  }
+  return { message: `${displayName} API error (HTTP ${status}): ${detail || "unexpected response"}`, reason: `HTTP ${status}: ${detail || "unexpected response"}`, fixSteps: ["Retry the request", "Verify the provider endpoint"] };
+}
+
+function isTransientProviderError(message: string): boolean {
+  const lowered = message.toLowerCase();
+  return /429|5\d\d|timeout|fetch failed|econnrefused|econnreset|temporarily|overloaded|rate limit|network/i.test(lowered);
+}
+
+
+
 // â”€â”€â”€ Persistence (encrypt on write, mask on read) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function encryptAssignment(a?: ModelAssignment | null): ModelAssignment | null {
@@ -352,15 +478,15 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
         latencyMs: 0,
       };
     }
-    if (!a.apiKey || a.apiKey.length < 8) {
+    const keyError = validateApiKey(a.apiKey);
+    if (keyError) {
       return {
         ok: false,
         status: "error",
-        message: "API key missing or too short.",
+        message: keyError,
         reason: "An API key is required for API connections.",
         fixSteps: [
           "Paste your provider API key.",
-          "Ensure it has at least 8 characters.",
           "Test again. The key is encrypted at rest.",
         ],
       };
@@ -621,7 +747,7 @@ async function quickApiReachabilityCheck(
     return { canFinish: true };
   }
   if (!apiKey) {
-    return { canFinish: false, reason: "No API key configured." };
+    return { canFinish: false, reason: "API key is required." };
   }
 
   const endpoints: Record<string, string> = {
@@ -898,38 +1024,31 @@ async function realCall(
 
 // â”€â”€â”€ API connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-async function callApi(
-  assignment: ModelAssignment,
-  systemHint: string,
-  conv: ChatMessage[]
-): Promise<ModelCallResult> {
+async function callApi(assignment: ModelAssignment, systemHint: string, conv: ChatMessage[]): Promise<ModelCallResult> {
   const { provider, modelName, apiKey, endpoint } = assignment;
+  const normalizedKey = normalizeApiKey(apiKey);
 
-  // Z.ai doesn't need an API key â€” it uses the built-in SDK.
-  if (provider !== "zai" && !apiKey) {
-    throw new Error(
-      `No API key configured for ${provider}/${modelName}. Add one in Advanced Customization.`
-    );
+  if (provider !== "zai") {
+    const keyError = validateApiKey(normalizedKey);
+    if (keyError) {
+      throw new Error(keyError);
+    }
   }
 
-  // Anthropic has its own request/response format.
-  if (provider === "anthropic") {
-    return callAnthropic(apiKey ?? "", modelName, systemHint, conv, endpoint);
+  const resolvedProvider = normalizeProviderSelection(provider, normalizedKey, endpoint);
+  if (resolvedProvider === "anthropic") {
+    return callAnthropic(normalizedKey ?? "", modelName, systemHint, conv, endpoint);
   }
 
-  // Z.ai â€” built-in SDK, no API key needed.
-  if (provider === "zai") {
+  if (resolvedProvider === "zai") {
     return callZai(modelName, systemHint, conv);
   }
 
-  // Google Gemini uses a different URL structure + API key as query param.
-  if (provider === "gemini") {
-    return callGemini(apiKey ?? "", modelName, systemHint, conv, endpoint);
+  if (resolvedProvider === "gemini") {
+    return callGemini(normalizedKey ?? "", modelName, systemHint, conv, endpoint);
   }
 
-  // OpenAI, Mistral, and Groq all use the OpenAI-compatible
-  // /v1/chat/completions format with Bearer auth.
-  return callOpenAiCompatible(apiKey ?? "", modelName, systemHint, conv, provider, endpoint);
+  return callOpenAiCompatible(normalizedKey ?? "", modelName, systemHint, conv, resolvedProvider, endpoint);
 }
 
 // OpenAI-compatible endpoint (openai, mistral, groq).
@@ -942,30 +1061,32 @@ async function callOpenAiCompatible(
   provider: string,
   endpoint?: string
 ): Promise<ModelCallResult> {
-  const defaultEndpoints: Record<string, string> = {
-    openai: "https://api.openai.com/v1/chat/completions",
-    mistral: "https://api.mistral.ai/v1/chat/completions",
-    groq: "https://api.groq.com/openai/v1/chat/completions",
-  };
-  const url = endpoint || defaultEndpoints[provider] || defaultEndpoints.openai;
+  const normalizedKey = normalizeApiKey(apiKey);
+  const keyError = validateApiKey(normalizedKey);
+  if (keyError) {
+    throw new Error(keyError);
+  }
 
-  // Build messages â€” if a message has an image, format as multimodal content
-  // array (text + image_url). Otherwise use plain string content.
+  const runtime = resolveProviderConfig(provider, normalizedKey, endpoint);
+  const url = buildProviderUrl(runtime.defaultBase, runtime.chatPath);
+  const safeKey = normalizedKey ?? "";
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (runtime.auth.type === "bearer") {
+    headers.Authorization = `Bearer ${safeKey}`;
+  } else if (runtime.auth.type === "x-api-key") {
+    headers[runtime.auth.headerName || "x-api-key"] = safeKey;
+    headers["anthropic-version"] = "2023-06-01";
+  }
+
   const messages: Array<{ role: string; content: string | unknown[] }> = [
     { role: "system", content: systemHint },
     ...conv.map((m) => {
       if (m.image) {
-        // Multimodal: text + image
         return {
           role: m.role,
           content: [
             { type: "text", text: m.content },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:${m.image.mimeType};base64,${m.image.data}`,
-              },
-            },
+            { type: "image_url", image_url: { url: `data:${m.image.mimeType};base64,${m.image.data}` } },
           ],
         };
       }
@@ -973,34 +1094,21 @@ async function callOpenAiCompatible(
     }),
   ];
 
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      messages,
-    }),
-  });
+    headers,
+    body: JSON.stringify({ model, max_tokens: 1024, messages }),
+  }, 30_000);
 
   if (!res.ok) {
-    const errText = await res.text().catch(() => res.statusText);
-    throw new Error(`${provider} API ${res.status}: ${errText.slice(0, 300)}`);
+    const body = await res.text().catch(() => res.statusText);
+    throw new Error(classifyProviderError(runtime.displayName.toLowerCase(), res.status, body).message);
   }
 
   const json = await res.json();
   const text = json.choices?.[0]?.message?.content ?? "";
   const usage = json.usage;
-  const tokens: TokenUsage | undefined = usage
-    ? {
-        input: usage.prompt_tokens || 0,
-        output: usage.completion_tokens || 0,
-        total: usage.total_tokens || (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
-      }
-    : undefined;
+  const tokens: TokenUsage | undefined = usage ? { input: usage.prompt_tokens || 0, output: usage.completion_tokens || 0, total: usage.total_tokens || (usage.prompt_tokens || 0) + (usage.completion_tokens || 0) } : undefined;
   return { text, tokens };
 }
 
@@ -1143,24 +1251,21 @@ async function callAnthropic(
   conv: ChatMessage[],
   endpoint?: string
 ): Promise<ModelCallResult> {
-  const url = endpoint || "https://api.anthropic.com/v1/messages";
+  const normalizedKey = normalizeApiKey(apiKey);
+  const keyError = validateApiKey(normalizedKey);
+  if (keyError) {
+    throw new Error(keyError);
+  }
 
-  // Build messages â€” if a message has an image, format as multimodal content
-  // array (text + image). Anthropic uses:
-  //   { type: "image", source: { type: "base64", media_type, data } }
+  const runtime = resolveProviderConfig("anthropic", normalizedKey, endpoint);
+  const url = buildProviderUrl(runtime.defaultBase, runtime.chatPath);
+  const safeKey = normalizedKey ?? "";
   const messages: Array<{ role: string; content: string | unknown[] }> = conv.map((m) => {
     if (m.image) {
       return {
         role: m.role,
         content: [
-          {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: m.image.mimeType,
-              data: m.image.data,
-            },
-          },
+          { type: "image", source: { type: "base64", media_type: m.image.mimeType, data: m.image.data } },
           { type: "text", text: m.content },
         ],
       };
@@ -1168,36 +1273,25 @@ async function callAnthropic(
     return { role: m.role, content: m.content };
   });
 
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": apiKey,
+      "x-api-key": safeKey,
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      system: systemHint,
-      messages,
-    }),
-  });
+    body: JSON.stringify({ model, max_tokens: 1024, system: systemHint, messages }),
+  }, 30_000);
 
   if (!res.ok) {
-    const errText = await res.text().catch(() => res.statusText);
-    throw new Error(`anthropic API ${res.status}: ${errText.slice(0, 300)}`);
+    const body = await res.text().catch(() => res.statusText);
+    throw new Error(classifyProviderError(runtime.displayName.toLowerCase(), res.status, body).message);
   }
 
   const json = await res.json();
   const text = json.content?.[0]?.text ?? "";
   const usage = json.usage;
-  const tokens: TokenUsage | undefined = usage
-    ? {
-        input: usage.input_tokens || 0,
-        output: usage.output_tokens || 0,
-        total: (usage.input_tokens || 0) + (usage.output_tokens || 0),
-      }
-    : undefined;
+  const tokens: TokenUsage | undefined = usage ? { input: usage.input_tokens || 0, output: usage.output_tokens || 0, total: (usage.input_tokens || 0) + (usage.output_tokens || 0) } : undefined;
   return { text, tokens };
 }
 
@@ -1213,145 +1307,44 @@ async function callGemini(
   conv: ChatMessage[],
   endpoint?: string
 ): Promise<ModelCallResult> {
-  const geminiKeyError = validateGeminiKey(apiKey);
-  if (geminiKeyError) {
-    throw new Error(geminiKeyError);
+  const keyError = validateApiKey(apiKey);
+  if (keyError) {
+    throw new Error(keyError);
   }
 
-  const base =
-    endpoint || "https://generativelanguage.googleapis.com/v1beta/models";
-  const url = `${base}/${model}:generateContent?key=${apiKey}`;
-
-  // Build contents â€” if a message has an image, add inline_data part.
-  // Gemini uses: { inline_data: { mime_type, data } }
+  const normalizedKey = normalizeApiKey(apiKey)!;
+  const runtime = resolveProviderConfig("gemini", normalizedKey, endpoint);
+  const url = buildGeminiGenerateUrl(runtime.defaultBase, model, normalizedKey);
   const contents = conv.map((m) => {
     const parts: unknown[] = [{ text: m.content }];
     if (m.image) {
-      parts.push({
-        inline_data: {
-          mime_type: m.image.mimeType,
-          data: m.image.data,
-        },
-      });
+      parts.push({ inline_data: { mime_type: m.image.mimeType, data: m.image.data } });
     }
-    return {
-      role: m.role === "assistant" ? "model" : "user",
-      parts,
-    };
+    return { role: m.role === "assistant" ? "model" : "user", parts };
   });
 
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents,
-      systemInstruction: { parts: [{ text: systemHint }] },
-      generationConfig: { maxOutputTokens: 1024 },
-    }),
-  });
+    body: JSON.stringify({ contents, systemInstruction: { parts: [{ text: systemHint }] }, generationConfig: { maxOutputTokens: 1024 } }),
+  }, 30_000);
 
   if (!res.ok) {
-    // â”€â”€â”€ Fix #2: surface specific, actionable errors for Gemini â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    //
-    // Never include the raw API key in the error message. Only include the
-    // HTTP status, the model name, and a human-readable explanation.
-    throw new Error(formatGeminiHttpError(res.status, model, await safeReadError(res)));
+    const body = await res.text().catch(() => res.statusText);
+    throw new Error(classifyProviderError(runtime.displayName.toLowerCase(), res.status, body).message);
   }
 
   const json = await res.json();
   const parts = json.candidates?.[0]?.content?.parts;
-  const text = Array.isArray(parts)
-    ? parts.map((p: { text?: string }) => p.text || "").join("")
-    : "";
-  // Gemini returns usage as:
-  //   { usageMetadata: { promptTokenCount, candidatesTokenCount, totalTokenCount } }
+  const text = Array.isArray(parts) ? parts.map((p: { text?: string }) => p.text || "").join("") : "";
   const usage = json.usageMetadata;
-  const tokens: TokenUsage | undefined = usage
-    ? {
-        input: usage.promptTokenCount || 0,
-        output: usage.candidatesTokenCount || 0,
-        total: usage.totalTokenCount || 0,
-      }
-    : undefined;
+  const tokens: TokenUsage | undefined = usage ? { input: usage.promptTokenCount || 0, output: usage.candidatesTokenCount || 0, total: usage.totalTokenCount || 0 } : undefined;
   return { text, tokens };
 }
 
-// Validate a Gemini API key format before making any network call.
-// Returns null if the key looks valid, or a clear error string if not.
-//
-// SECURITY: This function only inspects the key's prefix and length â€” it
-// never logs the key itself.
-export function validateGeminiKey(apiKey: string): string | null {
-  if (!apiKey) {
-    return "No Gemini API key configured. Add one in Advanced Customization.";
-  }
-  // Trim leading/trailing whitespace (a common copy-paste mistake) and check.
-  const trimmed = apiKey.trim();
-  if (trimmed !== apiKey) {
-    // We don't auto-fix here â€” we tell the user so they can re-paste cleanly.
-    return "The API key has leading or trailing whitespace. Copy it again from https://aistudio.google.com/apikey with no extra spaces.";
-  }
-  // Known-wrong prefixes: OAuth bearer tokens and Vertex service-account tokens.
-  // Google also issues newer Gemini API keys that start with "AQ".
-  const wrongPrefixes = ["ya29.", "1//"];
-  // "AIza" alone (without "Sy") is the older Google Cloud API key prefix and
-  // does NOT work with the Generative Language API.
-  if (trimmed.startsWith("AIza") && !trimmed.startsWith("AIzaSy")) {
-    return "This looks like a Google Cloud API key (prefix 'AIza') but not a Generative Language API key. Get one from https://aistudio.google.com/apikey — it should start with 'AIzaSy' or 'AQ'.";
-  }
-  if (wrongPrefixes.some((p) => trimmed.startsWith(p))) {
-    return "This doesn't look like a valid Gemini API key. Get one from https://aistudio.google.com/apikey — it should start with 'AIzaSy' or 'AQ'. OAuth tokens are not supported here.";
-  }
-  const allowedPrefixes = ["AIzaSy", "AQ"];
-  if (!allowedPrefixes.some((p) => trimmed.startsWith(p))) {
-    return "This doesn't look like a valid Gemini API key. Get one from https://aistudio.google.com/apikey — it should start with 'AIzaSy' or 'AQ'. OAuth tokens are not supported here.";
-  }
-  // AI Studio keys are ~39 chars. Allow some slack but flag obviously wrong lengths.
-  if (trimmed.length < 35 || trimmed.length > 45) {
-    return `This Gemini API key is ${trimmed.length} characters, but valid keys are usually 39. Check it's copied completely from https://aistudio.google.com/apikey.`;
-  }
-  return null;
-}
-
-// Read the error response body safely â€” never includes the API key.
-// Returns a short string suitable for inclusion in an error message.
-async function safeReadError(res: Response): Promise<string> {
-  try {
-    const text = await res.text();
-    // Google returns JSON errors like { error: { message, status, code } }.
-    // Try to extract the structured message; fall back to raw text.
-    try {
-      const json = JSON.parse(text);
-      const msg = json?.error?.message || json?.message || text;
-      return String(msg).slice(0, 250);
-    } catch {
-      return text.slice(0, 250) || res.statusText;
-    }
-  } catch {
-    return res.statusText || "unknown error";
-  }
-}
-
-// Format a Gemini HTTP error with a specific, actionable message per status.
-// SECURITY: `model` is safe to include (it's user-visible config). Never pass
-// `apiKey` here.
-function formatGeminiHttpError(status: number, model: string, body: string): string {
-  switch (status) {
-    case 400:
-      return `Gemini rejected this API key â€” check it's copied correctly with no extra spaces. (Details: ${body})`;
-    case 401:
-    case 403:
-      return `This key is valid but the Generative Language API may not be enabled on this Google Cloud project, or you've hit your quota. (Details: ${body})`;
-    case 404:
-      return `Model '${model}' not found for Gemini â€” check the model name matches an available Gemini model. (Details: ${body})`;
-    case 429:
-      return `Gemini rate limit hit â€” wait a moment and try again. (Details: ${body})`;
-    default:
-      if (status >= 500) {
-        return `Gemini server error (${status}). Try again in a moment. (Details: ${body})`;
-      }
-      return `Gemini API error (${status}): ${body}`;
-  }
+function validateApiKey(apiKey: string | undefined): string | null {
+  const trimmed = apiKey?.trim();
+  return trimmed ? null : "API key is required.";
 }
 
 // Lightweight Gemini connection test â€” hits the ListModels endpoint instead
@@ -1366,118 +1359,46 @@ export async function testGeminiConnection(
   endpoint?: string
 ): Promise<TestResult> {
   const started = Date.now();
-
-  // Step 1: validate key format before any network call.
-  const keyError = validateGeminiKey(apiKey);
+  const keyError = validateApiKey(apiKey);
   if (keyError) {
     return {
       ok: false,
       status: "error",
       message: keyError,
-      reason: "Gemini API key format is invalid.",
-      fixSteps: [
-        "Go to https://aistudio.google.com/apikey",
-        "Create or copy an API key (starts with 'AIzaSy' or 'AQ')",
-        "Paste it into the API Key field",
-      ],
+      reason: "An API key is required for API connections.",
+      fixSteps: ["Paste your provider API key", "Try again after saving the key"],
+      latencyMs: Date.now() - started,
     };
   }
 
-  // Step 2: hit ListModels to verify the key + API enablement.
-  const base =
-    endpoint || "https://generativelanguage.googleapis.com/v1beta/models";
-  const url = `${base}?key=${apiKey}&pageSize=100`;
+  const normalizedKey = normalizeApiKey(apiKey)!;
+  const runtime = resolveProviderConfig("gemini", normalizedKey, endpoint);
+  const url = `${buildProviderUrl(runtime.defaultBase, runtime.testPath)}?key=${encodeURIComponent(normalizedKey)}&pageSize=100`;
 
   try {
-    const res = await fetch(url, { method: "GET" });
+    const res = await fetchWithRetry(url, { method: "GET" }, 10_000);
     if (!res.ok) {
-      const body = await safeReadError(res);
-      const message = formatGeminiHttpError(res.status, model, body);
-      return {
-        ok: false,
-        status: "error",
-        message,
-        reason: `Gemini ListModels returned HTTP ${res.status}.`,
-        fixSteps: geminiFixStepsForStatus(res.status),
-      };
+      const body = await res.text().catch(() => res.statusText);
+      const classified = classifyProviderError(runtime.displayName.toLowerCase(), res.status, body);
+      return { ok: false, status: "error", message: classified.message, reason: classified.reason, fixSteps: classified.fixSteps, latencyMs: Date.now() - started };
     }
 
-    // Step 3: optionally verify the configured model is in the listed models.
     const json = await res.json();
-    const listedModels: string[] = (json.models || []).map(
-      (m: { name?: string }) => (m.name || "").replace(/^models\//, "")
-    );
-    const modelAvailable =
-      listedModels.length === 0 || // don't block if list is empty for some reason
-      listedModels.includes(model);
-
+    const listedModels: string[] = (json.models || []).map((m: { name?: string }) => (m.name || "").replace(/^models\//, ""));
+    const modelAvailable = listedModels.length === 0 || listedModels.includes(model);
     const latencyMs = Date.now() - started;
     if (!modelAvailable) {
-      return {
-        ok: false,
-        status: "error",
-        message: `Model '${model}' not found for Gemini â€” check the model name matches an available Gemini model.`,
-        reason: `ListModels succeeded but '${model}' is not in the list of available models.`,
-        fixSteps: [
-          `Available models include: ${listedModels.slice(0, 5).join(", ")}${listedModels.length > 5 ? "..." : ""}`,
-          "Pick one of those from the dropdown, or check the exact name.",
-        ],
-        latencyMs,
-      };
+      return { ok: false, status: "error", message: `Model '${model}' is not available for Gemini right now.`, reason: `ListModels succeeded but '${model}' is not in the list of available models.`, fixSteps: ["Pick a known model from the dropdown", "Confirm the model is enabled in AI Studio"], latencyMs };
     }
 
-    return {
-      ok: true,
-      status: "ready",
-      message: `Connected to Google Gemini (key verified via ListModels). Model "${model}" ready.`,
-      version: model,
-      latencyMs,
-    };
+    return { ok: true, status: "ready", message: `Connected to Google Gemini (key verified via official API). Model "${model}" ready.`, version: model, latencyMs };
   } catch (err) {
-    return {
-      ok: false,
-      status: "error",
-      message: `Could not reach Google's Gemini API: ${(err as Error).message}`,
-      reason: "Network error during ListModels call.",
-      fixSteps: [
-        "Check your internet connection",
-        "Verify Google's Generative Language API is reachable from your network",
-        "Try again in a moment",
-      ],
-    };
+    const e = err as Error;
+    const message = isTransientProviderError(e.message) ? `Could not reach Google's Gemini API: ${e.message}` : `Gemini error: ${e.message}`;
+    return { ok: false, status: "error", message, reason: e.message, fixSteps: ["Check your network connection", "Verify the Gemini endpoint", "Retry in a moment"], latencyMs: Date.now() - started };
   }
 }
 
-// Return provider-specific fix steps for a given Gemini HTTP status.
-function geminiFixStepsForStatus(status: number): string[] {
-  switch (status) {
-    case 400:
-      return [
-        "Copy the API key again from https://aistudio.google.com/apikey",
-        "Make sure there are no leading/trailing spaces",
-        "Ensure you're using an AI Studio key (starts with 'AIzaSy' or 'AQ'), not an OAuth token",
-      ];
-    case 401:
-    case 403:
-      return [
-        "Go to https://aistudio.google.com/apikey and verify the key is still active",
-        "Enable the Generative Language API on your Google Cloud project",
-        "Check your quota at https://aistudio.google.com/usage",
-      ];
-    case 404:
-      return [
-        "Check the model name is spelled correctly",
-        "Pick a known model from the dropdown (e.g. gemini-2.0-flash, gemini-1.5-pro)",
-      ];
-    case 429:
-      return [
-        "Wait a moment for the rate limit to reset",
-        "Check your quota at https://aistudio.google.com/usage",
-      ];
-    default:
-      return ["Try again in a moment", "Check https://status.cloud.google.com for outages"];
-  }
-}
 
 // Test an OpenAI-compatible API connection (openai, mistral, groq).
 // Hits GET /v1/models with the Bearer token â€” lightweight, no tokens spent.
@@ -1489,118 +1410,37 @@ export async function testOpenAiCompatibleConnection(
   endpoint?: string
 ): Promise<TestResult> {
   const started = Date.now();
-  const defaultEndpoints: Record<string, string> = {
-    openai: "https://api.openai.com/v1/models",
-    mistral: "https://api.mistral.ai/v1/models",
-    groq: "https://api.groq.com/openai/v1/models",
-  };
-  const url = endpoint
-    ? `${endpoint.replace(/\/$/, "")}/models`
-    : defaultEndpoints[provider] || defaultEndpoints.openai;
+  const normalizedKey = normalizeApiKey(apiKey);
+  const keyError = validateApiKey(normalizedKey);
+  if (keyError) {
+    return { ok: false, status: "error", message: keyError, reason: "An API key is required for API connections.", fixSteps: ["Paste the provider API key", "Try again"] };
+  }
+
+  const runtime = resolveProviderConfig(provider, normalizedKey, endpoint);
+  const url = buildProviderUrl(runtime.defaultBase, runtime.testPath);
+  const safeKey = normalizedKey ?? "";
+  const headers: Record<string, string> = {};
+  if (runtime.auth.type === "bearer") {
+    headers.Authorization = `Bearer ${safeKey}`;
+  } else if (runtime.auth.type === "x-api-key") {
+    headers[runtime.auth.headerName || "x-api-key"] = safeKey;
+    headers["anthropic-version"] = "2023-06-01";
+  }
 
   try {
-    const res = await fetch(url, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(10_000),
-    });
-
+    const res = await fetchWithRetry(url, { method: "GET", headers }, 10_000);
     if (!res.ok) {
       const body = await res.text().catch(() => res.statusText);
-      let errMsg = body;
-      try {
-        const j = JSON.parse(body);
-        errMsg = j?.error?.message || j?.message || body;
-      } catch {
-        /* keep raw */
-      }
-      errMsg = String(errMsg).slice(0, 250);
-
-      // Map common HTTP errors to actionable messages.
-      let message: string;
-      let reason: string;
-      let fixSteps: string[];
-      if (res.status === 401) {
-        message = `${provider} rejected the API key â€” check it's copied correctly with no extra spaces.`;
-        reason = `HTTP 401: ${errMsg}`;
-        fixSteps = [
-          `Go to the ${provider} dashboard and verify the key is still active`,
-          "Copy it again with no leading/trailing spaces",
-          "Ensure the key has the necessary permissions",
-        ];
-      } else if (res.status === 403) {
-        const isRegion = errMsg.toLowerCase().includes("country") ||
-          errMsg.toLowerCase().includes("region") ||
-          errMsg.toLowerCase().includes("unsupported_country");
-        message = isRegion
-          ? `${provider} is blocking this request because of the server's geographic location. The NOX AI server is in a region ${provider} doesn't support. You need to deploy NOX AI in a supported region (e.g. US, EU).`
-          : `${provider} returned 403 â€” the key may not have permission for this API. (Details: ${errMsg})`;
-        reason = `HTTP 403: ${errMsg}`;
-        fixSteps = isRegion
-          ? [
-              "Deploy NOX AI to a supported region (Vercel, Railway, etc.)",
-              `Or use a different provider that supports this region`,
-              "This is a server-side geo-block â€” no key will work from here",
-            ]
-          : [
-              `Check the ${provider} key has the right permissions`,
-              "Verify your organization's API access settings",
-            ];
-      } else if (res.status === 429) {
-        message = `${provider} rate limit hit â€” wait a moment and try again. (Details: ${errMsg})`;
-        reason = `HTTP 429: ${errMsg}`;
-        fixSteps = [
-          "Wait a minute for the rate limit to reset",
-          `Check your ${provider} usage dashboard`,
-        ];
-      } else {
-        message = `${provider} API error (HTTP ${res.status}): ${errMsg}`;
-        reason = `HTTP ${res.status}`;
-        fixSteps = ["Try again", `Check the ${provider} status page`];
-      }
-
-      return {
-        ok: false,
-        status: "error",
-        message,
-        reason,
-        fixSteps,
-        latencyMs: Date.now() - started,
-      };
+      const classified = classifyProviderError(runtime.displayName.toLowerCase(), res.status, body);
+      return { ok: false, status: "error", message: classified.message, reason: classified.reason, fixSteps: classified.fixSteps, latencyMs: Date.now() - started };
     }
 
-    // Success â€” key works, API is reachable.
     const json = await res.json();
     const modelCount = Array.isArray(json.data) ? json.data.length : 0;
-    return {
-      ok: true,
-      status: "ready",
-      message: `Connected to ${provider} (key verified). ${modelCount} models available. Model "${model}" ready.`,
-      version: model,
-      latencyMs: Date.now() - started,
-    };
+    return { ok: true, status: "ready", message: `Connected to ${runtime.displayName} (official API). ${modelCount} models available. Model "${model}" ready.`, version: model, latencyMs: Date.now() - started };
   } catch (err) {
     const e = err as Error;
-    const isConn = e.message.includes("fetch failed") ||
-      e.message.includes("aborted") ||
-      e.message.includes("ECONNREFUSED");
-    return {
-      ok: false,
-      status: "error",
-      message: isConn
-        ? `Could not reach ${provider}'s API from the server. The server may be in a region ${provider} blocks, or there's a network issue.`
-        : `${provider} error: ${e.message}`,
-      reason: isConn
-        ? "Network error â€” server cannot reach the provider."
-        : e.message,
-      fixSteps: isConn
-        ? [
-            "Deploy NOX AI to a region the provider supports",
-            "Check the server's internet connection",
-            "Try a different provider",
-          ]
-        : ["Try again", "Check the provider's status page"],
-    };
+    return { ok: false, status: "error", message: isTransientProviderError(e.message) ? `Could not reach ${runtime.displayName}'s API from the server.` : `${runtime.displayName} error: ${e.message}`, reason: e.message, fixSteps: ["Check your network connection", "Verify the provider endpoint", "Retry in a moment"], latencyMs: Date.now() - started };
   }
 }
 
@@ -1614,114 +1454,29 @@ export async function testAnthropicConnection(
   endpoint?: string
 ): Promise<TestResult> {
   const started = Date.now();
-  const url = endpoint
-    ? `${endpoint.replace(/\/$/, "")}/models`
-    : "https://api.anthropic.com/v1/models";
+  const normalizedKey = normalizeApiKey(apiKey);
+  const keyError = validateApiKey(normalizedKey);
+  if (keyError) {
+    return { ok: false, status: "error", message: keyError, reason: "An API key is required for API connections.", fixSteps: ["Paste the Anthropic API key", "Try again"] };
+  }
 
+  const runtime = resolveProviderConfig("anthropic", normalizedKey, endpoint);
+  const url = buildProviderUrl(runtime.defaultBase, runtime.testPath);
+  const safeKey = normalizedKey ?? "";
   try {
-    const res = await fetch(url, {
-      method: "GET",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
-
+    const res = await fetchWithRetry(url, { method: "GET", headers: { "x-api-key": safeKey, "anthropic-version": "2023-06-01" } }, 10_000);
     if (!res.ok) {
       const body = await res.text().catch(() => res.statusText);
-      let errMsg = body;
-      try {
-        const j = JSON.parse(body);
-        errMsg = j?.error?.message || j?.message || body;
-      } catch {
-        /* keep raw */
-      }
-      errMsg = String(errMsg).slice(0, 250);
-
-      let message: string;
-      let reason: string;
-      let fixSteps: string[];
-      if (res.status === 401) {
-        message = `Anthropic rejected the API key â€” check it's copied correctly with no extra spaces.`;
-        reason = `HTTP 401: ${errMsg}`;
-        fixSteps = [
-          "Go to https://console.anthropic.com/settings/keys and verify the key is active",
-          "Copy it again with no leading/trailing spaces",
-          "Ensure the key has the necessary permissions",
-        ];
-      } else if (res.status === 403) {
-        const isRegion = errMsg.toLowerCase().includes("country") ||
-          errMsg.toLowerCase().includes("region") ||
-          errMsg.toLowerCase().includes("unsupported");
-        message = isRegion
-          ? `Anthropic is blocking this request because of the server's geographic location. Deploy NOX AI in a supported region.`
-          : `Anthropic returned 403 â€” the key may not have permission. (Details: ${errMsg})`;
-        reason = `HTTP 403: ${errMsg}`;
-        fixSteps = isRegion
-          ? [
-              "Deploy NOX AI to a supported region (Vercel, Railway, etc.)",
-              "This is a server-side geo-block â€” no key will work from here",
-            ]
-          : [
-              "Check the Anthropic key has the right permissions",
-              "Verify your organization's API access settings",
-            ];
-      } else if (res.status === 429) {
-        message = `Anthropic rate limit hit â€” wait a moment and try again. (Details: ${errMsg})`;
-        reason = `HTTP 429: ${errMsg}`;
-        fixSteps = [
-          "Wait a minute for the rate limit to reset",
-          "Check your Anthropic usage dashboard",
-        ];
-      } else {
-        message = `Anthropic API error (HTTP ${res.status}): ${errMsg}`;
-        reason = `HTTP ${res.status}`;
-        fixSteps = ["Try again", "Check Anthropic's status page"];
-      }
-
-      return {
-        ok: false,
-        status: "error",
-        message,
-        reason,
-        fixSteps,
-        latencyMs: Date.now() - started,
-      };
+      const classified = classifyProviderError(runtime.displayName.toLowerCase(), res.status, body);
+      return { ok: false, status: "error", message: classified.message, reason: classified.reason, fixSteps: classified.fixSteps, latencyMs: Date.now() - started };
     }
 
-    // Success â€” key works, API is reachable.
     const json = await res.json();
     const modelCount = Array.isArray(json.data) ? json.data.length : 0;
-    return {
-      ok: true,
-      status: "ready",
-      message: `Connected to Anthropic (key verified). ${modelCount} models available. Model "${model}" ready.`,
-      version: model,
-      latencyMs: Date.now() - started,
-    };
+    return { ok: true, status: "ready", message: `Connected to Anthropic (official API). ${modelCount} models available. Model "${model}" ready.`, version: model, latencyMs: Date.now() - started };
   } catch (err) {
     const e = err as Error;
-    const isConn = e.message.includes("fetch failed") ||
-      e.message.includes("aborted") ||
-      e.message.includes("ECONNREFUSED");
-    return {
-      ok: false,
-      status: "error",
-      message: isConn
-        ? `Could not reach Anthropic's API from the server. The server may be in a region Anthropic blocks, or there's a network issue.`
-        : `Anthropic error: ${e.message}`,
-      reason: isConn
-        ? "Network error â€” server cannot reach the provider."
-        : e.message,
-      fixSteps: isConn
-        ? [
-            "Deploy NOX AI to a region the provider supports",
-            "Check the server's internet connection",
-            "Try a different provider",
-          ]
-        : ["Try again", "Check the provider's status page"],
-    };
+    return { ok: false, status: "error", message: isTransientProviderError(e.message) ? `Could not reach Anthropic's API from the server.` : `Anthropic error: ${e.message}`, reason: e.message, fixSteps: ["Check your network connection", "Verify the Anthropic endpoint", "Retry in a moment"], latencyMs: Date.now() - started };
   }
 }
 
@@ -3166,5 +2921,6 @@ export async function getRecentUsage(
     createdAt: r.createdAt.toISOString(),
   }));
 }
+
 
 
