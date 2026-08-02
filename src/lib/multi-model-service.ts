@@ -127,10 +127,27 @@ function buildProviderUrl(base: string | undefined, suffix: string): string {
   return normalizedBase.endsWith(suffix) ? normalizedBase : `${normalizedBase}${suffix}`;
 }
 
-function buildGeminiGenerateUrl(endpoint: string | undefined, model: string, apiKey: string): string {
+function isGoogleApiKey(apiKey: string): boolean {
+  return /^AIza[0-9A-Za-z_-]{35}$/.test(apiKey);
+}
+
+function buildGeminiGenerateUrl(endpoint: string | undefined, model: string, apiKey: string, useQueryKey: boolean): string {
   const base = (endpoint || "https://generativelanguage.googleapis.com/v1beta").trim().replace(/\/+$/, "");
   const modelsBase = base.endsWith("/models") ? base : `${base}/models`;
-  return `${modelsBase}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const path = `${modelsBase}/${encodeURIComponent(model)}:generateContent`;
+  return useQueryKey ? `${path}?key=${encodeURIComponent(apiKey)}` : path;
+}
+
+function buildGeminiRequestInit(apiKey: string, method: string, body?: unknown): RequestInit {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (!isGoogleApiKey(apiKey)) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  const init: RequestInit = { method, headers };
+  if (body !== undefined) {
+    init.body = JSON.stringify(body);
+  }
+  return init;
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = PROVIDER_TIMEOUT_MS): Promise<Response> {
