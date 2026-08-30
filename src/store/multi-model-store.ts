@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { authFetch } from "@/lib/auth-fetch";
+import { isMaskedApiKey } from "@/lib/crypto";
 import type {
   Mode,
   FeatureId,
@@ -156,12 +157,38 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
       const json = await res.json();
       if (json.ok) {
         const c = json.config as MultiModelConfigDoc;
+        const keepRealKey = (
+          incoming: ModelAssignment | null | undefined,
+          fromServer: ModelAssignment | null | undefined
+        ): ModelAssignment | null => {
+          if (!fromServer) return incoming || null;
+          if (!incoming?.apiKey || isMaskedApiKey(incoming.apiKey)) return fromServer;
+          return { ...fromServer, apiKey: incoming.apiKey };
+        };
+        const keepMap = (
+          incoming: Partial<Record<string, ModelAssignment>> | undefined,
+          fromServer: Partial<Record<string, ModelAssignment>> | undefined
+        ): Partial<Record<string, ModelAssignment>> => {
+          const out: Partial<Record<string, ModelAssignment>> = {};
+          const serverMap = fromServer || {};
+          const prevMap = incoming || {};
+          for (const [id, serverValue] of Object.entries(serverMap)) {
+            const prevValue = prevMap[id];
+            const nextValue = keepRealKey(prevValue, serverValue);
+            if (nextValue) out[id] = nextValue;
+          }
+          for (const [id, prevValue] of Object.entries(prevMap)) {
+            if (!(id in serverMap) && prevValue) out[id] = prevValue;
+          }
+          return out;
+        };
+        const prev = get();
         set({
           mode: c.mode,
-          globalConfig: c.globalConfig || null,
-          featureConfigs: c.featureConfigs || {},
-          hostConfig: c.hostConfig || null,
-          specialistConfigs: c.specialistConfigs || {},
+          globalConfig: keepRealKey(prev.globalConfig, c.globalConfig) || null,
+          featureConfigs: keepMap(prev.featureConfigs, c.featureConfigs || {}),
+          hostConfig: keepRealKey(prev.hostConfig, c.hostConfig) || null,
+          specialistConfigs: keepMap(prev.specialistConfigs, c.specialistConfigs || {}),
           timeoutOverrides: c.timeoutOverrides || {},
           dirty: false,
           saving: false,
