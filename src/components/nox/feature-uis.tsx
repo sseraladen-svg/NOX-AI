@@ -168,7 +168,7 @@ function ModeBadge({ msg }: { msg: ConversationMessage }) {
   );
 }
 
-// ─── 1. CHAT FEATURE — conversational bubbles + markdown ────────────────────
+// ─── 1. CHAT FEATURE - conversational bubbles + markdown ────────────────────
 
 export function ChatFeatureUI({
   messages,
@@ -238,7 +238,7 @@ export function ChatFeatureUI({
         setInput={setInput}
         onSend={onSend}
         sending={sending}
-        placeholder="Message the chat model…"
+        placeholder="Message the chat model..."
       />
     </div>
   );
@@ -338,7 +338,7 @@ function ChatInputBar({
   );
 }
 
-// ─── 2. CODING FEATURE — editor layout with prompt + code output ────────────
+// ─── 2. CODING FEATURE - editor layout with prompt + code output ────────────
 
 export function CodingFeatureUI({
   messages,
@@ -387,7 +387,7 @@ export function CodingFeatureUI({
                 onSend();
               }
             }}
-            placeholder="Describe the code you need…  (⌘/Ctrl+Enter to run)"
+            placeholder="Describe the code you need...  (⌘/Ctrl+Enter to run)"
             className="min-h-[80px] max-h-48 resize-none border-0 bg-transparent focus-visible:ring-0 text-sm font-mono"
             rows={3}
           />
@@ -523,12 +523,12 @@ function extractCodeBlocks(text: string): { lang: string; code: string }[] {
   }
   // If no fenced blocks, check if the whole thing looks like code
   if (blocks.length === 0 && text.trim().split("\n").length > 2) {
-    // leave empty — only show fenced blocks
+    // leave empty - only show fenced blocks
   }
   return blocks;
 }
 
-// ─── 3. VOICE FEATURE — mic + transcript + TTS ──────────────────────────────
+// ─── 3. VOICE FEATURE - mic + transcript + TTS ──────────────────────────────
 
 export function VoiceFeatureUI({
   messages,
@@ -658,11 +658,11 @@ export function VoiceFeatureUI({
         </button>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium">
-            {recording ? "Listening…" : sttSupported ? "Tap to speak" : "Speech recognition not supported"}
+            {recording ? "Listening..." : sttSupported ? "Tap to speak" : "Speech recognition not supported"}
           </div>
           <div className="text-[11px] text-muted-foreground">
             {recording
-              ? "Speak now — your speech will be transcribed live"
+              ? "Speak now - your speech will be transcribed live"
               : sttSupported
               ? "Browser-native speech-to-text (Chrome/Edge recommended)"
               : "Use Chrome or Edge for microphone support. You can still type below."}
@@ -763,13 +763,13 @@ export function VoiceFeatureUI({
         setInput={setInput}
         onSend={() => onSend()}
         sending={sending}
-        placeholder="Or type text to send…"
+        placeholder="Or type text to send..."
       />
     </div>
   );
 }
 
-// ─── 4. VISION FEATURE — image upload + analysis ────────────────────────────
+// ─── 4. VISION FEATURE - image upload + analysis ────────────────────────────
 
 export function VisionFeatureUI({
   messages,
@@ -890,7 +890,7 @@ export function VisionFeatureUI({
         </div>
         {preview && (
           <div className="text-[10px] text-muted-foreground text-center">
-            Image attached — ask the vision model to analyze it
+            Image attached - ask the vision model to analyze it
           </div>
         )}
       </div>
@@ -907,7 +907,7 @@ export function VisionFeatureUI({
                 handleAnalyze();
               }
             }}
-            placeholder="Ask about the image… (e.g. 'What objects are in this photo?')"
+            placeholder="Ask about the image... (e.g. 'What objects are in this photo?')"
             className="min-h-[44px] max-h-24 resize-none border-0 bg-transparent focus-visible:ring-0 text-sm"
             rows={2}
           />
@@ -971,7 +971,7 @@ export function VisionFeatureUI({
   );
 }
 
-// ─── 5. AUTOMATION FEATURE — workflow node canvas ───────────────────────────
+// ─── 5. AUTOMATION FEATURE - workflow node canvas ───────────────────────────
 
 export function AutomationFeatureUI({
   messages,
@@ -993,7 +993,7 @@ export function AutomationFeatureUI({
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
   const steps = lastAssistant ? extractWorkflowSteps(lastAssistant.content) : [];
 
-  // Interactive workflow state — each step can be checked off
+  // Interactive workflow state - each step can be checked off
   const [checkedSteps, setCheckedSteps] = React.useState<Set<number>>(new Set());
   const [running, setRunning] = React.useState(false);
 
@@ -1150,7 +1150,7 @@ export function AutomationFeatureUI({
                 onSend();
               }
             }}
-            placeholder="Describe the workflow to automate…  (⌘/Ctrl+Enter)"
+            placeholder="Describe the workflow to automate...  (⌘/Ctrl+Enter)"
             className="min-h-[60px] max-h-32 resize-none border-0 bg-transparent focus-visible:ring-0 text-sm"
             rows={3}
           />
@@ -1210,20 +1210,20 @@ function extractWorkflowSteps(text: string): { name: string; detail?: string }[]
   const steps: { name: string; detail?: string }[] = [];
   const lines = text.split("\n");
   for (const line of lines) {
-    const m = line.match(/^\s*(?:\d+[\.\)]|[-*•])\s+\*\*([^*]+)\*\*:?\s*(.*)/);
+    const m = line.match(/^\s*(?:\d+[\.\)]|[-**])\s+\*\*([^*]+)\*\*:?\s*(.*)/);
     if (m) {
       steps.push({ name: m[1].trim(), detail: m[2].trim() || undefined });
       continue;
     }
-    const m2 = line.match(/^\s*(?:\d+[\.\)]|[-*•])\s+(.+)/);
+    const m2 = line.match(/^\s*(?:\d+[\.\)]|[-**])\s+(.+)/);
     if (m2) {
-      steps.push({ name: m2[1].trim().split(/[.:—–]/)[0] });
+      steps.push({ name: m2[1].trim().split(/[.:\\-]/)[0] });
     }
   }
   return steps.slice(0, 12);
 }
 
-// ─── 6. ROBOTICS FEATURE — sensor grid + motion plan ────────────────────────
+// ─── 6. ROBOTICS FEATURE - sensor grid + motion plan ────────────────────────
 
 export function RoboticsFeatureUI({
   messages,
@@ -1245,13 +1245,13 @@ export function RoboticsFeatureUI({
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
   const plan = lastAssistant ? extractMotionPlan(lastAssistant.content) : null;
 
-  // Interactive joint sliders — user can manually control the arm
+  // Interactive joint sliders - user can manually control the arm
   const jointNames = ["Base", "Shoulder", "Elbow", "Wrist", "Gripper"];
   const [jointAngles, setJointAngles] = React.useState<number[]>([45, 30, 60, 90, 0]);
   const [executing, setExecuting] = React.useState(false);
   const [activeWaypoint, setActiveWaypoint] = React.useState(-1);
 
-  // Simulate executing the motion plan — animates joints through waypoints
+  // Simulate executing the motion plan - animates joints through waypoints
   const executePlan = async () => {
     if (!plan || plan.waypoints.length === 0) return;
     setExecuting(true);
@@ -1315,7 +1315,7 @@ export function RoboticsFeatureUI({
         <div className="flex-1 overflow-y-auto nox-scroll rounded-xl border border-border bg-card/20 p-3 min-h-0">
           <div className="flex items-center gap-1.5 mb-2 text-[10px] text-muted-foreground uppercase tracking-wider">
             <Gauge className="h-3 w-3" />
-            Joint Control — drag to move
+            Joint Control - drag to move
           </div>
           <div className="space-y-2.5">
             {jointNames.map((joint, i) => (
@@ -1371,7 +1371,7 @@ export function RoboticsFeatureUI({
                 onSend();
               }
             }}
-            placeholder="Describe the motion task… (e.g. 'Pick and place cup')"
+            placeholder="Describe the motion task... (e.g. 'Pick and place cup')"
             className="min-h-[60px] max-h-28 resize-none border-0 bg-transparent focus-visible:ring-0 text-sm"
             rows={3}
           />
@@ -1509,7 +1509,7 @@ function extractMotionPlan(text: string): {
   const waypoints: string[] = [];
   const lines = text.split("\n");
   for (const line of lines) {
-    const m = line.match(/^\s*(?:\d+[\.\)]|[-*•])\s+(.+)/);
+    const m = line.match(/^\s*(?:\d+[\.\)]|[-**])\s+(.+)/);
     if (m && m[1].length < 120) {
       waypoints.push(m[1].trim());
     }

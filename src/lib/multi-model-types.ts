@@ -1,5 +1,5 @@
 // ───────────────────────────────────────────────────────────────────────────
-// NOX AI — Multi-Model types & constants (shared, client-safe)
+// NOX AI - Multi-Model types & constants (shared, client-safe)
 //
 // This file is imported by both client and server code. It MUST NOT import
 // anything server-only (no db, no z-ai-web-dev-sdk, no fs, no crypto).
@@ -121,7 +121,7 @@ export interface CostBreakdown {
   total: number;   // input + output
 }
 
-// Pricing for a model — USD per 1 million tokens.
+// Pricing for a model - USD per 1 million tokens.
 export interface ModelPricing {
   inputPer1M: number;   // $ per 1M input tokens
   outputPer1M: number;  // $ per 1M output tokens
@@ -302,10 +302,10 @@ export const PROVIDERS = [
 
 export const DEFAULT_TIMEOUTS = {
   LOCAL: 120_000,
-  API: 30_000,
+  API: 15_000, // Reduced from 30_000 for faster failure detection
 } as const;
 
-export const MAX_RETRY = 2;
+export const MAX_RETRY = 1; // Reduced from 2 for faster fallback
 
 // ─── Pricing table ─────────────────────────────────────────────────────────
 //
@@ -318,18 +318,18 @@ export const MAX_RETRY = 2;
 // IMPORTANT: keep this updated as providers change pricing. The fallback for
 // unknown models is intentionally conservative (median API price).
 export const MODEL_PRICING: Record<string, ModelPricing> = {
-  // OpenAI — https://openai.com/api/pricing/
+  // OpenAI - https://openai.com/api/pricing/
   "gpt-4o": { inputPer1M: 2.5, outputPer1M: 10 },
   "gpt-4o-mini": { inputPer1M: 0.15, outputPer1M: 0.6 },
   "gpt-4-turbo": { inputPer1M: 10, outputPer1M: 30 },
   "o1-mini": { inputPer1M: 1.1, outputPer1M: 4.4 },
 
-  // Anthropic — https://www.anthropic.com/pricing
+  // Anthropic - https://www.anthropic.com/pricing
   "claude-3-5-sonnet-latest": { inputPer1M: 3, outputPer1M: 15 },
   "claude-3-5-haiku-latest": { inputPer1M: 0.8, outputPer1M: 4 },
   "claude-3-opus-latest": { inputPer1M: 15, outputPer1M: 75 },
 
-  // Google Gemini — https://ai.google.dev/pricing
+  // Google Gemini - https://ai.google.dev/pricing
   "gemini-1.5-flash": { inputPer1M: 0.075, outputPer1M: 0.3 },
   "gemini-1.5-flash-8b": { inputPer1M: 0.0375, outputPer1M: 0.15 },
   "gemini-1.5-pro": { inputPer1M: 1.25, outputPer1M: 5 },
@@ -338,20 +338,20 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   "gemini-2.5-pro": { inputPer1M: 1.25, outputPer1M: 10 },
   "gemini-2.5-flash": { inputPer1M: 0.075, outputPer1M: 0.3 },
 
-  // Mistral — https://mistral.ai/products/la-plateforme#pricing
+  // Mistral - https://mistral.ai/products/la-plateforme#pricing
   "mistral-large-latest": { inputPer1M: 2, outputPer1M: 6 },
   "mistral-small-latest": { inputPer1M: 0.2, outputPer1M: 0.6 },
 
-  // Groq — https://groq.com/pricing/
+  // Groq - https://groq.com/pricing/
   "llama-3.3-70b-versatile": { inputPer1M: 0.59, outputPer1M: 0.79 },
   "llama-3.1-8b-instant": { inputPer1M: 0.05, outputPer1M: 0.08 },
 
-  // Z.ai — built-in, very low cost
+  // Z.ai - built-in, very low cost
   "glm-4-flash": { inputPer1M: 0.01, outputPer1M: 0.01 },
   "glm-4": { inputPer1M: 0.1, outputPer1M: 0.1 },
 };
 
-// Fallback for unknown models — conservative median API price.
+// Fallback for unknown models - conservative median API price.
 export const DEFAULT_PRICING: ModelPricing = {
   inputPer1M: 1,
   outputPer1M: 3,

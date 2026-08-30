@@ -47,28 +47,56 @@ export type {
 };
 export { FEATURES, SPECIALISTS, PROVIDERS, DEFAULT_TIMEOUTS, MAX_RETRY };
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// NOX AI â€” Multi-Model Service (server-only, user-scoped)
+// Simple in-memory cache for reachability checks with 60s TTL
+const reachabilityCache = new Map<string, { result: ModelLimit; expiresAt: number }>();
+const CACHE_TTL_MS = 60_000; // 60 seconds
+
+function getCacheKey(assignment: ModelAssignment): string {
+  return `${assignment.connectionType}-${assignment.provider}-${assignment.modelName}-${assignment.endpoint || ''}-${assignment.apiKey?.slice(-4) || ''}`;
+}
+
+function getCachedReachability(assignment: ModelAssignment): ModelLimit | null {
+  const key = getCacheKey(assignment);
+  const cached = reachabilityCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.result;
+  }
+  if (cached) {
+    reachabilityCache.delete(key); // Clean up expired entry
+  }
+  return null;
+}
+
+function setCachedReachability(assignment: ModelAssignment, result: ModelLimit): void {
+  const key = getCacheKey(assignment);
+  reachabilityCache.set(key, {
+    result,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// NOX AI — Multi-Model Service (server-only, user-scoped)
 //
 // Three modes (renamed per user request):
-//   1. SINGLE        â€” one model for all 6 features (formerly GLOBAL)
-//   2. MULTI         â€” each feature has its own model (formerly PER_FEATURE)
-//   3. ORCHESTRATOR  â€” host routes prompts to specialists (formerly HOST)
+//   1. SINGLE        — one model for all 6 features (formerly GLOBAL)
+//   2. MULTI         — each feature has its own model (formerly PER_FEATURE)
+//   3. ORCHESTRATOR  — host routes prompts to specialists (formerly HOST)
 //
 // All config is scoped to a userId. API keys encrypted at rest.
 //
 // Safety layers (all three modes):
-//   â€¢ connect-time validation (model + version ping, block save on failure)
-//   â€¢ per-connection-type timeout defaults + backend heartbeat
-//   â€¢ capped auto-retry (2 attempts) on timeout
-//   â€¢ pre-flight user confirmation for multi-agent tasks
-//   â€¢ per-model capacity/limit check before running multi-agent tasks
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//   • connect-time validation (model + version ping, block save on failure)
+//   • per-connection-type timeout defaults + backend heartbeat
+//   • capped auto-retry (2 attempts) on timeout
+//   • pre-flight user confirmation for multi-agent tasks
+//   • per-model capacity/limit check before running multi-agent tasks
+// -----------------------------------------------------------------------------
 
 const SCOPE = "default";
 
 const PROVIDER_TIMEOUT_MS = 15_000;
-const PROVIDER_RETRY_DELAY_MS = 400;
+const PROVIDER_RETRY_DELAY_MS = 200; // Reduced from 400 for faster backoff
 
 type ProviderKind = "openai" | "openrouter" | "anthropic" | "gemini" | "mistral" | "groq" | "ollama" | "zai" | "auto";
 
@@ -151,17 +179,23 @@ function buildGeminiRequestInit(apiKey: string, method: string, body?: unknown):
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = PROVIDER_TIMEOUT_MS): Promise<Response> {
-  return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  // Node.js fetch (undici) has built-in connection pooling and keep-alive by default
+  // We add keep-alive headers to ensure optimal connection reuse
+  const headers = {
+    ...init.headers,
+    'Connection': 'keep-alive',
+  };
+  return fetch(url, { ...init, headers, signal: AbortSignal.timeout(timeoutMs) });
 }
 
 async function fetchWithRetry(url: string, init: RequestInit, timeoutMs = PROVIDER_TIMEOUT_MS): Promise<Response> {
   let lastError: Error | undefined;
-  for (let attempt = 0; attempt <= 2; attempt += 1) {
+  for (let attempt = 0; attempt <= MAX_RETRY; attempt += 1) {
     try {
       return await fetchWithTimeout(url, init, timeoutMs);
     } catch (err) {
       lastError = err as Error;
-      if (attempt >= 2) break;
+      if (attempt >= MAX_RETRY) break;
       await new Promise((resolve) => setTimeout(resolve, PROVIDER_RETRY_DELAY_MS * (attempt + 1)));
     }
   }
@@ -210,7 +244,7 @@ function isTransientProviderError(message: string): boolean {
 
 
 
-// â”€â”€â”€ Persistence (encrypt on write, mask on read) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// "€"€"€ Persistence (encrypt on write, mask on read) "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 
 function encryptAssignment(a?: ModelAssignment | null): ModelAssignment | null {
   if (!a) return null;
@@ -377,18 +411,20 @@ export async function saveConfig(
   doc: MultiModelConfigDoc
 ): Promise<void> {
   // Load the existing config so we can preserve API keys that are sent back
-  // masked (e.g. "sk-â€¢â€¢â€¢â€¢7890"). When the frontend loads a config, the keys
-  // are masked. If the user doesn't re-type a key, the masked version gets
-  // sent back on save. We detect masked keys (contain "â€¢") and preserve the
-  // existing encrypted key from the DB instead of overwriting with the mask.
+  // masked (e.g. "sk-******7890"). When the frontend loads a config, the keys
+  // are masked via maskApiKey() which uses asterisks. If the user doesn't re-type
+  // a key, the masked version gets sent back on save. We detect masked keys
+  // (contain "***" and are longer than 8 chars) and preserve the existing
+  // encrypted key from the DB instead of overwriting with the mask.
   const existing = await db.multiModelConfig.findUnique({
     where: { userId_scope: { userId, scope: SCOPE } },
   });
 
   const preserveMaskedKey = (incoming: ModelAssignment | null | undefined, existingJson: string | null): ModelAssignment | null => {
     if (!incoming) return null;
-    // If the incoming key is missing or masked, preserve the existing key.
-    if (!incoming.apiKey || incoming.apiKey.includes("â€¢")) {
+    // If the incoming key is missing or masked (contains multiple asterisks), preserve the existing key.
+    // maskApiKey() outputs format like "abc******xyz" with asterisks, not bullet characters
+    if (!incoming.apiKey || (incoming.apiKey.includes("***") && incoming.apiKey.length > 8)) {
       if (existingJson) {
         try {
           const existingAssign = JSON.parse(existingJson) as ModelAssignment;
@@ -423,7 +459,7 @@ export async function saveConfig(
     const out: Record<string, ModelAssignment> = {};
     for (const [k, v] of Object.entries(incoming)) {
       if (!v) continue;
-      if (!v.apiKey || v.apiKey.includes("â€¢")) {
+      if (!v.apiKey || (v.apiKey.includes("***") && v.apiKey.length > 8)) {
         // Preserve existing key for this role.
         out[k] = { ...v, apiKey: existingMap[k]?.apiKey };
       } else {
@@ -465,7 +501,7 @@ export async function saveConfig(
   });
 }
 
-// â”€â”€â”€ Test / connect validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// "€"€"€ Test / connect validation "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 
 export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
   const started = Date.now();
@@ -485,7 +521,7 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
   }
 
   if (a.connectionType === "API") {
-    // Z.ai doesn't need an API key â€” it's always ready.
+    // Z.ai doesn't need an API key "" it's always ready.
     if (a.provider === "zai") {
       return {
         ok: true,
@@ -550,7 +586,7 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
 
   const latencyMs = Date.now() - started + 120;
 
-  // â”€â”€â”€ Fix #3: Gemini-specific lightweight test call â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // "€"€"€ Fix #3: Gemini-specific lightweight test call "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
   //
   // For Gemini, instead of (or before) running a full generateContent call,
   // hit the cheaper/faster ListModels endpoint:
@@ -564,7 +600,7 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
     if (!geminiResult.ok) {
       return geminiResult;
     }
-    // ListModels succeeded â€” key is valid, API is enabled.
+    // ListModels succeeded "" key is valid, API is enabled.
     // Optionally check if the configured model is in the listed models.
     return {
       ok: true,
@@ -584,14 +620,14 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
     };
   }
 
-  // â”€â”€â”€ Anthropic test: actually ping the API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // "€"€"€ Anthropic test: actually ping the API "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
   // Anthropic has its own auth header (x-api-key) + its own /v1/models endpoint.
   if (a.connectionType === "API" && a.provider === "anthropic") {
     return await testAnthropicConnection(a.apiKey!, a.modelName, a.endpoint);
   }
 
-  // â”€â”€â”€ OpenAI-compatible test: actually ping the API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // For openai, mistral, groq â€” hit GET /v1/models with Bearer auth.
+  // "€"€"€ OpenAI-compatible test: actually ping the API "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+  // For openai, mistral, groq "" hit GET /v1/models with Bearer auth.
   if (a.connectionType === "API" && ["openai", "mistral", "groq"].includes(a.provider)) {
     return await testOpenAiCompatibleConnection(
       a.apiKey!,
@@ -644,21 +680,21 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
   };
 }
 
-// â”€â”€â”€ Limit / capacity check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// "€"€"€ Limit / capacity check "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 //
 // HONEST implementation: instead of returning fake hardcoded quota numbers,
 // this function does a real reachability check for each model:
 //
-//   â€¢ API models (openai/anthropic/gemini/mistral/groq): pings the provider's
+//   "¢ API models (openai/anthropic/gemini/mistral/groq): pings the provider's
 //     /models endpoint with the API key. If it returns 200, the key works and
-//     the API is reachable â†’ canFinish = true. If 401/403/429/5xx, returns
+//     the API is reachable †' canFinish = true. If 401/403/429/5xx, returns
 //     canFinish = false with the real reason.
 //
-//   â€¢ LOCAL models (ollama): pings GET /api/tags. If reachable, canFinish =
+//   "¢ LOCAL models (ollama): pings GET /api/tags. If reachable, canFinish =
 //     true. If not, canFinish = false with "Ollama is not reachable from the
 //     server."
 //
-//   â€¢ LOCAL models (llamacpp/llamafile): can't easily verify without running
+//   "¢ LOCAL models (llamacpp/llamafile): can't easily verify without running
 //     the binary, so we report canFinish = true with a note that the binary
 //     path hasn't been verified.
 //
@@ -680,17 +716,25 @@ export async function checkLimits(
         canFinish: true,
       };
 
+      // Check cache first for all assignment types
+      const cached = getCachedReachability(assignment);
+      if (cached) {
+        return { ...base, ...cached };
+      }
+
       // For LOCAL CLI models (llamacpp/llamafile), we can't easily verify
       // without running the binary. Assume OK with a note.
       if (
         assignment.connectionType === "LOCAL" &&
         assignment.provider !== "ollama"
       ) {
-        return {
+        const result = {
           ...base,
           canFinish: true,
-          // No fake capacity number â€” just a note that it's unverified.
+          // No fake capacity number "" just a note that it's unverified.
         };
+        setCachedReachability(assignment, result);
+        return result;
       }
 
       // For ollama: ping GET /api/tags.
@@ -705,11 +749,13 @@ export async function checkLimits(
             signal: AbortSignal.timeout(5_000),
           });
           if (!res.ok) {
-            return {
+            const result = {
               ...base,
               canFinish: false,
               reason: `Ollama returned HTTP ${res.status}.`,
             };
+            setCachedReachability(assignment, result);
+            return result;
           }
           const json = await res.json();
           const availableModels: string[] = (json.models || []).map(
@@ -719,30 +765,38 @@ export async function checkLimits(
             availableModels.length === 0 ||
             availableModels.includes(assignment.modelName);
           if (!modelAvailable) {
-            return {
+            const result = {
               ...base,
               canFinish: false,
               reason: `Model "${assignment.modelName}" not pulled. Available: ${availableModels.slice(0, 3).join(", ")}`,
             };
+            setCachedReachability(assignment, result);
+            return result;
           }
-          return { ...base, canFinish: true };
+          const result = { ...base, canFinish: true };
+          setCachedReachability(assignment, result);
+          return result;
         } catch {
-          return {
+          const result = {
             ...base,
             canFinish: false,
             reason: `Ollama at ${ollamaBase} is not reachable from the server.`,
           };
+          setCachedReachability(assignment, result);
+          return result;
         }
       }
 
       // For API models: ping the provider's /models endpoint.
       if (assignment.connectionType === "API") {
         const testResult = await quickApiReachabilityCheck(assignment);
-        return {
+        const result = {
           ...base,
           canFinish: testResult.canFinish,
           reason: testResult.reason,
         };
+        setCachedReachability(assignment, result);
+        return result;
       }
 
       return base;
@@ -751,20 +805,27 @@ export async function checkLimits(
   return results;
 }
 
-// Quick reachability check for API providers â€” used by checkLimits.
+// Quick reachability check for API providers "" used by checkLimits.
 // Returns canFinish=true if the key works + API is reachable, false otherwise.
-// This is a lighter check than the full testAssignment() â€” it just answers
+// This is a lighter check than the full testAssignment() "" it just answers
 // "can we reach this provider with this key right now?"
+// Uses the same caching mechanism as checkLimits for efficiency.
 async function quickApiReachabilityCheck(
   assignment: ModelAssignment
 ): Promise<{ canFinish: boolean; reason?: string }> {
   const { provider, apiKey, endpoint } = assignment;
-  // Z.ai is always reachable â€” it uses the built-in SDK.
+  // Z.ai is always reachable "" it uses the built-in SDK.
   if (provider === "zai") {
     return { canFinish: true };
   }
   if (!apiKey) {
     return { canFinish: false, reason: "API key is required." };
+  }
+
+  // Check cache first
+  const cached = getCachedReachability(assignment);
+  if (cached) {
+    return { canFinish: cached.canFinish, reason: cached.reason };
   }
 
   const endpoints: Record<string, string> = {
@@ -809,40 +870,52 @@ async function quickApiReachabilityCheck(
     }
 
     if (res.ok) {
-      return { canFinish: true };
+      const result = { canFinish: true };
+      setCachedReachability(assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: true });
+      return result;
     }
     if (res.status === 401) {
-      return { canFinish: false, reason: `${provider} rejected the API key (401).` };
+      const result = { canFinish: false, reason: `${provider} rejected the API key (401).` };
+      setCachedReachability(assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
+      return result;
     }
     if (res.status === 403) {
-      return {
+      const result = {
         canFinish: false,
-        reason: `${provider} blocked the request (403) â€” likely a region restriction or quota issue.`,
+        reason: `${provider} blocked the request (403) - likely a region restriction or quota issue.`,
       };
+      setCachedReachability(assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
+      return result;
     }
     if (res.status === 429) {
-      return { canFinish: false, reason: `${provider} rate limit hit (429).` };
+      const result = { canFinish: false, reason: `${provider} rate limit hit (429).` };
+      setCachedReachability(assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
+      return result;
     }
-    return {
+    const result = {
       canFinish: false,
       reason: `${provider} returned HTTP ${res.status}.`,
     };
+    setCachedReachability(assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
+    return result;
   } catch (err) {
     const e = err as Error;
     const isConn =
       e.message.includes("fetch failed") ||
       e.message.includes("aborted") ||
       e.message.includes("ECONNREFUSED");
-    return {
+    const result = {
       canFinish: false,
       reason: isConn
         ? `Cannot reach ${provider} from the server (network/region block).`
         : `${provider} error: ${e.message}`,
     };
+    setCachedReachability(assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
+    return result;
   }
 }
 
-// â”€â”€â”€ Dispatch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// "€"€"€ Dispatch "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 
 function emptyAssignment(): ModelAssignment {
   return {
@@ -1000,7 +1073,7 @@ async function callModel(
   };
 }
 
-// Result of a single model call â€” text + token usage (when available).
+// Result of a single model call "" text + token usage (when available).
 interface ModelCallResult {
   text: string;
   tokens?: TokenUsage;
@@ -1014,7 +1087,7 @@ async function realCall(
   intent?: string,
   timeoutMs?: number
 ): Promise<ModelCallResult> {
-  // Build the system hint the same way â€” this is the NOX persona prompt.
+  // Build the system hint the same way "" this is the NOX persona prompt.
   const systemHint =
     role === "host"
       ? "You are NOX Host. Analyze the user's intent and either answer directly or synthesize the response from a specialist model into a clean reply to the user. Be concise."
@@ -1022,7 +1095,7 @@ async function realCall(
       ? `You are NOX ${role} specialist (intent: ${intent}). Answer the user's request focused on your specialty. Be concise and useful.`
       : "You are NOX AI. Respond helpfully and concisely.";
 
-  // Normalise the conversation â€” preserve image attachments for vision.
+  // Normalise the conversation "" preserve image attachments for vision.
   const conv: ChatMessage[] = messages
     .filter((m) => m.role !== "system")
     .map((m) => ({
@@ -1039,7 +1112,7 @@ async function realCall(
   return callApi(assignment, systemHint, conv);
 }
 
-// â”€â”€â”€ API connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// "€"€"€ API connection "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 
 async function callApi(assignment: ModelAssignment, systemHint: string, conv: ChatMessage[]): Promise<ModelCallResult> {
   const { provider, modelName, apiKey, endpoint } = assignment;
@@ -1115,7 +1188,7 @@ async function callOpenAiCompatible(
     method: "POST",
     headers,
     body: JSON.stringify({ model, max_tokens: 1024, messages }),
-  }, 30_000);
+  }, DEFAULT_TIMEOUTS.API);
 
   if (!res.ok) {
     const body = await res.text().catch(() => res.statusText);
@@ -1129,7 +1202,7 @@ async function callOpenAiCompatible(
   return { text, tokens };
 }
 
-// Z.ai â€” built-in SDK provider. No API key needed.
+// Z.ai "" built-in SDK provider. No API key needed.
 // Uses the z-ai-web-dev-sdk which is pre-installed and works from any region.
 // If the SDK config file is missing, falls back to a direct HTTP call to the
 // Z.ai API using the config from /etc/.z-ai-config or environment variables.
@@ -1138,7 +1211,7 @@ async function callZai(
   systemHint: string,
   conv: ChatMessage[]
 ): Promise<ModelCallResult> {
-  // Try the SDK first â€” it handles auth automatically if the config file exists.
+  // Try the SDK first "" it handles auth automatically if the config file exists.
   try {
     const ZAI = (await import("z-ai-web-dev-sdk")).default;
     const zai = await ZAI.create();
@@ -1167,7 +1240,7 @@ async function callZai(
 
     return { text, tokens };
   } catch (sdkErr) {
-    // SDK failed â€” likely missing .z-ai-config file.
+    // SDK failed "" likely missing .z-ai-config file.
     // Fall back to direct HTTP call to Z.ai API.
     const fallbackResult = await callZaiHttpFallback(model, systemHint, conv);
     if (fallbackResult) return fallbackResult;
@@ -1211,7 +1284,7 @@ async function callZaiHttpFallback(
   }
 
   if (!config) {
-    return null; // No config found â€” caller will show the error
+    return null; // No config found "" caller will show the error
   }
 
   const baseUrl = config.baseUrl || "https://internal-api.z.ai/v1";
@@ -1298,7 +1371,7 @@ async function callAnthropic(
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({ model, max_tokens: 1024, system: systemHint, messages }),
-  }, 30_000);
+  }, DEFAULT_TIMEOUTS.API);
 
   if (!res.ok) {
     const body = await res.text().catch(() => res.statusText);
@@ -1314,9 +1387,9 @@ async function callAnthropic(
 
 // Google Gemini generateContent API.
 //
-// SECURITY: `apiKey` is only ever placed into the URL query string (the way
-// Google's API expects it). It is never included in error messages, trace
-// objects, or logs. If you change this function, preserve that invariant.
+// SECURITY: API credentials are never included in error messages, trace
+// objects, or logs. Google API keys use the query-string form expected by the
+// provider, while bearer tokens are sent in the Authorization header.
 async function callGemini(
   apiKey: string,
   model: string,
@@ -1331,7 +1404,8 @@ async function callGemini(
 
   const normalizedKey = normalizeApiKey(apiKey)!;
   const runtime = resolveProviderConfig("gemini", normalizedKey, endpoint);
-  const url = buildGeminiGenerateUrl(runtime.defaultBase, model, normalizedKey);
+  const useQueryKey = isGoogleApiKey(normalizedKey);
+  const url = buildGeminiGenerateUrl(runtime.defaultBase, model, normalizedKey, useQueryKey);
   const contents = conv.map((m) => {
     const parts: unknown[] = [{ text: m.content }];
     if (m.image) {
@@ -1340,11 +1414,8 @@ async function callGemini(
     return { role: m.role === "assistant" ? "model" : "user", parts };
   });
 
-  const res = await fetchWithRetry(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents, systemInstruction: { parts: [{ text: systemHint }] }, generationConfig: { maxOutputTokens: 1024 } }),
-  }, 30_000);
+  const init = buildGeminiRequestInit(normalizedKey, "POST", { contents, systemInstruction: { parts: [{ text: systemHint }] }, generationConfig: { maxOutputTokens: 1024 } });
+  const res = await fetchWithRetry(url, init, DEFAULT_TIMEOUTS.API);
 
   if (!res.ok) {
     const body = await res.text().catch(() => res.statusText);
@@ -1364,12 +1435,13 @@ function validateApiKey(apiKey: string | undefined): string | null {
   return trimmed ? null : "API key is required.";
 }
 
-// Lightweight Gemini connection test â€” hits the ListModels endpoint instead
+// Lightweight Gemini connection test "" hits the ListModels endpoint instead
 // of running a full generateContent call. Cheaper, faster, and confirms the
 // key works + the Generative Language API is enabled on the project.
 //
-// SECURITY: The apiKey is only placed in the URL query string (per Google's
-// API spec). It is never included in the returned TestResult message/reason.
+// SECURITY: Google API keys use the query-string form expected by the API when
+// needed, bearer tokens are sent via the Authorization header, and neither is
+// exposed in the returned TestResult message/reason.
 export async function testGeminiConnection(
   apiKey: string,
   model: string,
@@ -1390,10 +1462,15 @@ export async function testGeminiConnection(
 
   const normalizedKey = normalizeApiKey(apiKey)!;
   const runtime = resolveProviderConfig("gemini", normalizedKey, endpoint);
-  const url = `${buildProviderUrl(runtime.defaultBase, runtime.testPath)}?key=${encodeURIComponent(normalizedKey)}&pageSize=100`;
+  const useQueryKey = isGoogleApiKey(normalizedKey);
+  const baseUrl = buildProviderUrl(runtime.defaultBase, runtime.testPath);
+  const url = useQueryKey
+    ? `${baseUrl}?key=${encodeURIComponent(normalizedKey)}&pageSize=100`
+    : `${baseUrl}?pageSize=100`;
+  const init: RequestInit = useQueryKey ? { method: "GET" } : { method: "GET", headers: { Authorization: `Bearer ${normalizedKey}` } };
 
   try {
-    const res = await fetchWithRetry(url, { method: "GET" }, 10_000);
+    const res = await fetchWithRetry(url, init, 10_000);
     if (!res.ok) {
       const body = await res.text().catch(() => res.statusText);
       const classified = classifyProviderError(runtime.displayName.toLowerCase(), res.status, body);
@@ -1418,7 +1495,7 @@ export async function testGeminiConnection(
 
 
 // Test an OpenAI-compatible API connection (openai, mistral, groq).
-// Hits GET /v1/models with the Bearer token â€” lightweight, no tokens spent.
+// Hits GET /v1/models with the Bearer token "" lightweight, no tokens spent.
 // Verifies: key is valid, API is reachable from the server, key has access.
 export async function testOpenAiCompatibleConnection(
   apiKey: string,
@@ -1523,7 +1600,7 @@ export async function testOllamaConnection(
         fixSteps: [
           `Verify Ollama is running at ${base}`,
           "Check the Endpoint field matches your Ollama host",
-          "If NOX AI is hosted, localhost refers to the server â€” set Endpoint to a reachable host",
+          "If NOX AI is hosted, localhost refers to the server - set Endpoint to a reachable host",
         ],
       };
     }
@@ -1572,7 +1649,7 @@ export async function testOllamaConnection(
         ? `Could not connect to Ollama at ${base}. If NOX AI is hosted, "localhost" refers to the SERVER, not your machine. Set the Endpoint field to a publicly reachable Ollama host.`
         : `Ollama error: ${e.message}`,
       reason: isConnRefused
-        ? "Connection refused â€” Ollama is not running at this address from the server's perspective."
+        ? "Connection refused - Ollama is not running at this address from the server's perspective."
         : e.message,
       fixSteps: isConnRefused
         ? [
@@ -1585,7 +1662,7 @@ export async function testOllamaConnection(
   }
 }
 
-// â”€â”€â”€ Heartbeat-based subprocess execution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// "€"€"€ Heartbeat-based subprocess execution "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 //
 // spawnWithHeartbeat: runs a CLI binary via spawn() and monitors stdout for
 // incoming data. Each time new stdout data arrives, the timeout clock resets
@@ -1622,7 +1699,7 @@ function spawnWithHeartbeat(
       reject(new Error(`timeout after ${timeoutMs}ms (no stdout for ${timeoutMs}ms, ${heartbeats} heartbeats received)`));
     }, timeoutMs);
 
-    // Hard ceiling timer â€” kills even if heartbeats keep coming.
+    // Hard ceiling timer "" kills even if heartbeats keep coming.
     const hardCeilingTimer = setTimeout(() => {
       clearTimeout(timer);
       child.kill("SIGTERM");
@@ -1666,7 +1743,7 @@ function spawnWithHeartbeat(
   });
 }
 
-// â”€â”€â”€ LOCAL CLI connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// "€"€"€ LOCAL CLI connection "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 //
 // For ollama: uses the HTTP API (POST /api/generate) instead of spawning a
 // subprocess. This is faster, more reliable, and supports remote ollama
@@ -1719,13 +1796,13 @@ async function callLocalCli(
     const result = await spawnWithHeartbeat(cliPath, args, {
       env: { ...process.env },
     }, timeoutMs || DEFAULT_TIMEOUTS.LOCAL);
-    // LOCAL CLI models don't return token usage â€” return text only.
+    // LOCAL CLI models don't return token usage "" return text only.
     return { text: result.stdout.trim(), heartbeats: result.heartbeats };
   } catch (err) {
     const e = err as NodeJS.ErrnoException;
     if (e.code === "ENOENT") {
       throw new Error(
-        `CLI binary not found at "${cliPath}". The server cannot find this path â€” if you're running NOX AI in a hosted environment, the binary must be installed on the SERVER, not your local machine.`
+        `CLI binary not found at "${cliPath}". The server cannot find this path "" if you're running NOX AI in a hosted environment, the binary must be installed on the SERVER, not your local machine.`
       );
     }
     const stderr = (e as { stderr?: string }).stderr?.slice(0, 300) || e.message;
@@ -1736,7 +1813,7 @@ async function callLocalCli(
 // Call ollama via its HTTP API (POST /api/generate).
 // Uses `endpoint` as the ollama host (default: http://localhost:11434).
 // Uses streaming mode (stream: true) so each NDJSON chunk acts as a heartbeat
-// signal â€” the timeout clock resets on each chunk, up to 3x the configured
+// signal "" the timeout clock resets on each chunk, up to 3x the configured
 // timeout. This prevents slow-but-working local models from being killed
 // mid-generation.
 async function callOllamaHttp(
@@ -1762,7 +1839,7 @@ async function callOllamaHttp(
       body: JSON.stringify({
         model,
         prompt,
-        stream: true, // streaming mode â€” each chunk is a heartbeat
+        stream: true, // streaming mode "" each chunk is a heartbeat
         options: {
           num_predict: 1024,
         },
@@ -1774,7 +1851,7 @@ async function callOllamaHttp(
       throw new Error(`Ollama HTTP ${res.status}: ${errText.slice(0, 300)}`);
     }
 
-    // Read the streaming response (NDJSON â€” one JSON object per line per chunk).
+    // Read the streaming response (NDJSON "" one JSON object per line per chunk).
     // Each chunk resets the idle timer. Hard ceiling = 3x the timeout.
     let text = "";
     let inputTokens: number | undefined;
@@ -1810,13 +1887,13 @@ async function callOllamaHttp(
         done = result.done;
         value = result.value;
       } catch (err) {
-        // Idle timeout â€” no data for effectiveTimeout ms.
+        // Idle timeout "" no data for effectiveTimeout ms.
         throw err;
       }
 
       if (done) break;
 
-      // Got a chunk â€” this is a heartbeat. Reset the idle timer.
+      // Got a chunk "" this is a heartbeat. Reset the idle timer.
       if (extensionsUsed < HEARTBEAT_MAX_EXTENSIONS) {
         extensionsUsed++;
         heartbeats++;
@@ -1848,7 +1925,7 @@ async function callOllamaHttp(
             outputTokens = chunk.eval_count;
           }
         } catch {
-          // Incomplete JSON â€” skip, will be in buffer.
+          // Incomplete JSON "" skip, will be in buffer.
         }
       }
     }
@@ -1884,14 +1961,14 @@ async function callOllamaHttp(
     const e = err as Error;
     if (e.message.includes("ECONNREFUSED") || e.message.includes("fetch failed")) {
       throw new Error(
-        `Could not connect to Ollama at ${base}. The server cannot reach this address â€” if NOX AI is hosted, "localhost" refers to the SERVER, not your machine. Either install Ollama on the server, or set the Endpoint field to a publicly reachable Ollama host.`
+        `Could not connect to Ollama at ${base}. The server cannot reach this address "" if NOX AI is hosted, "localhost" refers to the SERVER, not your machine. Either install Ollama on the server, or set the Endpoint field to a publicly reachable Ollama host.`
       );
     }
     throw new Error(`Ollama error: ${e.message}`);
   }
 }
 
-// â”€â”€â”€ Context handoff: token counting + truncation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// "€"€"€ Context handoff: token counting + truncation "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 //
 // Rough token estimate: ~4 characters per token (industry-standard heuristic
 // for English text). This is not exact but good enough for deciding when to
@@ -1931,13 +2008,13 @@ function truncateForContext(
   const lastUserIdx = [...messages].reverse().findIndex((m) => m.role === "user");
   const lastUser = lastUserIdx >= 0 ? messages[messages.length - 1 - lastUserIdx] : null;
   if (!lastUser) {
-    // No user message â€” keep as-is (shouldn't happen).
+    // No user message "" keep as-is (shouldn't happen).
     return { messages, truncated: false, originalTokens, keptTokens: originalTokens };
   }
 
   const lastUserTokens = estimateTokens(lastUser.content);
   if (lastUserTokens >= budgetTokens) {
-    // Last user message alone exceeds budget â€” truncate it.
+    // Last user message alone exceeds budget "" truncate it.
     const maxChars = budgetTokens * CHARS_PER_TOKEN - 200; // leave room for note
     const truncatedContent = lastUser.content.slice(0, maxChars) + "\n\n[...message truncated to fit context...]";
     return {
@@ -1973,7 +2050,7 @@ function truncateForContext(
   };
 }
 
-// â”€â”€â”€ Host-model-driven intent classification â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// "€"€"€ Host-model-driven intent classification "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 //
 // Instead of keyword regex matching, the Host model itself classifies the
 // user's intent. A lightweight call with a structured system prompt asks the
@@ -1986,7 +2063,7 @@ function truncateForContext(
 // the Host answers directly (no specialist routing).
 //
 // If the classification call fails (timeout, error, invalid JSON), falls back
-// to the old keyword-based resolvePlan() â€” so a failed classification never
+// to the old keyword-based resolvePlan() "" so a failed classification never
 // silently breaks the dispatch.
 const CLASSIFICATION_CONFIDENCE_THRESHOLD = 0.6;
 
@@ -2034,7 +2111,7 @@ function parseClassificationResponse(output: string): IntentClassification | nul
   }
 }
 
-// Result of a classification call â€” the parsed classification + call metadata
+// Result of a classification call "" the parsed classification + call metadata
 // for the dispatch trace.
 interface ClassificationCallResult {
   classification: IntentClassification | null;
@@ -2051,7 +2128,7 @@ interface ClassificationCallResult {
 // The Host responds with a JSON object that parseClassificationResponse extracts.
 //
 // Only the last user message is sent (not full history) to keep the call
-// fast and cheap â€” classification doesn't need conversation context.
+// fast and cheap "" classification doesn't need conversation context.
 async function classifyIntent(
   hostAssignment: ModelAssignment,
   messages: ChatMessage[],
@@ -2105,7 +2182,7 @@ export async function dispatch(
   const timeoutOverrides = doc.timeoutOverrides || {};
   const steps: DispatchStep[] = [];
 
-  // â”€â”€â”€ ORCHESTRATOR MODE: model-driven classification â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // "€"€"€ ORCHESTRATOR MODE: model-driven classification "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
   //
   // Instead of keyword regex matching, the Host model classifies the intent
   // via a lightweight JSON-output call. This replaces the old resolvePlan()
@@ -2117,10 +2194,10 @@ export async function dispatch(
       timeoutOverrides[hostAssignment.connectionType] ||
       DEFAULT_TIMEOUTS[hostAssignment.connectionType];
 
-    // â”€â”€â”€ GAP 2 FIX: Pre-verify Host reachability before classification â”€â”€â”€â”€â”€
+    // "€"€"€ GAP 2 FIX: Pre-verify Host reachability before classification "€"€"€"€"€
     //
     // Before spending a classification call, verify the Host model is actually
-    // reachable. If it's not, return immediately with a clear error â€” no point
+    // reachable. If it's not, return immediately with a clear error "" no point
     // attempting classification with a broken Host.
     //
     // This check is ONLY for Orchestrator mode's classify step. The specialist
@@ -2210,7 +2287,7 @@ export async function dispatch(
       classification.confidence >= CLASSIFICATION_CONFIDENCE_THRESHOLD;
 
     if (!shouldRouteToSpecialist) {
-      // Host answers directly â€” no specialist needed.
+      // Host answers directly "" no specialist needed.
       // This is the same as the "Host handles it directly" fallback.
       const result = await callModel(hostAssignment, messages, {
         timeoutMs: hostTimeout,
@@ -2237,8 +2314,8 @@ export async function dispatch(
       });
 
       const finalReply = result.output || (result.lastError
-        ? `âš ï¸ Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
-        : "âš ï¸ Model returned no response. Check your configuration in Advanced Customization.");
+        ? `š  Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
+        : "š  Model returned no response. Check your configuration in Advanced Customization.");
 
       return {
         ok: true,
@@ -2251,7 +2328,7 @@ export async function dispatch(
       };
     }
 
-    // Step 3: Specialist is needed â€” build the plan from classification
+    // Step 3: Specialist is needed "" build the plan from classification
     const specialistId = classification.specialist as SpecialistId;
     const specialistAssignment =
       doc.specialistConfigs?.[specialistId] || emptyAssignment();
@@ -2280,7 +2357,7 @@ export async function dispatch(
       };
     }
 
-    // Step 3b: Confirmed â€” check limits
+    // Step 3b: Confirmed "" check limits
     let limits: ModelLimit[] | undefined;
     limits = await checkLimits(
       [
@@ -2350,7 +2427,7 @@ export async function dispatch(
       connectionType: specialistAssignment.connectionType,
       intent: specialistId,
       input: truncated.truncated
-        ? `(routed by host, context truncated: ${truncated.originalTokens}â†’${truncated.keptTokens} tokens)`
+        ? `(routed by host, context truncated: ${truncated.originalTokens}†'${truncated.keptTokens} tokens)`
         : "(routed by host)",
       output: specialistResult.output,
       latencyMs: specialistResult.latencyMs,
@@ -2383,8 +2460,8 @@ export async function dispatch(
     });
 
     const finalReply = finalResult.output || (finalResult.lastError
-      ? `âš ï¸ Model call failed after ${finalResult.retries} attempt(s).\n\nError: ${finalResult.lastError}\n\nCheck your configuration in Advanced Customization.`
-      : "âš ï¸ Model returned no response. Check your configuration in Advanced Customization.");
+      ? `š  Model call failed after ${finalResult.retries} attempt(s).\n\nError: ${finalResult.lastError}\n\nCheck your configuration in Advanced Customization.`
+      : "š  Model returned no response. Check your configuration in Advanced Customization.");
 
     return {
       ok: true,
@@ -2398,7 +2475,7 @@ export async function dispatch(
     };
   }
 
-  // â”€â”€â”€ skipSpecialist path (user chose "Let Host handle directly") â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // "€"€"€ skipSpecialist path (user chose "Let Host handle directly") "€"€"€"€"€"€"€"€"€
   if (doc.mode === "ORCHESTRATOR" && opts.skipSpecialist) {
     const hostAssignment = doc.hostConfig || emptyAssignment();
     const hostTimeout =
@@ -2429,8 +2506,8 @@ export async function dispatch(
     });
 
     const finalReply = result.output || (result.lastError
-      ? `âš ï¸ Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
-      : "âš ï¸ Model returned no response. Check your configuration in Advanced Customization.");
+      ? `š  Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
+      : "š  Model returned no response. Check your configuration in Advanced Customization.");
 
     return {
       ok: true,
@@ -2442,7 +2519,7 @@ export async function dispatch(
     };
   }
 
-  // â”€â”€â”€ SINGLE or MULTI mode (keyword-based resolvePlan, unchanged) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // "€"€"€ SINGLE or MULTI mode (keyword-based resolvePlan, unchanged) "€"€"€"€"€"€"€"€"€"€
   const plan = resolvePlan(doc, messages, opts.feature);
 
   if (plan.multiAgent && !opts.confirmMultiAgent) {
@@ -2507,8 +2584,8 @@ export async function dispatch(
   // If the call failed (empty output after retries), surface the error as
   // the final reply so the user sees what went wrong in the chat.
   const finalReply = result.output || (result.lastError
-    ? `âš ï¸ Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
-    : "âš ï¸ Model returned no response. Check your configuration in Advanced Customization.");
+    ? `š  Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
+    : "š  Model returned no response. Check your configuration in Advanced Customization.");
 
   return {
     ok: true,
@@ -2520,7 +2597,7 @@ export async function dispatch(
   };
 }
 
-// â”€â”€â”€ Conversations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// "€"€"€ Conversations "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 
 export interface ConversationSummary {
   id: string;
@@ -2694,7 +2771,7 @@ export async function addMessage(
   }
 }
 
-// â”€â”€â”€ Usage / cost tracking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// "€"€"€ Usage / cost tracking "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 //
 // After a successful dispatch, the dispatch route calls saveUsage() with the
 // steps from the DispatchResult. Each step becomes one UsageRecord row.
@@ -2938,6 +3015,8 @@ export async function getRecentUsage(
     createdAt: r.createdAt.toISOString(),
   }));
 }
+
+
 
 
 

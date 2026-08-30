@@ -90,17 +90,11 @@ export async function POST(req: NextRequest) {
           for (const step of result.steps) {
             send({ type: "step", step });
 
-            // Simulate progressive text display by sending the output in chunks
-            // (in a real streaming implementation, the provider call itself
-            // would stream. Here we chunk the final output for display.)
+            // Send the complete output immediately without fake chunking
+            // The provider calls are batched, but we want the UI to update
+            // as soon as each step completes rather than adding artificial delays
             if (step.output && step.output.length > 0) {
-              const chunkSize = 50; // characters per chunk
-              for (let i = 0; i < step.output.length; i += chunkSize) {
-                const chunk = step.output.slice(i, i + chunkSize);
-                send({ type: "chunk", text: chunk, role: step.role });
-                // Small delay between chunks for visual streaming effect
-                await new Promise((r) => setTimeout(r, 10));
-              }
+              send({ type: "chunk", text: step.output, role: step.role });
             }
           }
 
