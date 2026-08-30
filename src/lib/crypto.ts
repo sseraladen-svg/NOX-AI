@@ -62,3 +62,10 @@ export function maskApiKey(plaintext: string): string {
   const tail = plaintext.slice(-4);
   return `${head}${"•".repeat(Math.max(6, plaintext.length - 7))}${tail}`;
 }
+
+// A key is "masked" if it's the display placeholder produced by maskApiKey(),
+// not a real key. Both the mask and this check must use the same character —
+// this is the single source of truth so they can't drift apart again.
+export function isMaskedApiKey(apiKey: string | undefined | null): boolean {
+  return !!apiKey && apiKey.includes("•");
+}

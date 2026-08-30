@@ -182,7 +182,7 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
     try {
       const res = await authFetch("/api/multi-model/test", {
         method: "POST",
-        body: { assignment: a },
+        body: { id, assignment: a },
       });
 
       // Check if the response is JSON before trying to parse it.
