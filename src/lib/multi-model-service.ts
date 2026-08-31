@@ -163,7 +163,8 @@ function buildProviderUrl(base: string | undefined, suffix: string): string {
 }
 
 function isGoogleApiKey(apiKey: string): boolean {
-  return /^AIza[0-9A-Za-z_-]{35}$/.test(apiKey);
+  // Accept both standard Gemini keys (AIzaSy + 33 chars = 39 total) and newer authorization keys (AQ. + variable token)
+  return /^AIza[0-9A-Za-z_-]{35}$/.test(apiKey) || /^AQ\.[\w-]+$/.test(apiKey);
 }
 
 function buildGeminiGenerateUrl(endpoint: string | undefined, model: string, apiKey: string, useQueryKey: boolean): string {
