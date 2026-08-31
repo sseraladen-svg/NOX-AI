@@ -1,8 +1,8 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { isMaskedApiKey } from "@/lib/crypto";
 import {
   getConfigInternal,
-  isMaskedApiKey,
   testAssignment,
   type ModelAssignment,
 } from "@/lib/multi-model-service";

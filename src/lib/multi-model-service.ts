@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import { db } from "@/lib/db";
 import { encryptApiKey, decryptApiKey, maskApiKey, isMaskedApiKey } from "@/lib/crypto";
 import { execFile, spawn } from "child_process";
@@ -163,22 +163,32 @@ function buildProviderUrl(base: string | undefined, suffix: string): string {
 }
 
 function isGoogleApiKey(apiKey: string): boolean {
-  // Accept both standard Gemini keys (AIzaSy + 33 chars = 39 total) and newer authorization keys (AQ. + variable token)
-  return /^AIza[0-9A-Za-z_-]{35}$/.test(apiKey) || /^AQ\.[\w-]+$/.test(apiKey);
+  const trimmed = apiKey?.trim();
+  if (!trimmed) return false;
+
+  // Accept both classic Gemini API keys and the newer Google AI Studio
+  // authorization key format. Both are sent in the query-string flow.
+  return /^(AIza[0-9A-Za-z_-]{35}|AQ\.[A-Za-z0-9_-]+)$/i.test(trimmed);
 }
 
 function buildGeminiGenerateUrl(endpoint: string | undefined, model: string, apiKey: string, useQueryKey: boolean): string {
   const base = (endpoint || "https://generativelanguage.googleapis.com/v1beta").trim().replace(/\/+$/, "");
   const modelsBase = base.endsWith("/models") ? base : `${base}/models`;
   const path = `${modelsBase}/${encodeURIComponent(model)}:generateContent`;
-  return useQueryKey ? `${path}?key=${encodeURIComponent(apiKey)}` : path;
+  return useQueryKey ? `${path}?key=${encodeURIComponent(apiKey.trim())}` : path;
 }
 
 function buildGeminiRequestInit(apiKey: string, method: string, body?: unknown): RequestInit {
+  const normalizedKey = normalizeApiKey(apiKey) ?? apiKey;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (!isGoogleApiKey(apiKey)) {
-    headers.Authorization = `Bearer ${apiKey}`;
+
+  // Google Gemini API keys and AI Studio authorization keys are sent via the
+  // query string. Normal OAuth bearer tokens are the only case that belongs in
+  // the Authorization header.
+  if (!isGoogleApiKey(normalizedKey)) {
+    headers.Authorization = `Bearer ${normalizedKey}`;
   }
+
   const init: RequestInit = { method, headers };
   if (body !== undefined) {
     init.body = JSON.stringify(body);
