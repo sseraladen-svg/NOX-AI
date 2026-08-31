@@ -113,7 +113,7 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
           dirty: false,
         });
       } else {
-        // Auth failure or other error — still mark loaded so the UI doesn't
+        // Auth failure or other error - still mark loaded so the UI doesn't
         // spin forever. The auth gate will redirect to the login screen.
         set({ loaded: true });
       }
@@ -182,14 +182,14 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
     try {
       const res = await authFetch("/api/multi-model/test", {
         method: "POST",
-        body: { assignment: a },
+        body: { id, assignment: a },
       });
 
       // Check if the response is JSON before trying to parse it.
       // If the route is missing (404), the server returns an HTML error page.
       const contentType = res.headers.get("content-type") || "";
       if (!contentType.includes("application/json")) {
-        // Not JSON — likely a 404 HTML page or server error.
+        // Not JSON - likely a 404 HTML page or server error.
         set((s) => ({
           tests: {
             ...s.tests,
@@ -198,7 +198,7 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
               message: res.status === 404
                 ? "The test endpoint is not available. Restart the dev server and try again."
                 : `Server returned ${res.status} (non-JSON response). The server may need to be restarted.`,
-              reason: `HTTP ${res.status} — expected JSON but got ${contentType || "unknown"}.`,
+              reason: `HTTP ${res.status} - expected JSON but got ${contentType || "unknown"}.`,
             },
           },
         }));

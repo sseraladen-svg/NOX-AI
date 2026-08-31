@@ -47,6 +47,18 @@ export type {
 };
 export { FEATURES, SPECIALISTS, PROVIDERS, DEFAULT_TIMEOUTS, MAX_RETRY };
 
+// Shared helper to detect masked API keys (used by both Save and Test)
+export function isMaskedApiKey(apiKey: string | undefined): boolean {
+  return !!apiKey && apiKey.includes("***") && apiKey.length > 8;
+}
+
+// Helper to normalize localhost to 127.0.0.1 to avoid IPv6 resolution issues
+// On Windows, Node.js often resolves "localhost" to ::1 (IPv6) but Ollama only listens on IPv4
+function normalizeOllamaEndpoint(endpoint?: string): string {
+  const base = endpoint || "http://localhost:11434";
+  return base.replace("://localhost", "://127.0.0.1");
+}
+
 // Simple in-memory cache for reachability checks with 60s TTL
 const reachabilityCache = new Map<string, { result: ModelLimit; expiresAt: number }>();
 const CACHE_TTL_MS = 60_000; // 60 seconds
@@ -422,9 +434,8 @@ export async function saveConfig(
 
   const preserveMaskedKey = (incoming: ModelAssignment | null | undefined, existingJson: string | null): ModelAssignment | null => {
     if (!incoming) return null;
-    // If the incoming key is missing or masked (contains multiple asterisks), preserve the existing key.
-    // maskApiKey() outputs format like "abc******xyz" with asterisks, not bullet characters
-    if (!incoming.apiKey || (incoming.apiKey.includes("***") && incoming.apiKey.length > 8)) {
+    // If the incoming key is missing or masked, preserve the existing key.
+    if (!incoming.apiKey || isMaskedApiKey(incoming.apiKey)) {
       if (existingJson) {
         try {
           const existingAssign = JSON.parse(existingJson) as ModelAssignment;
@@ -459,7 +470,7 @@ export async function saveConfig(
     const out: Record<string, ModelAssignment> = {};
     for (const [k, v] of Object.entries(incoming)) {
       if (!v) continue;
-      if (!v.apiKey || (v.apiKey.includes("***") && v.apiKey.length > 8)) {
+      if (!v.apiKey || isMaskedApiKey(v.apiKey)) {
         // Preserve existing key for this role.
         out[k] = { ...v, apiKey: existingMap[k]?.apiKey };
       } else {
@@ -742,7 +753,7 @@ export async function checkLimits(
         assignment.connectionType === "LOCAL" &&
         assignment.provider === "ollama"
       ) {
-        const ollamaBase = assignment.endpoint || "http://localhost:11434";
+        const ollamaBase = normalizeOllamaEndpoint(assignment.endpoint);
         try {
           const res = await fetch(`${ollamaBase}/api/tags`, {
             method: "GET",
@@ -780,7 +791,7 @@ export async function checkLimits(
           const result = {
             ...base,
             canFinish: false,
-            reason: `Ollama at ${ollamaBase} is not reachable from the server.`,
+            reason: `Ollama at ${ollamaBase} is not reachable from the server. (Note: localhost is automatically resolved to 127.0.0.1 to avoid IPv6 issues)`,
           };
           setCachedReachability(assignment, result);
           return result;
@@ -1582,7 +1593,7 @@ export async function testOllamaConnection(
   endpoint?: string
 ): Promise<TestResult> {
   const started = Date.now();
-  const base = endpoint || "http://localhost:11434";
+  const base = normalizeOllamaEndpoint(endpoint);
 
   try {
     // Step 1: ping /api/tags to verify ollama is running.
@@ -1600,7 +1611,7 @@ export async function testOllamaConnection(
         fixSteps: [
           `Verify Ollama is running at ${base}`,
           "Check the Endpoint field matches your Ollama host",
-          "If NOX AI is hosted, localhost refers to the server - set Endpoint to a reachable host",
+          "If NOX AI is hosted, 127.0.0.1 refers to the server - set Endpoint to a reachable host",
         ],
       };
     }
@@ -1646,16 +1657,17 @@ export async function testOllamaConnection(
       ok: false,
       status: "error",
       message: isConnRefused
-        ? `Could not connect to Ollama at ${base}. If NOX AI is hosted, "localhost" refers to the SERVER, not your machine. Set the Endpoint field to a publicly reachable Ollama host.`
+        ? `Could not connect to Ollama at ${base}. If NOX AI is hosted, 127.0.0.1 refers to the SERVER, not your machine. Set the Endpoint field to a publicly reachable Ollama host.`
         : `Ollama error: ${e.message}`,
       reason: isConnRefused
-        ? "Connection refused - Ollama is not running at this address from the server's perspective."
+        ? "Connection refused - Ollama is not running at this address from the server's perspective. (Note: localhost is automatically resolved to 127.0.0.1 to avoid IPv6 issues)"
         : e.message,
       fixSteps: isConnRefused
         ? [
             "If running locally: ensure Ollama is started (ollama serve)",
             "If NOX AI is hosted: set Endpoint to a public Ollama host",
             "Check firewall settings allow access to port 11434",
+            "Note: localhost is automatically resolved to 127.0.0.1 to avoid IPv6 issues",
           ]
         : ["Check Ollama logs for errors", "Verify the endpoint URL is correct"],
     };
@@ -1823,7 +1835,7 @@ async function callOllamaHttp(
   endpoint?: string,
   timeoutMs?: number
 ): Promise<ModelCallResult> {
-  const base = endpoint || "http://localhost:11434";
+  const base = normalizeOllamaEndpoint(endpoint);
   const url = `${base}/api/generate`;
   const effectiveTimeout = timeoutMs || DEFAULT_TIMEOUTS.LOCAL;
   const maxTotalMs = effectiveTimeout * (1 + HEARTBEAT_MAX_EXTENSIONS);
@@ -1961,7 +1973,7 @@ async function callOllamaHttp(
     const e = err as Error;
     if (e.message.includes("ECONNREFUSED") || e.message.includes("fetch failed")) {
       throw new Error(
-        `Could not connect to Ollama at ${base}. The server cannot reach this address "" if NOX AI is hosted, "localhost" refers to the SERVER, not your machine. Either install Ollama on the server, or set the Endpoint field to a publicly reachable Ollama host.`
+        `Could not connect to Ollama at ${base}. The server cannot reach this address - if NOX AI is hosted, 127.0.0.1 refers to the SERVER, not your machine. Either install Ollama on the server, or set the Endpoint field to a publicly reachable Ollama host.`
       );
     }
     throw new Error(`Ollama error: ${e.message}`);
