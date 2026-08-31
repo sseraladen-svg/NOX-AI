@@ -48,14 +48,21 @@ export function ModelConfigFields({
     // When switching connection type, switch to the first provider of that type.
     const candidates = ct === "API" ? apiProviders : localProviders;
     const p = candidates[0];
+    const nextProvider = p?.id || assignment.provider;
+    const nextEndpoint =
+      ct === "LOCAL"
+        ? assignment.endpoint || (nextProvider === "ollama" ? "http://127.0.0.1:11434" : undefined)
+        : assignment.endpoint;
+
     onChange({
       ...assignment,
       connectionType: ct,
-      provider: p?.id || assignment.provider,
+      provider: nextProvider,
       modelName: p?.defaultModel || assignment.modelName,
+      endpoint: nextEndpoint,
       // Clear irrelevant fields
       ...(ct === "API" ? { cliPath: undefined, cliArgs: undefined } : {}),
-      ...(ct === "LOCAL" ? { apiKey: undefined, endpoint: undefined } : {}),
+      ...(ct === "LOCAL" ? { apiKey: undefined } : {}),
     });
   }
 
@@ -67,6 +74,9 @@ export function ModelConfigFields({
       provider: id,
       modelName: p.defaultModel,
       connectionType: p.connectionType,
+      endpoint:
+        assignment.endpoint ||
+        (id === "ollama" ? "http://127.0.0.1:11434" : undefined),
     });
   }
 
