@@ -1,6 +1,11 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { testAssignment, getConfigInternal, isMaskedApiKey, type ModelAssignment } from "@/lib/multi-model-service";
+import {
+  getConfigInternal,
+  isMaskedApiKey,
+  testAssignment,
+  type ModelAssignment,
+} from "@/lib/multi-model-service";
 
 export const runtime = "nodejs";
 
@@ -25,20 +30,28 @@ export async function POST(req: NextRequest) {
 
     let assignment = body.assignment;
 
-    // If the key is masked, resolve the real key from storage using the role id.
+    // If the key is still the masked placeholder, resolve the real key
+    // from storage using the role id — never send a mask to the provider.
     if (isMaskedApiKey(assignment.apiKey) && body.id) {
       const real = await getConfigInternal(user.id);
       const resolved =
-        body.id === "global" ? real.globalConfig :
-        body.id === "host" ? real.hostConfig :
-        real.featureConfigs?.[body.id] || real.specialistConfigs?.[body.id];
+        body.id === "global"
+          ? real.globalConfig
+          : body.id === "host"
+            ? real.hostConfig
+            : real.featureConfigs?.[body.id as keyof typeof real.featureConfigs] ||
+              real.specialistConfigs?.[body.id as keyof typeof real.specialistConfigs];
 
       if (resolved?.apiKey) {
         assignment = { ...assignment, apiKey: resolved.apiKey };
       } else {
         return NextResponse.json({
           ok: true,
-          result: { ok: false, status: "error", message: "No saved key found for this role. Please enter your API key." },
+          result: {
+            ok: false,
+            status: "error",
+            message: "No saved key found for this role. Please enter your API key.",
+          },
         });
       }
     }

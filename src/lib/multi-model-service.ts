@@ -1,6 +1,6 @@
 ﻿import "server-only";
 import { db } from "@/lib/db";
-import { encryptApiKey, decryptApiKey, maskApiKey } from "@/lib/crypto";
+import { encryptApiKey, decryptApiKey, maskApiKey, isMaskedApiKey } from "@/lib/crypto";
 import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 
@@ -47,11 +47,6 @@ export type {
 };
 export { FEATURES, SPECIALISTS, PROVIDERS, DEFAULT_TIMEOUTS, MAX_RETRY };
 
-// Shared helper to detect masked API keys (used by both Save and Test)
-export function isMaskedApiKey(apiKey: string | undefined): boolean {
-  return !!apiKey && apiKey.includes("***") && apiKey.length > 8;
-}
-
 // Helper to normalize localhost to 127.0.0.1 to avoid IPv6 resolution issues
 // On Windows, Node.js often resolves "localhost" to ::1 (IPv6) but Ollama only listens on IPv4
 function normalizeOllamaEndpoint(endpoint?: string): string {
@@ -63,12 +58,12 @@ function normalizeOllamaEndpoint(endpoint?: string): string {
 const reachabilityCache = new Map<string, { result: ModelLimit; expiresAt: number }>();
 const CACHE_TTL_MS = 60_000; // 60 seconds
 
-function getCacheKey(assignment: ModelAssignment): string {
-  return `${assignment.connectionType}-${assignment.provider}-${assignment.modelName}-${assignment.endpoint || ''}-${assignment.apiKey?.slice(-4) || ''}`;
+function getCacheKey(userId: string, assignment: ModelAssignment): string {
+  return `${userId}-${assignment.connectionType}-${assignment.provider}-${assignment.modelName}-${assignment.endpoint || ""}-${assignment.apiKey?.slice(-4) || ""}`;
 }
 
-function getCachedReachability(assignment: ModelAssignment): ModelLimit | null {
-  const key = getCacheKey(assignment);
+function getCachedReachability(userId: string, assignment: ModelAssignment): ModelLimit | null {
+  const key = getCacheKey(userId, assignment);
   const cached = reachabilityCache.get(key);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.result;
@@ -79,8 +74,8 @@ function getCachedReachability(assignment: ModelAssignment): ModelLimit | null {
   return null;
 }
 
-function setCachedReachability(assignment: ModelAssignment, result: ModelLimit): void {
-  const key = getCacheKey(assignment);
+function setCachedReachability(userId: string, assignment: ModelAssignment, result: ModelLimit): void {
+  const key = getCacheKey(userId, assignment);
   reachabilityCache.set(key, {
     result,
     expiresAt: Date.now() + CACHE_TTL_MS,
@@ -423,11 +418,11 @@ export async function saveConfig(
   doc: MultiModelConfigDoc
 ): Promise<void> {
   // Load the existing config so we can preserve API keys that are sent back
-  // masked (e.g. "sk-******7890"). When the frontend loads a config, the keys
-  // are masked via maskApiKey() which uses asterisks. If the user doesn't re-type
-  // a key, the masked version gets sent back on save. We detect masked keys
-  // (contain "***" and are longer than 8 chars) and preserve the existing
-  // encrypted key from the DB instead of overwriting with the mask.
+  // masked (e.g. "sk-••••7890"). When the frontend loads a config, the keys
+  // are masked via maskApiKey() which uses the bullet character. If the user
+  // doesn't re-type a key, the masked version gets sent back on save. We use
+  // isMaskedApiKey() (shared with crypto.ts) to detect this and preserve the
+  // existing encrypted key from the DB instead of overwriting with the mask.
   const existing = await db.multiModelConfig.findUnique({
     where: { userId_scope: { userId, scope: SCOPE } },
   });
@@ -713,6 +708,7 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
 // gives the user real information. The confirmation dialog now shows "Key
 // verified" or the actual error instead of fake "70% quota" numbers.
 export async function checkLimits(
+  userId: string,
   assignments: { id: string; label: string; assignment: ModelAssignment }[],
   _estimatedTaskSize: "small" | "medium" | "large"
 ): Promise<ModelLimit[]> {
@@ -728,7 +724,7 @@ export async function checkLimits(
       };
 
       // Check cache first for all assignment types
-      const cached = getCachedReachability(assignment);
+      const cached = getCachedReachability(userId, assignment);
       if (cached) {
         return { ...base, ...cached };
       }
@@ -744,7 +740,7 @@ export async function checkLimits(
           canFinish: true,
           // No fake capacity number "" just a note that it's unverified.
         };
-        setCachedReachability(assignment, result);
+        setCachedReachability(userId, assignment, result);
         return result;
       }
 
@@ -765,7 +761,7 @@ export async function checkLimits(
               canFinish: false,
               reason: `Ollama returned HTTP ${res.status}.`,
             };
-            setCachedReachability(assignment, result);
+            setCachedReachability(userId, assignment, result);
             return result;
           }
           const json = await res.json();
@@ -781,11 +777,11 @@ export async function checkLimits(
               canFinish: false,
               reason: `Model "${assignment.modelName}" not pulled. Available: ${availableModels.slice(0, 3).join(", ")}`,
             };
-            setCachedReachability(assignment, result);
+            setCachedReachability(userId, assignment, result);
             return result;
           }
           const result = { ...base, canFinish: true };
-          setCachedReachability(assignment, result);
+          setCachedReachability(userId, assignment, result);
           return result;
         } catch {
           const result = {
@@ -793,20 +789,20 @@ export async function checkLimits(
             canFinish: false,
             reason: `Ollama at ${ollamaBase} is not reachable from the server. (Note: localhost is automatically resolved to 127.0.0.1 to avoid IPv6 issues)`,
           };
-          setCachedReachability(assignment, result);
+          setCachedReachability(userId, assignment, result);
           return result;
         }
       }
 
       // For API models: ping the provider's /models endpoint.
       if (assignment.connectionType === "API") {
-        const testResult = await quickApiReachabilityCheck(assignment);
+        const testResult = await quickApiReachabilityCheck(userId, assignment);
         const result = {
           ...base,
           canFinish: testResult.canFinish,
           reason: testResult.reason,
         };
-        setCachedReachability(assignment, result);
+        setCachedReachability(userId, assignment, result);
         return result;
       }
 
@@ -822,6 +818,7 @@ export async function checkLimits(
 // "can we reach this provider with this key right now?"
 // Uses the same caching mechanism as checkLimits for efficiency.
 async function quickApiReachabilityCheck(
+  userId: string,
   assignment: ModelAssignment
 ): Promise<{ canFinish: boolean; reason?: string }> {
   const { provider, apiKey, endpoint } = assignment;
@@ -834,7 +831,7 @@ async function quickApiReachabilityCheck(
   }
 
   // Check cache first
-  const cached = getCachedReachability(assignment);
+  const cached = getCachedReachability(userId, assignment);
   if (cached) {
     return { canFinish: cached.canFinish, reason: cached.reason };
   }
@@ -882,12 +879,12 @@ async function quickApiReachabilityCheck(
 
     if (res.ok) {
       const result = { canFinish: true };
-      setCachedReachability(assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: true });
+      setCachedReachability(userId, assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: true });
       return result;
     }
     if (res.status === 401) {
       const result = { canFinish: false, reason: `${provider} rejected the API key (401).` };
-      setCachedReachability(assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
+      setCachedReachability(userId, assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
       return result;
     }
     if (res.status === 403) {
@@ -895,19 +892,19 @@ async function quickApiReachabilityCheck(
         canFinish: false,
         reason: `${provider} blocked the request (403) - likely a region restriction or quota issue.`,
       };
-      setCachedReachability(assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
+      setCachedReachability(userId, assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
       return result;
     }
     if (res.status === 429) {
       const result = { canFinish: false, reason: `${provider} rate limit hit (429).` };
-      setCachedReachability(assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
+      setCachedReachability(userId, assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
       return result;
     }
     const result = {
       canFinish: false,
       reason: `${provider} returned HTTP ${res.status}.`,
     };
-    setCachedReachability(assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
+    setCachedReachability(userId, assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
     return result;
   } catch (err) {
     const e = err as Error;
@@ -921,7 +918,7 @@ async function quickApiReachabilityCheck(
         ? `Cannot reach ${provider} from the server (network/region block).`
         : `${provider} error: ${e.message}`,
     };
-    setCachedReachability(assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
+    setCachedReachability(userId, assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
     return result;
   }
 }
@@ -2219,6 +2216,7 @@ export async function dispatch(
     // already verified in the first round-trip).
     if (!opts.cachedClassification) {
       const hostCheck = await checkLimits(
+        userId,
         [{ id: "host", label: "Host", assignment: hostAssignment }],
         "small"
       );
@@ -2351,6 +2349,7 @@ export async function dispatch(
     // Step 3a: Pre-flight confirmation (first call, no confirmMultiAgent)
     if (!opts.confirmMultiAgent) {
       const limits = await checkLimits(
+        userId,
         [
           { id: "host", label: "Host", assignment: hostAssignment },
           { id: specialistId, label: specialistId, assignment: specialistAssignment },
@@ -2372,6 +2371,7 @@ export async function dispatch(
     // Step 3b: Confirmed "" check limits
     let limits: ModelLimit[] | undefined;
     limits = await checkLimits(
+      userId,
       [
         { id: "host", label: "Host", assignment: hostAssignment },
         { id: specialistId, label: specialistId, assignment: specialistAssignment },
@@ -2535,7 +2535,7 @@ export async function dispatch(
   const plan = resolvePlan(doc, messages, opts.feature);
 
   if (plan.multiAgent && !opts.confirmMultiAgent) {
-    const limits = await checkLimits(plan.assignments, "medium");
+    const limits = await checkLimits(userId, plan.assignments, "medium");
     return {
       ok: false,
       mode: doc.mode,
@@ -2549,7 +2549,7 @@ export async function dispatch(
 
   let limits: ModelLimit[] | undefined;
   if (plan.multiAgent && opts.confirmMultiAgent) {
-    limits = await checkLimits(plan.assignments, "medium");
+    limits = await checkLimits(userId, plan.assignments, "medium");
     const blocked = limits.find((l) => !l.canFinish);
     if (blocked) {
       return {

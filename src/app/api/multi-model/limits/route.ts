@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const limits = await checkLimits(assignments, taskSize);
+    const limits = await checkLimits(user.id, assignments, taskSize);
     return NextResponse.json({ ok: true, limits, mode: doc.mode });
   } catch (err) {
     return NextResponse.json(
