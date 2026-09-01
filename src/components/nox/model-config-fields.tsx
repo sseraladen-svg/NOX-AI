@@ -45,34 +45,39 @@ export function ModelConfigFields({
   const localProviders = providers.filter((p) => p.connectionType === "LOCAL");
 
   function setConnectionType(ct: ConnectionType) {
-    // When switching connection type, switch to the first provider of that type.
+    // Preserve the currently entered values for the other connection type so
+    // switching back does not wipe the saved API key / model / endpoint data.
     const candidates = ct === "API" ? apiProviders : localProviders;
     const p = candidates[0];
     const nextProvider = p?.id || assignment.provider;
     const nextEndpoint =
-      ct === "LOCAL"
-        ? assignment.endpoint || (nextProvider === "ollama" ? "http://127.0.0.1:11434" : undefined)
-        : assignment.endpoint;
+      assignment.endpoint ||
+      (ct === "LOCAL" && nextProvider === "ollama"
+        ? "http://127.0.0.1:11434"
+        : undefined);
 
     onChange({
       ...assignment,
       connectionType: ct,
       provider: nextProvider,
-      modelName: p?.defaultModel || assignment.modelName,
+      modelName: assignment.modelName || p?.defaultModel || "",
       endpoint: nextEndpoint,
-      // Clear irrelevant fields
-      ...(ct === "API" ? { cliPath: undefined, cliArgs: undefined } : {}),
-      ...(ct === "LOCAL" ? { apiKey: undefined } : {}),
     });
   }
 
   function setProvider(id: string) {
     const p = providers.find((x) => x.id === id);
     if (!p) return;
+
+    const nextModel =
+      assignment.modelName && assignment.modelName.trim()
+        ? assignment.modelName
+        : p.defaultModel;
+
     onChange({
       ...assignment,
       provider: id,
-      modelName: p.defaultModel,
+      modelName: nextModel,
       connectionType: p.connectionType,
       endpoint:
         assignment.endpoint ||
