@@ -1,6 +1,8 @@
 // Runs in the BROWSER, not the server. This helper lets NOX call a user's
 // local Ollama instance when the app itself is deployed remotely.
 
+const BROWSER_OLLAMA_TIMEOUT_MS = 10 * 60 * 1000;
+
 export function normalizeEndpoint(endpoint?: string): string {
   const base = endpoint || "http://127.0.0.1:11434";
   return base.replace("://localhost", "://127.0.0.1");
@@ -54,7 +56,7 @@ export async function generateFromBrowser(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model, prompt, stream: false }),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(BROWSER_OLLAMA_TIMEOUT_MS),
     });
 
     if (!res.ok) {
