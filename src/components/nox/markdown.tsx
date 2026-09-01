@@ -1,17 +1,17 @@
-﻿"use client";
+"use client";
 
 import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Markdown â€” renders AI responses with GFM (tables, strikethrough, task lists)
+// ---------------------------------------------------------------------------
+// Markdown - renders AI responses with GFM (tables, strikethrough, task lists)
 // + syntax-highlighted code blocks with copy buttons.
 //
 // Used inside every MessageBubble's content area. The `nox-prose` class on the
 // parent controls spacing; this component handles block elements + code.
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ---------------------------------------------------------------------------
 
 interface MarkdownProps {
   content: string;
@@ -24,11 +24,11 @@ export function Markdown({ content, className }: MarkdownProps) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          // Code blocks â€” render with a copy button + monospace styling.
+          // Code blocks - render with a copy button + monospace styling.
           pre({ children }) {
             return <CodeBlock>{children}</CodeBlock>;
           },
-          // Inline code â€” small monospace with background.
+          // Inline code - small monospace with background.
           code({ className: cls, children, ...props }) {
             // If it's inside a <pre>, the CodeBlock wrapper handles styling.
             // Otherwise it's inline code.
@@ -62,7 +62,7 @@ export function Markdown({ content, className }: MarkdownProps) {
               </a>
             );
           },
-          // Tables â€” horizontal scroll on small screens.
+          // Tables - horizontal scroll on small screens.
           table({ children }) {
             return (
               <div className="overflow-x-auto nox-scroll my-3">
@@ -80,7 +80,7 @@ export function Markdown({ content, className }: MarkdownProps) {
           td({ children }) {
             return <td className="border border-border px-2 py-1">{children}</td>;
           },
-          // Blockquotes â€” left border accent.
+          // Blockquotes - left border accent.
           blockquote({ children }) {
             return (
               <blockquote className="border-l-2 border-primary/40 pl-3 my-2 text-muted-foreground italic">
@@ -88,14 +88,14 @@ export function Markdown({ content, className }: MarkdownProps) {
               </blockquote>
             );
           },
-          // Lists â€” tighter spacing.
+          // Lists - tighter spacing.
           ul({ children }) {
             return <ul className="list-disc pl-5 my-1.5 space-y-0.5">{children}</ul>;
           },
           ol({ children }) {
             return <ol className="list-decimal pl-5 my-1.5 space-y-0.5">{children}</ol>;
           },
-          // Headings â€” scaled down for chat context.
+          // Headings - scaled down for chat context.
           h1({ children }) {
             return <h1 className="text-lg font-semibold mt-3 mb-1.5">{children}</h1>;
           },
@@ -105,7 +105,7 @@ export function Markdown({ content, className }: MarkdownProps) {
           h3({ children }) {
             return <h3 className="text-sm font-semibold mt-2 mb-1">{children}</h3>;
           },
-          // Paragraphs â€” tight.
+          // Paragraphs - tight.
           p({ children }) {
             return <p className="my-1.5 leading-relaxed">{children}</p>;
           },
@@ -121,7 +121,7 @@ export function Markdown({ content, className }: MarkdownProps) {
   );
 }
 
-// CodeBlock â€” wraps <pre> with a copy button + dark background.
+// CodeBlock - wraps <pre> with a copy button + dark background.
 function CodeBlock({ children }: { children: React.ReactNode }) {
   const [copied, setCopied] = React.useState(false);
 
@@ -167,9 +167,4 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
-
-
-
-
-
 

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import * as React from "react";
 import { motion } from "framer-motion";
@@ -126,7 +126,7 @@ export function SingleModePage() {
           setInput={chat.setInput}
           onSend={() => chat.sendMessage(chat.input)}
           sending={chat.sending}
-          placeholder="Message your single modelâ€¦"
+          placeholder="Message your single model..."
         />
       </main>
 

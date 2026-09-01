@@ -110,13 +110,13 @@ export function ModePicker() {
           transition={{ duration: 0.4 }}
           className="text-center mb-10 sm:mb-14"
         >
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-gradient-to-br from-primary via-fuchsia-500 to-cyan-500 mb-4 nox-glow nox-pulse">
-            <Sparkles className="h-7 w-7 text-primary-foreground" />
+          <div className="mb-4 inline-flex items-center justify-center rounded-full border border-primary/25 bg-primary/5 px-3 py-2 text-primary nox-glow-sm">
+            <Sparkles className="h-4 w-4" />
           </div>
-          <h1 className="text-3xl sm:text-5xl font-semibold tracking-tight mb-3">
+          <h1 className="mb-3 text-3xl font-semibold tracking-[-0.05em] sm:text-5xl">
             Welcome to <span className="nox-text-gradient">NOX AI</span>
           </h1>
-          <p className="text-sm sm:text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+          <p className="mx-auto max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
             Three ways to wield multi-model intelligence. Pick the mode that
             matches your task — you can switch any time.
           </p>
