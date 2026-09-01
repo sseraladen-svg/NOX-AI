@@ -30,6 +30,10 @@ export interface ModelAssignment {
   modelName: string;
   apiKey?: string;
   endpoint?: string;
+  apiEndpoint?: string;
+  localEndpoint?: string;
+  apiModelName?: string;
+  localModelName?: string;
   cliPath?: string;
   cliArgs?: string;
   status?: "untested" | "ready" | "error";
@@ -317,8 +321,8 @@ export const PROVIDERS = [
 ];
 
 export const DEFAULT_TIMEOUTS = {
-  LOCAL: 10 * 60 * 1000,
-  API: 10 * 60 * 1000,
+  LOCAL: 120_000,
+  API: 15_000, // Reduced from 30_000 for faster failure detection
 } as const;
 
 export const MAX_RETRY = 1; // Reduced from 2 for faster fallback
