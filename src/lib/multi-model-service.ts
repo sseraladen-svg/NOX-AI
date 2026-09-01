@@ -103,7 +103,7 @@ function setCachedReachability(userId: string, assignment: ModelAssignment, resu
 
 const SCOPE = "default";
 
-const PROVIDER_TIMEOUT_MS = 15_000;
+const PROVIDER_TIMEOUT_MS = 10 * 60 * 1000;
 const PROVIDER_RETRY_DELAY_MS = 200; // Reduced from 400 for faster backoff
 
 type ProviderKind = "openai" | "openrouter" | "anthropic" | "gemini" | "mistral" | "groq" | "ollama" | "zai" | "auto";

@@ -45,53 +45,92 @@ export function ModelConfigFields({
   const localProviders = providers.filter((p) => p.connectionType === "LOCAL");
 
   function setConnectionType(ct: ConnectionType) {
-    // Preserve the currently entered values for the other connection type so
-    // switching back does not wipe the saved API key / model / endpoint data.
     const candidates = ct === "API" ? apiProviders : localProviders;
     const p = candidates[0];
     const nextProvider = p?.id || assignment.provider;
-    const nextEndpoint =
-      assignment.endpoint ||
-      (ct === "LOCAL" && nextProvider === "ollama"
-        ? "http://127.0.0.1:11434"
-        : undefined);
+    const currentModel = assignment.modelName?.trim();
+    const providerForTarget = providers.find((x) => x.id === nextProvider);
+    const hasValidCurrentModel =
+      !!currentModel &&
+      !!providerForTarget &&
+      providerForTarget.models.includes(currentModel);
+    const nextModel =
+      hasValidCurrentModel
+        ? currentModel
+        : currentModel && !providerForTarget?.models.includes(currentModel)
+          ? currentModel
+          : providerForTarget?.defaultModel || currentModel || "";
 
-    onChange({
+    const nextAssignment = {
       ...assignment,
       connectionType: ct,
       provider: nextProvider,
-      modelName: assignment.modelName || p?.defaultModel || "",
-      endpoint: nextEndpoint,
-    });
+      modelName: nextModel,
+      endpoint: assignment.endpoint || (ct === "LOCAL" && nextProvider === "ollama" ? "http://127.0.0.1:11434" : assignment.endpoint),
+      ...(ct === "API"
+        ? {
+            apiKey: assignment.apiKey,
+            cliPath: undefined,
+            cliArgs: undefined,
+          }
+        : {
+            apiKey: undefined,
+            cliPath: assignment.cliPath,
+            cliArgs: assignment.cliArgs,
+          }),
+    };
+
+    setCustomMode(Boolean(nextAssignment.modelName) && !providerForTarget?.models.includes(nextAssignment.modelName || ""));
+    onChange(nextAssignment);
   }
 
   function setProvider(id: string) {
     const p = providers.find((x) => x.id === id);
     if (!p) return;
 
+    const currentModel = assignment.modelName?.trim();
     const nextModel =
-      assignment.modelName && assignment.modelName.trim()
-        ? assignment.modelName
-        : p.defaultModel;
+      currentModel && !providers.some((candidate) => candidate.id === assignment.provider && candidate.models.includes(currentModel))
+        ? currentModel
+        : p.models.includes(currentModel || "")
+          ? currentModel || p.defaultModel
+          : p.defaultModel;
 
-    onChange({
+    const nextAssignment = {
       ...assignment,
       provider: id,
       modelName: nextModel,
       connectionType: p.connectionType,
       endpoint:
         assignment.endpoint ||
-        (id === "ollama" ? "http://127.0.0.1:11434" : undefined),
-    });
+        (id === "ollama" ? "http://127.0.0.1:11434" : assignment.endpoint),
+      ...(p.connectionType === "API"
+        ? {
+            apiKey: assignment.apiKey,
+            cliPath: undefined,
+            cliArgs: undefined,
+          }
+        : {
+            apiKey: undefined,
+            cliPath: assignment.cliPath,
+            cliArgs: assignment.cliArgs,
+          }),
+    };
+
+    setCustomMode(Boolean(nextAssignment.modelName) && !p.models.includes(nextAssignment.modelName || ""));
+    onChange(nextAssignment);
   }
 
   const currentProvider = providers.find((p) => p.id === assignment.provider);
-  const knownModel = currentProvider?.models.includes(assignment.modelName) ?? false;
-  const [customMode, setCustomMode] = React.useState(!knownModel);
+  const knownModel = currentProvider?.models.includes(assignment.modelName || "") ?? false;
+  const [customMode, setCustomMode] = React.useState(Boolean(assignment.modelName) && !knownModel);
 
   React.useEffect(() => {
-    setCustomMode(!knownModel);
-  }, [knownModel]);
+    setCustomMode((prev) => {
+      const shouldBeCustom = Boolean(assignment.modelName) && !knownModel;
+      return prev !== shouldBeCustom ? shouldBeCustom : prev;
+    });
+  }, [assignment.modelName, knownModel]);
 
   return (
     <div className="space-y-3">
@@ -147,31 +186,73 @@ export function ModelConfigFields({
       {/* Model name (with known-models dropdown) */}
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">Model</Label>
-        {currentProvider && currentProvider.models.length > 1 ? (
-          <Select
-            value={customMode ? "__custom__" : assignment.modelName}
-            onValueChange={(v) => {
-              if (v === "__custom__") {
-                setCustomMode(true);
-                onChange({ ...assignment, modelName: assignment.modelName || "" });
-                return;
+        {customMode ? (
+          <div className="space-y-1.5">
+            <Input
+              className="h-9"
+              placeholder="Type exact model name"
+              value={assignment.modelName}
+              onChange={(e) =>
+                onChange({ ...assignment, modelName: e.target.value })
               }
-              setCustomMode(false);
-              onChange({ ...assignment, modelName: v });
-            }}
-          >
-            <SelectTrigger className="h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {currentProvider.models.map((m) => (
-                <SelectItem key={m} value={m}>
-                  {m}
-                </SelectItem>
-              ))}
-              <SelectItem value="__custom__">+ Custom model…</SelectItem>
-            </SelectContent>
-          </Select>
+            />
+            {currentProvider && currentProvider.models.length > 1 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-[11px]"
+                onClick={() => {
+                  setCustomMode(false);
+                  const nextModel = currentProvider.defaultModel || assignment.modelName || "";
+                  onChange({ ...assignment, modelName: nextModel });
+                }}
+              >
+                Use preset model
+              </Button>
+            )}
+          </div>
+        ) : currentProvider && currentProvider.models.length > 1 ? (
+          <>
+            <Select
+              value={assignment.modelName || currentProvider.defaultModel}
+              onValueChange={(v) => {
+                if (v === "__custom__") {
+                  setCustomMode(true);
+                  onChange({ ...assignment, modelName: assignment.modelName || currentProvider.defaultModel || "" });
+                  return;
+                }
+                setCustomMode(false);
+                onChange({ ...assignment, modelName: v });
+              }}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {currentProvider.models.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m}
+                  </SelectItem>
+                ))}
+                <SelectItem value="__custom__">+ Custom model…</SelectItem>
+              </SelectContent>
+            </Select>
+            {currentProvider.models.length > 1 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-[11px]"
+                onClick={() => {
+                  setCustomMode(true);
+                  onChange({ ...assignment, modelName: assignment.modelName || currentProvider.defaultModel || "" });
+                }}
+              >
+                + Custom model…
+              </Button>
+            )}
+          </>
         ) : (
           <Input
             className="h-9"
@@ -180,16 +261,6 @@ export function ModelConfigFields({
               onChange({ ...assignment, modelName: e.target.value })
             }
             placeholder="model-name"
-          />
-        )}
-        {customMode && (
-          <Input
-            className="h-9 mt-1"
-            placeholder="Type exact model name"
-            value={assignment.modelName}
-            onChange={(e) =>
-              onChange({ ...assignment, modelName: e.target.value })
-            }
           />
         )}
       </div>

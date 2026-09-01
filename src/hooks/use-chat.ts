@@ -68,6 +68,7 @@ export function useChat() {
   const [confirmClassification, setConfirmClassification] = React.useState<IntentClassification | undefined>(undefined);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [convDrawerOpen, setConvDrawerOpen] = React.useState(false);
+  const abortRef = React.useRef<AbortController | null>(null);
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
@@ -103,6 +104,12 @@ export function useChat() {
     }
   };
 
+  const cancelCurrentRequest = React.useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setSending(false);
+  }, []);
+
   const sendMessage = async (
     text: string,
     confirmMultiAgent = false,
@@ -112,6 +119,8 @@ export function useChat() {
     cachedClassification?: IntentClassification
   ) => {
     if (!text.trim() || sending) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setSending(true);
 
     // In MULTI mode, create the conversation with the feature name as title
@@ -161,6 +170,7 @@ export function useChat() {
       // Use streaming endpoint for progressive text display
       const streamRes = await authFetch("/api/multi-model/dispatch-stream", {
         method: "POST",
+        signal: controller.signal,
         body: {
           messages: apiMessages,
           confirmMultiAgent,
