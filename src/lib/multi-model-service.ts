@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { encryptApiKey, decryptApiKey, maskApiKey, isMaskedApiKey } from "@/lib/crypto";
 import { execFile, spawn } from "child_process";
+import { accessSync, constants as fsConstants, existsSync } from "fs";
 import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
@@ -50,7 +51,7 @@ export { FEATURES, SPECIALISTS, PROVIDERS, DEFAULT_TIMEOUTS, MAX_RETRY };
 // Helper to normalize localhost to 127.0.0.1 to avoid IPv6 resolution issues
 // On Windows, Node.js often resolves "localhost" to ::1 (IPv6) but Ollama only listens on IPv4
 function normalizeOllamaEndpoint(endpoint?: string): string {
-  const base = endpoint || "http://localhost:11434";
+  const base = endpoint || "http://127.0.0.1:11434";
   return base.replace("://localhost", "://127.0.0.1");
 }
 
@@ -146,7 +147,7 @@ function resolveProviderConfig(provider: string, apiKey?: string, endpoint?: str
     gemini: { provider: "gemini", displayName: "Google Gemini", defaultBase: "https://generativelanguage.googleapis.com/v1beta", testPath: "/models", chatPath: "/:generateContent", auth: { type: "query" } },
     mistral: { provider: "mistral", displayName: "Mistral", defaultBase: "https://api.mistral.ai/v1", testPath: "/models", chatPath: "/chat/completions", auth: { type: "bearer" } },
     groq: { provider: "groq", displayName: "Groq", defaultBase: "https://api.groq.com/openai/v1", testPath: "/models", chatPath: "/chat/completions", auth: { type: "bearer" } },
-    ollama: { provider: "ollama", displayName: "Ollama", defaultBase: "http://localhost:11434", testPath: "/api/tags", chatPath: "/api/chat", auth: { type: "bearer" } },
+    ollama: { provider: "ollama", displayName: "Ollama", defaultBase: "http://127.0.0.1:11434", testPath: "/api/tags", chatPath: "/api/chat", auth: { type: "bearer" } },
     zai: { provider: "zai", displayName: "Z.ai", defaultBase: "https://api.z.ai", testPath: "/models", chatPath: "/chat/completions", auth: { type: "bearer" } },
     auto: { provider: "auto", displayName: "Auto-detect", defaultBase: "https://api.openai.com/v1", testPath: "/models", chatPath: "/chat/completions", auth: { type: "bearer" } },
   };
@@ -659,8 +660,37 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
     if (a.provider === "ollama") {
       return await testOllamaConnection(a.modelName, a.endpoint);
     }
-    // For llamacpp/llamafile: verify the binary path exists (can't run it
-    // without a model file, but at least check the path looks valid).
+    // For llamacpp/llamafile: actually verify the binary exists on disk and
+    // is executable, rather than assuming the path is valid.
+    if (!a.cliPath || !existsSync(a.cliPath)) {
+      return {
+        ok: false,
+        status: "error",
+        message: `CLI binary not found at "${a.cliPath}".`,
+        reason: "The path does not exist on this server's filesystem.",
+        fixSteps: [
+          "Double-check the absolute path to the binary.",
+          "If NOX AI is hosted, the binary must be installed on the SERVER, not your local machine.",
+          "Test again.",
+        ],
+      };
+    }
+    try {
+      if (process.platform !== "win32") {
+        accessSync(a.cliPath, fsConstants.X_OK);
+      }
+    } catch {
+      return {
+        ok: false,
+        status: "error",
+        message: `File exists at "${a.cliPath}" but is not executable.`,
+        reason: "Missing execute permission.",
+        fixSteps: [
+          `Run: chmod +x "${a.cliPath}" (Linux/Mac) or verify the file is a valid executable (Windows).`,
+          "Test again.",
+        ],
+      };
+    }
     return {
       ok: true,
       status: "ready",
@@ -1767,7 +1797,7 @@ function spawnWithHeartbeat(
 //
 // For ollama: uses the HTTP API (POST /api/generate) instead of spawning a
 // subprocess. This is faster, more reliable, and supports remote ollama
-// instances via the `endpoint` field (default: http://localhost:11434).
+// instances via the `endpoint` field (default: http://127.0.0.1:11434).
 //
 // For llamacpp/llamafile: spawns the binary as a subprocess with the prompt
 // as a CLI argument.
@@ -1831,7 +1861,7 @@ async function callLocalCli(
 }
 
 // Call ollama via its HTTP API (POST /api/generate).
-// Uses `endpoint` as the ollama host (default: http://localhost:11434).
+// Uses `endpoint` as the ollama host (default: http://127.0.0.1:11434).
 // Uses streaming mode (stream: true) so each NDJSON chunk acts as a heartbeat
 // signal "" the timeout clock resets on each chunk, up to 3x the configured
 // timeout. This prevents slow-but-working local models from being killed

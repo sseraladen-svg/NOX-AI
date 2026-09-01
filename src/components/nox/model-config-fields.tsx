@@ -230,7 +230,7 @@ export function ModelConfigFields({
                 onChange={(e) =>
                   onChange({ ...assignment, endpoint: e.target.value })
                 }
-                placeholder="http://localhost:11434"
+                placeholder="http://127.0.0.1:11434"
               />
               <p className="text-[10px] text-muted-foreground leading-relaxed">
                 NOX AI's server connects to this address. If hosted,
