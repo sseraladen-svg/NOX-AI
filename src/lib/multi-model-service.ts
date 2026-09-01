@@ -103,7 +103,7 @@ function setCachedReachability(userId: string, assignment: ModelAssignment, resu
 
 const SCOPE = "default";
 
-const PROVIDER_TIMEOUT_MS = 10 * 60 * 1000;
+const PROVIDER_TIMEOUT_MS = 15_000;
 const PROVIDER_RETRY_DELAY_MS = 200; // Reduced from 400 for faster backoff
 
 type ProviderKind = "openai" | "openrouter" | "anthropic" | "gemini" | "mistral" | "groq" | "ollama" | "zai" | "auto";
@@ -446,7 +446,8 @@ export async function saveConfig(
       if (existingJson) {
         try {
           const existingAssign = JSON.parse(existingJson) as ModelAssignment;
-          return { ...incoming, apiKey: existingAssign.apiKey }; // keep encrypted blob
+          const decrypted = existingAssign.apiKey ? decryptApiKey(existingAssign.apiKey) : undefined;
+          return { ...incoming, apiKey: decrypted };
         } catch {
           return { ...incoming, apiKey: undefined };
         }
@@ -478,8 +479,10 @@ export async function saveConfig(
     for (const [k, v] of Object.entries(incoming)) {
       if (!v) continue;
       if (!v.apiKey || isMaskedApiKey(v.apiKey)) {
-        // Preserve existing key for this role.
-        out[k] = { ...v, apiKey: existingMap[k]?.apiKey };
+        // Preserve the existing key for this role, but decrypt it before the
+        // next encryptAssignment pass so we never double-encrypt a stored key.
+        const preserved = existingMap[k]?.apiKey ? decryptApiKey(existingMap[k].apiKey) : undefined;
+        out[k] = { ...v, apiKey: preserved };
       } else {
         out[k] = v;
       }
