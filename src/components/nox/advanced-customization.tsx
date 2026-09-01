@@ -357,9 +357,9 @@ export function AdvancedCustomization() {
             <Input
               type="number"
               className="h-9"
-              value={store.timeoutOverrides.LOCAL ?? 10 * 60 * 1000}
+              value={store.timeoutOverrides.LOCAL ?? 60000}
               onChange={(e) =>
-                store.setTimeoutOverride("LOCAL", parseInt(e.target.value) || 10 * 60 * 1000)
+                store.setTimeoutOverride("LOCAL", parseInt(e.target.value) || 60000)
               }
             />
           </div>
@@ -370,9 +370,9 @@ export function AdvancedCustomization() {
             <Input
               type="number"
               className="h-9"
-              value={store.timeoutOverrides.API ?? 10 * 60 * 1000}
+              value={store.timeoutOverrides.API ?? 30000}
               onChange={(e) =>
-                store.setTimeoutOverride("API", parseInt(e.target.value) || 10 * 60 * 1000)
+                store.setTimeoutOverride("API", parseInt(e.target.value) || 30000)
               }
             />
           </div>

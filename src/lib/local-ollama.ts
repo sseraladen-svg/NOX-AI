@@ -13,7 +13,7 @@ export async function testOllamaFromBrowser(endpoint: string, model: string) {
 
   try {
     const res = await fetch(`${base}/api/tags`, {
-      signal: AbortSignal.timeout(BROWSER_OLLAMA_TIMEOUT_MS),
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!res.ok) {
