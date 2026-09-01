@@ -68,6 +68,12 @@ export async function POST(req: NextRequest) {
             cachedClassification: body.cachedClassification,
           });
 
+          if (result.pendingClientExec) {
+            send({ type: "pendingClientExec", pendingClientExec: result.pendingClientExec });
+            controller.close();
+            return;
+          }
+
           // If confirmation is required, send that
           if (result.confirmationRequired) {
             send({

@@ -56,6 +56,10 @@ export async function POST(req: NextRequest) {
       cachedClassification: body.cachedClassification,
     });
 
+    if (result.pendingClientExec) {
+      return NextResponse.json({ ok: true, result });
+    }
+
     // Save usage records for cost tracking (only if dispatch produced steps
     // — i.e. it actually ran, not just returned a confirmation request).
     if (result.ok && result.steps.length > 0) {

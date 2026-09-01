@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { authFetch } from "@/lib/auth-fetch";
 import { isMaskedApiKey } from "@/lib/crypto";
+import { testOllamaFromBrowser } from "@/lib/local-ollama";
 import type {
   Mode,
   FeatureId,
@@ -219,6 +220,21 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
 
   test: async (id, a) => {
     set((s) => ({ tests: { ...s.tests, [id]: { status: "testing" } } }));
+    if (a.connectionType === "LOCAL" && a.provider === "ollama") {
+      const r = await testOllamaFromBrowser(a.endpoint || "", a.modelName);
+      set((s) => ({
+        tests: {
+          ...s.tests,
+          [id]: {
+            status: r.ok ? "ready" : "error",
+            message: r.message,
+            version: a.modelName,
+            latencyMs: 0,
+          },
+        },
+      }));
+      return r.ok;
+    }
     try {
       const res = await authFetch("/api/multi-model/test", {
         method: "POST",

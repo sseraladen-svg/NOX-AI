@@ -105,6 +105,15 @@ export interface DispatchStep {
   // returns usage metadata; LOCAL models have no cost)
   tokens?: TokenUsage;
   cost?: CostBreakdown;
+  // When the server must defer to the browser for a local Ollama call, the
+  // step is marked here so the caller can complete the request in-browser.
+  needsClientExec?: {
+    stepId: string;
+    endpoint: string;
+    model: string;
+    prompt: string;
+    resumeContext?: Record<string, unknown>;
+  };
 }
 
 // Token usage returned by the provider after a successful call.
@@ -147,6 +156,13 @@ export interface DispatchResult {
   // confirmation dialog can show WHY it routed to a specialist.
   classification?: IntentClassification;
   error?: string;
+  pendingClientExec?: {
+    stepId: string;
+    endpoint: string;
+    model: string;
+    prompt: string;
+    resumeContext?: Record<string, unknown>;
+  };
 }
 
 // ─── Catalogs ──────────────────────────────────────────────────────────────

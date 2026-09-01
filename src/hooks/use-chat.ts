@@ -8,6 +8,7 @@ import {
 } from "@/store/conversations-store";
 import { useMultiModel, type LimitRow } from "@/store/multi-model-store";
 import { authFetch } from "@/lib/auth-fetch";
+import { generateFromBrowser } from "@/lib/local-ollama";
 import type { DispatchStep, Mode, FeatureId, TokenUsage, CostBreakdown, IntentClassification } from "@/lib/multi-model-types";
 import { toast } from "sonner";
 
@@ -183,6 +184,7 @@ export function useChat() {
         let finalResult: any = null;
         let confirmationData: any = null;
         let errorData: any = null;
+        let pendingClientExec: any = null;
 
         // Create an initial empty assistant message that we'll update progressively
         const initialMsg: ConversationMessage = {
@@ -209,11 +211,11 @@ export function useChat() {
               const data = JSON.parse(line.slice(6));
 
               if (data.type === "thinking") {
-                // UI already shows spinner â€” nothing to do
+                // UI already shows spinner — nothing to do
               } else if (data.type === "step") {
-                // A dispatch step completed â€” could show trace info
+                // A dispatch step completed — could show trace info
               } else if (data.type === "chunk") {
-                // Progressive text chunk â€” append to the assistant message
+                // Progressive text chunk — append to the assistant message
                 progressiveText += data.text;
                 // Update the message in the store
                 useConversations.setState((s) => ({
@@ -221,6 +223,8 @@ export function useChat() {
                     m.id === aiMsgId ? { ...m, content: progressiveText } : m
                   ),
                 }));
+              } else if (data.type === "pendingClientExec") {
+                pendingClientExec = data.pendingClientExec;
               } else if (data.type === "confirmationRequired") {
                 confirmationData = data;
               } else if (data.type === "error") {
@@ -232,6 +236,81 @@ export function useChat() {
               // incomplete JSON
             }
           }
+        }
+
+        if (pendingClientExec) {
+          const local = await generateFromBrowser(
+            pendingClientExec.endpoint || "",
+            pendingClientExec.model,
+            pendingClientExec.prompt
+          );
+
+          if (!local.ok) {
+            useConversations.setState((s) => ({
+              activeMessages: s.activeMessages.map((m) =>
+                m.id === aiMsgId
+                  ? { ...m, content: local.error || "Local Ollama call failed.", error: true }
+                  : m
+              ),
+            }));
+            setSending(false);
+            return;
+          }
+
+          const resumed = await authFetch("/api/multi-model/dispatch-resume", {
+            method: "POST",
+            body: {
+              stepId: pendingClientExec.stepId,
+              resultText: local.text,
+              resumeContext: pendingClientExec.resumeContext,
+            },
+          });
+          const resumedJson = await resumed.json();
+
+          if (!resumedJson.ok || !resumedJson.result) {
+            useConversations.setState((s) => ({
+              activeMessages: s.activeMessages.map((m) =>
+                m.id === aiMsgId
+                  ? { ...m, content: resumedJson.error || "Resume failed.", error: true }
+                  : m
+              ),
+            }));
+            setSending(false);
+            return;
+          }
+
+          const resumedResult = resumedJson.result as any;
+          const steps = resumedResult.steps || [];
+          const aggUsage = aggregateUsage(steps);
+          const finalText = resumedResult.finalReply || "(no response)";
+
+          useConversations.setState((s) => ({
+            activeMessages: s.activeMessages.map((m) =>
+              m.id === aiMsgId
+                ? {
+                    ...m,
+                    content: finalText,
+                    trace: steps,
+                    mode: resumedResult.mode,
+                    multiAgent: resumedResult.multiAgent,
+                    usage: aggUsage,
+                  }
+                : m
+            ),
+          }));
+
+          await persist(conversationId, {
+            role: "assistant",
+            content: finalText,
+            trace: steps,
+            mode: resumedResult.mode,
+            multiAgent: resumedResult.multiAgent,
+            error: false,
+            usage: aggUsage,
+          });
+          convs.loadList();
+          setSending(false);
+          return;
         }
 
         // Handle confirmation required
@@ -319,6 +398,80 @@ export function useChat() {
       }
 
       const r = json.result;
+
+      if (r.pendingClientExec) {
+        const local = await generateFromBrowser(
+          r.pendingClientExec.endpoint || "",
+          r.pendingClientExec.model,
+          r.pendingClientExec.prompt
+        );
+
+        if (!local.ok) {
+          const errMsg: ConversationMessage = {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: local.error || "Local Ollama call failed.",
+            error: true,
+            multiAgent: false,
+            createdAt: new Date().toISOString(),
+          };
+          convs.appendLocal(errMsg);
+          setSending(false);
+          return;
+        }
+
+        const resumed = await authFetch("/api/multi-model/dispatch-resume", {
+          method: "POST",
+          body: {
+            stepId: r.pendingClientExec.stepId,
+            resultText: local.text,
+            resumeContext: r.pendingClientExec.resumeContext,
+          },
+        });
+        const resumedJson = await resumed.json();
+        if (!resumedJson.ok || !resumedJson.result) {
+          const errMsg: ConversationMessage = {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: resumedJson.error || "Resume failed.",
+            error: true,
+            multiAgent: false,
+            createdAt: new Date().toISOString(),
+          };
+          convs.appendLocal(errMsg);
+          setSending(false);
+          return;
+        }
+
+        const resumedResult = resumedJson.result as any;
+        const steps = resumedResult.steps || [];
+        const aggUsage = aggregateUsage(steps);
+        const finalText = resumedResult.finalReply || "(no response)";
+        const aiMsg: ConversationMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: finalText,
+          trace: steps,
+          mode: resumedResult.mode,
+          multiAgent: resumedResult.multiAgent,
+          error: false,
+          usage: aggUsage,
+          createdAt: new Date().toISOString(),
+        };
+        convs.appendLocal(aiMsg);
+        await persist(conversationId, {
+          role: "assistant",
+          content: finalText,
+          trace: steps,
+          mode: resumedResult.mode,
+          multiAgent: resumedResult.multiAgent,
+          error: false,
+          usage: aggUsage,
+        });
+        convs.loadList();
+        setSending(false);
+        return;
+      }
 
       if (r.confirmationRequired) {
         setConfirmLimits(r.limits || []);

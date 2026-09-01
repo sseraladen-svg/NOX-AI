@@ -770,6 +770,16 @@ export async function checkLimits(
         return { ...base, ...cached };
       }
 
+      if (needsClientOllama(assignment)) {
+        const result = {
+          ...base,
+          canFinish: true,
+          reason: "Local Ollama will be verified in the browser at runtime.",
+        };
+        setCachedReachability(userId, assignment, result);
+        return result;
+      }
+
       // For LOCAL CLI models (llamacpp/llamafile), we can't easily verify
       // without running the binary. Assume OK with a note.
       if (
@@ -973,6 +983,26 @@ function emptyAssignment(): ModelAssignment {
     modelName: "gpt-4o-mini",
     status: "untested",
   };
+}
+
+export function needsClientOllama(assignment: ModelAssignment): boolean {
+  return assignment.connectionType === "LOCAL" && assignment.provider === "ollama";
+}
+
+function buildPromptFromMessages(
+  messages: ChatMessage[],
+  role: string,
+  intent?: string
+): string {
+  const systemHint =
+    role === "host"
+      ? "You are NOX Host. Analyze the user's intent and either answer directly or synthesize the response from a specialist model into a clean reply to the user. Be concise."
+      : intent
+      ? `You are NOX ${role} specialist (intent: ${intent}). Answer the user's request focused on your specialty. Be concise and useful.`
+      : "You are NOX AI. Respond helpfully and concisely.";
+
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  return `${systemHint}\n\nUser: ${lastUser?.content || ""}\nAssistant:`;
 }
 
 function resolvePlan(
@@ -2340,6 +2370,30 @@ export async function dispatch(
     if (!shouldRouteToSpecialist) {
       // Host answers directly "" no specialist needed.
       // This is the same as the "Host handles it directly" fallback.
+      if (needsClientOllama(hostAssignment)) {
+        return {
+          ok: true,
+          mode: doc.mode,
+          steps: [],
+          finalReply: "",
+          multiAgent: false,
+          confirmationRequired: false,
+          pendingClientExec: {
+            stepId: crypto.randomUUID(),
+            endpoint: hostAssignment.endpoint || "",
+            model: hostAssignment.modelName,
+            prompt: buildPromptFromMessages(messages, "host", "direct"),
+            resumeContext: {
+              mode: doc.mode,
+              stage: "direct",
+              messages,
+              role: "host",
+              intent: "direct",
+              assignment: hostAssignment,
+            },
+          },
+        };
+      }
       const result = await callModel(hostAssignment, messages, {
         timeoutMs: hostTimeout,
         role: "host",
@@ -2449,6 +2503,34 @@ export async function dispatch(
         content: `[Host routed this to the ${specialistId} specialist (confidence: ${Math.round(classification.confidence * 100)}%). Fulfill the request.]`,
       },
     ];
+    if (needsClientOllama(specialistAssignment)) {
+      return {
+        ok: true,
+        mode: doc.mode,
+        steps: [],
+        finalReply: "",
+        multiAgent: true,
+        confirmationRequired: false,
+        pendingClientExec: {
+          stepId: crypto.randomUUID(),
+          endpoint: specialistAssignment.endpoint || "",
+          model: specialistAssignment.modelName,
+          prompt: buildPromptFromMessages(specialistMessages, specialistId, specialistId),
+          resumeContext: {
+            mode: doc.mode,
+            stage: "specialist",
+            messages: specialistMessages,
+            specialistId,
+            role: specialistId,
+            intent: specialistId,
+            assignment: specialistAssignment,
+            hostAssignment,
+            finalMessages: [...messages, { role: "assistant", content: `Specialist ${specialistId} responded with:\n\n[awaiting local Ollama completion]\n\nReply to the user, incorporating the specialist's work.` }],
+          },
+        },
+      };
+    }
+
     const specialistResult = await callModel(
       specialistAssignment,
       specialistMessages,
@@ -2467,6 +2549,30 @@ export async function dispatch(
         content: `Specialist ${specialistId} responded with:\n\n${specialistResult.output}\n\nReply to the user, incorporating the specialist's work.`,
       },
     ];
+    if (needsClientOllama(hostAssignment)) {
+      return {
+        ok: true,
+        mode: doc.mode,
+        steps: [],
+        finalReply: "",
+        multiAgent: true,
+        confirmationRequired: false,
+        pendingClientExec: {
+          stepId: crypto.randomUUID(),
+          endpoint: hostAssignment.endpoint || "",
+          model: hostAssignment.modelName,
+          prompt: buildPromptFromMessages(finalMessages, "host"),
+          resumeContext: {
+            mode: doc.mode,
+            stage: "synthesize",
+            messages: finalMessages,
+            role: "host",
+            assignment: hostAssignment,
+            specialistId,
+          },
+        },
+      };
+    }
     const finalResult = await callModel(hostAssignment, finalMessages, {
       timeoutMs: hostTimeout,
       role: "host",
@@ -2534,6 +2640,30 @@ export async function dispatch(
     const hostTimeout =
       timeoutOverrides[hostAssignment.connectionType] ||
       DEFAULT_TIMEOUTS[hostAssignment.connectionType];
+    if (needsClientOllama(hostAssignment)) {
+      return {
+        ok: true,
+        mode: doc.mode,
+        steps: [],
+        finalReply: "",
+        multiAgent: false,
+        confirmationRequired: false,
+        pendingClientExec: {
+          stepId: crypto.randomUUID(),
+          endpoint: hostAssignment.endpoint || "",
+          model: hostAssignment.modelName,
+          prompt: buildPromptFromMessages(messages, "host", "direct"),
+          resumeContext: {
+            mode: doc.mode,
+            stage: "direct",
+            messages,
+            role: "host",
+            intent: "direct",
+            assignment: hostAssignment,
+          },
+        },
+      };
+    }
     const result = await callModel(hostAssignment, messages, {
       timeoutMs: hostTimeout,
       role: "host",
@@ -2612,6 +2742,31 @@ export async function dispatch(
   const a = plan.assignments[0].assignment;
   const timeout =
     timeoutOverrides[a.connectionType] || DEFAULT_TIMEOUTS[a.connectionType];
+  if (needsClientOllama(a)) {
+    return {
+      ok: true,
+      mode: doc.mode,
+      steps: [],
+      finalReply: "",
+      multiAgent: false,
+      confirmationRequired: false,
+      pendingClientExec: {
+        stepId: crypto.randomUUID(),
+        endpoint: a.endpoint || "",
+        model: a.modelName,
+        prompt: buildPromptFromMessages(messages, plan.assignments[0].label, plan.intent),
+        resumeContext: {
+          mode: doc.mode,
+          stage: "single",
+          messages,
+          role: plan.assignments[0].label,
+          intent: plan.intent,
+          assignment: a,
+          feature: opts.feature,
+        },
+      },
+    };
+  }
   const result = await callModel(a, messages, {
     timeoutMs: timeout,
     role: plan.assignments[0].label,
@@ -2648,6 +2803,147 @@ export async function dispatch(
     multiAgent: false,
     confirmationRequired: false,
   };
+}
+
+export async function resumeDispatch(
+  userId: string,
+  _stepId: string,
+  resultText: string,
+  resumeContext?: Record<string, unknown>
+): Promise<DispatchResult> {
+  const doc = await getConfigInternal(userId);
+  const ctx = (resumeContext || {}) as Record<string, any>;
+  const output = typeof resultText === "string" ? resultText : "";
+  const stage = typeof ctx.stage === "string" ? ctx.stage : "single";
+  const messages = Array.isArray(ctx.messages) ? (ctx.messages as ChatMessage[]) : [];
+  const timeoutOverrides = doc.timeoutOverrides || {};
+
+  const finishFromAssignment = (
+    assignment: ModelAssignment,
+    roleName: string,
+    roleIntent?: string,
+    inputOverride?: string,
+    extraSteps: DispatchStep[] = []
+  ): DispatchResult => {
+    const step: DispatchStep = {
+      role: roleName,
+      model: assignment.modelName,
+      provider: assignment.provider,
+      connectionType: assignment.connectionType,
+      intent: roleIntent,
+      input: inputOverride || messages[messages.length - 1]?.content || "",
+      output,
+      latencyMs: 0,
+      retries: 0,
+      timedOut: false,
+      lastError: undefined,
+      cost: undefined,
+    };
+    return {
+      ok: true,
+      mode: doc.mode,
+      steps: [...extraSteps, step],
+      finalReply: output || "Local model call completed.",
+      multiAgent: false,
+      confirmationRequired: false,
+    };
+  };
+
+  switch (stage) {
+    case "single": {
+      const assignment = (ctx.assignment as ModelAssignment) || doc.globalConfig || emptyAssignment();
+      return finishFromAssignment(assignment, String(ctx.role || "single"), typeof ctx.intent === "string" ? ctx.intent : undefined, messages[messages.length - 1]?.content || "");
+    }
+    case "direct": {
+      const assignment = (ctx.assignment as ModelAssignment) || doc.hostConfig || emptyAssignment();
+      return finishFromAssignment(assignment, String(ctx.role || "host"), typeof ctx.intent === "string" ? ctx.intent : undefined, messages[messages.length - 1]?.content || "");
+    }
+    case "specialist": {
+      const specialistId = String(ctx.specialistId || ctx.role || "specialist");
+      const hostAssignment = (ctx.hostAssignment as ModelAssignment) || doc.hostConfig || emptyAssignment();
+      const specialistAssignment = (ctx.assignment as ModelAssignment) || emptyAssignment();
+      const specialistStep: DispatchStep = {
+        role: specialistId,
+        model: specialistAssignment.modelName,
+        provider: specialistAssignment.provider,
+        connectionType: specialistAssignment.connectionType,
+        intent: specialistId,
+        input: messages[messages.length - 1]?.content || "",
+        output,
+        latencyMs: 0,
+        retries: 0,
+        timedOut: false,
+      };
+      const finalMessages: ChatMessage[] = Array.isArray(ctx.finalMessages)
+        ? (ctx.finalMessages as ChatMessage[])
+        : [
+            ...messages,
+            { role: "assistant", content: `Specialist ${specialistId} responded with:\n\n${output}\n\nReply to the user, incorporating the specialist's work.` },
+          ];
+      const hostTimeout = timeoutOverrides[hostAssignment.connectionType] || DEFAULT_TIMEOUTS[hostAssignment.connectionType];
+      const hostResult = await callModel(hostAssignment, finalMessages, {
+        timeoutMs: hostTimeout,
+        role: "host",
+        intent: "synthesize",
+      });
+      const hostStep: DispatchStep = {
+        role: "host",
+        model: hostAssignment.modelName,
+        provider: hostAssignment.provider,
+        connectionType: hostAssignment.connectionType,
+        intent: "synthesize",
+        input: "(specialist response)",
+        output: hostResult.output,
+        latencyMs: hostResult.latencyMs,
+        retries: hostResult.retries,
+        timedOut: hostResult.timedOut,
+        lastError: hostResult.lastError,
+        tokens: hostResult.tokens,
+        cost: hostResult.tokens ? computeCost(hostResult.tokens, hostAssignment.modelName) : undefined,
+      };
+      return {
+        ok: true,
+        mode: doc.mode,
+        steps: [specialistStep, hostStep],
+        finalReply: hostResult.output || output,
+        multiAgent: true,
+        confirmationRequired: false,
+      };
+    }
+    case "synthesize": {
+      const assignment = (ctx.assignment as ModelAssignment) || doc.hostConfig || emptyAssignment();
+      const step: DispatchStep = {
+        role: "host",
+        model: assignment.modelName,
+        provider: assignment.provider,
+        connectionType: assignment.connectionType,
+        intent: "synthesize",
+        input: "(specialist response)",
+        output,
+        latencyMs: 0,
+        retries: 0,
+        timedOut: false,
+      };
+      return {
+        ok: true,
+        mode: doc.mode,
+        steps: [step],
+        finalReply: output || "Local model call completed.",
+        multiAgent: false,
+        confirmationRequired: false,
+      };
+    }
+    default:
+      return {
+        ok: false,
+        mode: doc.mode,
+        steps: [],
+        finalReply: "",
+        multiAgent: false,
+        confirmationRequired: false,
+        error: "Unknown local Ollama resume stage.",
+      };
+  }
 }
 
 // "€"€"€ Conversations "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
