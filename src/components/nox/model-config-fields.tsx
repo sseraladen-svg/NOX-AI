@@ -121,8 +121,9 @@ export function ModelConfigFields({
   const [customMode, setCustomMode] = React.useState(!knownModel);
 
   React.useEffect(() => {
-    setCustomMode(!knownModel);
-  }, [knownModel]);
+    const nextCustomMode = Boolean(currentProvider) && currentModelName.trim().length > 0 && !knownModel;
+    setCustomMode(nextCustomMode);
+  }, [currentProvider?.id, currentModelName, knownModel]);
 
   return (
     <div className="space-y-3">
@@ -211,7 +212,7 @@ export function ModelConfigFields({
             placeholder="model-name"
           />
         )}
-        {customMode && (
+        {customMode && !knownModel && (
           <Input
             className="h-9 mt-1"
             placeholder="Type exact model name"
