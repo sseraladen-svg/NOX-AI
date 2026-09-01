@@ -99,8 +99,8 @@ export function AdvancedCustomization() {
     else toast.error("Save failed");
   };
 
-  // Block save if any tested role is in an error state. This prevents broken
-  // configs (e.g. invalid API key, unreachable CLI) from being persisted.
+  // Keep a visible warning for previous test failures, but do not hard-block
+  // saving. We still block save while any test is currently in flight.
   const hasTestErrors = Object.values(store.tests).some(
     (t) => t?.status === "error"
   );
@@ -397,7 +397,7 @@ export function AdvancedCustomization() {
           ) : (
             <span className="flex items-center gap-1.5 text-muted-foreground">
               <Info className="h-3.5 w-3.5" />
-              Save is blocked when any tested connection is in an error state.
+              Test warnings do not block saving; in-flight tests still do.
             </span>
           )}
         </div>
@@ -414,14 +414,10 @@ export function AdvancedCustomization() {
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={store.saving || !store.dirty || hasTestErrors || hasTestingInProgress}
+            disabled={store.saving || !store.dirty || hasTestingInProgress}
             className="bg-primary text-primary-foreground hover:bg-primary/90"
             title={
-              hasTestErrors
-                ? "Fix the test errors above before saving"
-                : hasTestingInProgress
-                ? "Wait for tests to finish"
-                : undefined
+              hasTestingInProgress ? "Wait for tests to finish" : undefined
             }
           >
             <Save className="h-3.5 w-3.5 mr-1.5" />

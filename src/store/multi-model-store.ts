@@ -52,8 +52,9 @@ interface MultiModelStore {
   saving: boolean;
   lastSavedAt: number | null;
 
-  // Per-card test state, keyed by role id ("global" | feature id | "host" | specialist id)
-  tests: Record<string, TestState>;
+  // Per-card test state, keyed by role id ("global" | feature id | "host" | specialist id).
+  // Entries may be cleared by setting them to undefined after a config change.
+  tests: Record<string, TestState | undefined>;
 
   // Multi-agent confirmation flow
   confirmOpen: boolean;
@@ -125,20 +126,32 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
 
   setMode: (m) => set({ mode: m, dirty: true }),
 
-  setGlobal: (a) => set({ globalConfig: a, dirty: true }),
+  setGlobal: (a) =>
+    set((s) => ({
+      globalConfig: a,
+      dirty: true,
+      tests: { ...s.tests, global: undefined },
+    })),
 
   setFeature: (id, a) =>
     set((s) => ({
       featureConfigs: { ...s.featureConfigs, [id]: a },
       dirty: true,
+      tests: { ...s.tests, [id]: undefined },
     })),
 
-  setHost: (a) => set({ hostConfig: a, dirty: true }),
+  setHost: (a) =>
+    set((s) => ({
+      hostConfig: a,
+      dirty: true,
+      tests: { ...s.tests, host: undefined },
+    })),
 
   setSpecialist: (id, a) =>
     set((s) => ({
       specialistConfigs: { ...s.specialistConfigs, [id]: a },
       dirty: true,
+      tests: { ...s.tests, [id]: undefined },
     })),
 
   setTimeoutOverride: (type, ms) =>

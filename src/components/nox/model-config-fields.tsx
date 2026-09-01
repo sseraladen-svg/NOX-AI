@@ -81,6 +81,12 @@ export function ModelConfigFields({
   }
 
   const currentProvider = providers.find((p) => p.id === assignment.provider);
+  const knownModel = currentProvider?.models.includes(assignment.modelName) ?? false;
+  const [customMode, setCustomMode] = React.useState(!knownModel);
+
+  React.useEffect(() => {
+    setCustomMode(!knownModel);
+  }, [knownModel]);
 
   return (
     <div className="space-y-3">
@@ -138,8 +144,16 @@ export function ModelConfigFields({
         <Label className="text-xs text-muted-foreground">Model</Label>
         {currentProvider && currentProvider.models.length > 1 ? (
           <Select
-            value={assignment.modelName}
-            onValueChange={(v) => onChange({ ...assignment, modelName: v })}
+            value={customMode ? "__custom__" : assignment.modelName}
+            onValueChange={(v) => {
+              if (v === "__custom__") {
+                setCustomMode(true);
+                onChange({ ...assignment, modelName: assignment.modelName || "" });
+                return;
+              }
+              setCustomMode(false);
+              onChange({ ...assignment, modelName: v });
+            }}
           >
             <SelectTrigger className="h-9">
               <SelectValue />
@@ -163,10 +177,11 @@ export function ModelConfigFields({
             placeholder="model-name"
           />
         )}
-        {assignment.modelName === "__custom__" && (
+        {customMode && (
           <Input
             className="h-9 mt-1"
             placeholder="Type exact model name"
+            value={assignment.modelName}
             onChange={(e) =>
               onChange({ ...assignment, modelName: e.target.value })
             }
