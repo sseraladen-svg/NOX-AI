@@ -83,8 +83,8 @@ export function ModePicker() {
               </span>
             </div>
             <div className="leading-none">
-              <div className="font-semibold tracking-tight text-foreground">NOX AI</div>
-              <div className="text-[10px] text-muted-foreground">
+              <div className="font-semibold tracking-tight text-slate-900">NOX AI</div>
+              <div className="text-[10px] text-slate-600">
                 Choose your mode
               </div>
             </div>
@@ -92,7 +92,7 @@ export function ModePicker() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => router.push("/usage")}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-muted/30 hover:bg-muted/60 text-foreground hover:text-foreground transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-muted/30 hover:bg-muted/60 text-slate-900 hover:text-slate-900 transition"
             >
               <TrendingUp className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Usage</span>
