@@ -81,7 +81,7 @@ export function OrchestratorModePage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background nox-aurora">
+    <div className="h-screen flex flex-col overflow-hidden bg-background nox-aurora">
       {/* Header */}
       <header className="sticky top-0 z-30 glass border-b border-border">
         <div className="mx-auto max-w-7xl px-3 sm:px-4 py-3 flex items-center justify-between gap-2">

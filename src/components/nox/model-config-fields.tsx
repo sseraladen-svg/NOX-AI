@@ -73,7 +73,8 @@ export function ModelConfigFields({
 
   function setConnectionType(ct: ConnectionType) {
     const candidates = ct === "API" ? apiProviders : localProviders;
-    const p = candidates[0];
+    const stillValid = candidates.some((c) => c.id === assignment.provider);
+    const p = stillValid ? candidates.find((c) => c.id === assignment.provider) : candidates[0];
     const nextProvider = p?.id || assignment.provider;
     const nextModel =
       ct === "API"
