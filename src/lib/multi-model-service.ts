@@ -992,6 +992,13 @@ export function needsClientOllama(assignment: ModelAssignment): boolean {
   return assignment.connectionType === "LOCAL" && assignment.provider === "ollama";
 }
 
+function buildClassificationPrompt(messages: ChatMessage[]): string {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  const userContent = lastUser?.content || "";
+
+  return `${CLASSIFICATION_SYSTEM_PROMPT}\n\n---\n\nUser message to classify:\n"${userContent}"\n\nRespond with ONLY the JSON object:`;
+}
+
 function buildPromptFromMessages(
   messages: ChatMessage[],
   role: string,
@@ -2289,14 +2296,11 @@ async function classifyIntent(
   messages: ChatMessage[],
   timeoutMs: number
 ): Promise<ClassificationCallResult> {
-  const lastUser = [...messages].reverse().find((m) => m.role === "user");
-  const userContent = lastUser?.content || "";
-
   const classifyMessages: ChatMessage[] = [
     {
       role: "user",
-      content: `${CLASSIFICATION_SYSTEM_PROMPT}\n\n---\n\nUser message to classify:\n"${userContent}"\n\nRespond with ONLY the JSON object:`,
-      image: lastUser?.image,
+      content: buildClassificationPrompt(messages),
+      image: [...messages].reverse().find((m) => m.role === "user")?.image,
     },
   ];
 
@@ -2436,6 +2440,30 @@ export async function dispatch(
     if (opts.cachedClassification) {
       classification = opts.cachedClassification;
     } else {
+      if (needsClientOllama(hostAssignment)) {
+        return {
+          ok: true,
+          mode: doc.mode,
+          steps: [],
+          finalReply: "",
+          multiAgent: false,
+          confirmationRequired: false,
+          pendingClientExec: {
+            stepId: crypto.randomUUID(),
+            endpoint: hostAssignment.endpoint || "",
+            model: hostAssignment.modelName,
+            prompt: buildClassificationPrompt(messages),
+            resumeContext: {
+              mode: doc.mode,
+              stage: "classify",
+              messages,
+              hostAssignment,
+              feature: opts.feature,
+            },
+          },
+        };
+      }
+
       classificationCallResult = await classifyIntent(
         hostAssignment,
         messages,
@@ -2981,6 +3009,215 @@ export async function resumeDispatch(
       const assignment = (ctx.assignment as ModelAssignment) || doc.hostConfig || emptyAssignment();
       return finishFromAssignment(assignment, String(ctx.role || "host"), typeof ctx.intent === "string" ? ctx.intent : undefined, messages[messages.length - 1]?.content || "");
     }
+    case "classify": {
+      const hostAssignment = (ctx.hostAssignment as ModelAssignment) || doc.hostConfig || emptyAssignment();
+      const classification =
+        parseClassificationResponse(output) ||
+        (() => {
+          const fallbackPlan = resolvePlan(doc, messages, ctx.feature as FeatureId | undefined);
+          if (fallbackPlan.multiAgent && fallbackPlan.assignments[1]) {
+            return {
+              specialist: fallbackPlan.assignments[1].id as SpecialistId,
+              confidence: 0.5,
+              reasoning: "Classification call failed. Fell back to keyword matching.",
+            };
+          }
+          return {
+            specialist: "none" as const,
+            confidence: 0.5,
+            reasoning: "Classification call failed. Host will answer directly.",
+          };
+        })();
+      const shouldRouteToSpecialist =
+        classification.specialist !== "none" &&
+        classification.confidence >= CLASSIFICATION_CONFIDENCE_THRESHOLD;
+
+      if (!shouldRouteToSpecialist) {
+        if (needsClientOllama(hostAssignment)) {
+          return {
+            ok: true,
+            mode: doc.mode,
+            steps: [],
+            finalReply: "",
+            multiAgent: false,
+            confirmationRequired: false,
+            pendingClientExec: {
+              stepId: crypto.randomUUID(),
+              endpoint: hostAssignment.endpoint || "",
+              model: hostAssignment.modelName,
+              prompt: buildPromptFromMessages(messages, "host", "direct"),
+              resumeContext: {
+                mode: doc.mode,
+                stage: "direct",
+                messages,
+                role: "host",
+                intent: "direct",
+                assignment: hostAssignment,
+              },
+            },
+          };
+        }
+
+        const hostTimeout = timeoutOverrides[hostAssignment.connectionType] || DEFAULT_TIMEOUTS[hostAssignment.connectionType];
+        const hostResult = await callModel(hostAssignment, messages, {
+          timeoutMs: hostTimeout,
+          role: "host",
+          intent: "direct",
+        });
+        const hostStep: DispatchStep = {
+          role: "host",
+          model: hostAssignment.modelName,
+          provider: hostAssignment.provider,
+          connectionType: hostAssignment.connectionType,
+          intent: "direct",
+          input: messages[messages.length - 1]?.content || "",
+          output: hostResult.output,
+          latencyMs: hostResult.latencyMs,
+          retries: hostResult.retries,
+          timedOut: hostResult.timedOut,
+          lastError: hostResult.lastError,
+          tokens: hostResult.tokens,
+          cost: hostResult.tokens ? computeCost(hostResult.tokens, hostAssignment.modelName) : undefined,
+        };
+        return {
+          ok: true,
+          mode: doc.mode,
+          steps: [hostStep],
+          finalReply: hostResult.output || (hostResult.lastError ? `Model call failed after ${hostResult.retries} attempt(s).\n\nError: ${hostResult.lastError}\n\nCheck your configuration in Advanced Customization.` : "Model returned no response. Check your configuration in Advanced Customization."),
+          multiAgent: false,
+          confirmationRequired: false,
+          classification,
+        };
+      }
+
+      const specialistId = classification.specialist as SpecialistId;
+      const specialistAssignment = doc.specialistConfigs?.[specialistId] || emptyAssignment();
+      const specialistTimeout = timeoutOverrides[specialistAssignment.connectionType] || DEFAULT_TIMEOUTS[specialistAssignment.connectionType];
+      const truncated = truncateForContext(messages);
+      const specialistMessages: ChatMessage[] = [
+        ...truncated.messages,
+        {
+          role: "assistant",
+          content: `[Host routed this to the ${specialistId} specialist (confidence: ${Math.round(classification.confidence * 100)}%). Fulfill the request.]`,
+        },
+      ];
+
+      if (needsClientOllama(specialistAssignment)) {
+        return {
+          ok: true,
+          mode: doc.mode,
+          steps: [],
+          finalReply: "",
+          multiAgent: true,
+          confirmationRequired: false,
+          pendingClientExec: {
+            stepId: crypto.randomUUID(),
+            endpoint: specialistAssignment.endpoint || "",
+            model: specialistAssignment.modelName,
+            prompt: buildPromptFromMessages(specialistMessages, specialistId, specialistId),
+            resumeContext: {
+              mode: doc.mode,
+              stage: "specialist",
+              messages: specialistMessages,
+              specialistId,
+              role: specialistId,
+              intent: specialistId,
+              assignment: specialistAssignment,
+              hostAssignment,
+              finalMessages: [
+                ...messages,
+                { role: "assistant", content: `Specialist ${specialistId} responded with:\n\n[awaiting local Ollama completion]\n\nReply to the user, incorporating the specialist's work.` },
+              ],
+            },
+          },
+        };
+      }
+
+      const specialistResult = await callModel(specialistAssignment, specialistMessages, {
+        timeoutMs: specialistTimeout,
+        role: specialistId,
+        intent: specialistId,
+      });
+      const specialistStep: DispatchStep = {
+        role: specialistId,
+        model: specialistAssignment.modelName,
+        provider: specialistAssignment.provider,
+        connectionType: specialistAssignment.connectionType,
+        intent: specialistId,
+        input: truncated.truncated ? `(routed by host, context truncated: ${truncated.originalTokens}→${truncated.keptTokens} tokens)` : "(routed by host)",
+        output: specialistResult.output,
+        latencyMs: specialistResult.latencyMs,
+        retries: specialistResult.retries,
+        timedOut: specialistResult.timedOut,
+        lastError: specialistResult.lastError,
+        tokens: specialistResult.tokens,
+        cost: specialistResult.tokens ? computeCost(specialistResult.tokens, specialistAssignment.modelName) : undefined,
+      };
+
+      const finalMessages: ChatMessage[] = [
+        ...messages,
+        {
+          role: "assistant",
+          content: `Specialist ${specialistId} responded with:\n\n${specialistResult.output}\n\nReply to the user, incorporating the specialist's work.`,
+        },
+      ];
+
+      if (needsClientOllama(hostAssignment)) {
+        return {
+          ok: true,
+          mode: doc.mode,
+          steps: [specialistStep],
+          finalReply: "",
+          multiAgent: true,
+          confirmationRequired: false,
+          pendingClientExec: {
+            stepId: crypto.randomUUID(),
+            endpoint: hostAssignment.endpoint || "",
+            model: hostAssignment.modelName,
+            prompt: buildPromptFromMessages(finalMessages, "host"),
+            resumeContext: {
+              mode: doc.mode,
+              stage: "synthesize",
+              messages: finalMessages,
+              role: "host",
+              assignment: hostAssignment,
+              specialistStep,
+              intent: "synthesize",
+            },
+          },
+        };
+      }
+
+      const hostTimeout = timeoutOverrides[hostAssignment.connectionType] || DEFAULT_TIMEOUTS[hostAssignment.connectionType];
+      const hostResult = await callModel(hostAssignment, finalMessages, {
+        timeoutMs: hostTimeout,
+        role: "host",
+        intent: "synthesize",
+      });
+      const hostStep: DispatchStep = {
+        role: "host",
+        model: hostAssignment.modelName,
+        provider: hostAssignment.provider,
+        connectionType: hostAssignment.connectionType,
+        intent: "synthesize",
+        input: "(specialist response)",
+        output: hostResult.output,
+        latencyMs: hostResult.latencyMs,
+        retries: hostResult.retries,
+        timedOut: hostResult.timedOut,
+        lastError: hostResult.lastError,
+        tokens: hostResult.tokens,
+        cost: hostResult.tokens ? computeCost(hostResult.tokens, hostAssignment.modelName) : undefined,
+      };
+      return {
+        ok: true,
+        mode: doc.mode,
+        steps: [specialistStep, hostStep],
+        finalReply: hostResult.output || specialistResult.output,
+        multiAgent: true,
+        confirmationRequired: false,
+      };
+    }
     case "specialist": {
       const specialistId = String(ctx.specialistId || ctx.role || "specialist");
       const hostAssignment = (ctx.hostAssignment as ModelAssignment) || doc.hostConfig || emptyAssignment();
@@ -3004,6 +3241,31 @@ export async function resumeDispatch(
             { role: "assistant", content: `Specialist ${specialistId} responded with:\n\n${output}\n\nReply to the user, incorporating the specialist's work.` },
           ];
       const hostTimeout = timeoutOverrides[hostAssignment.connectionType] || DEFAULT_TIMEOUTS[hostAssignment.connectionType];
+      if (needsClientOllama(hostAssignment)) {
+        return {
+          ok: true,
+          mode: doc.mode,
+          steps: [specialistStep],
+          finalReply: "",
+          multiAgent: true,
+          confirmationRequired: false,
+          pendingClientExec: {
+            stepId: crypto.randomUUID(),
+            endpoint: hostAssignment.endpoint || "",
+            model: hostAssignment.modelName,
+            prompt: buildPromptFromMessages(finalMessages, "host"),
+            resumeContext: {
+              mode: doc.mode,
+              stage: "synthesize",
+              messages: finalMessages,
+              role: "host",
+              assignment: hostAssignment,
+              specialistStep,
+              intent: "synthesize",
+            },
+          },
+        };
+      }
       const hostResult = await callModel(hostAssignment, finalMessages, {
         timeoutMs: hostTimeout,
         role: "host",
@@ -3035,6 +3297,7 @@ export async function resumeDispatch(
     }
     case "synthesize": {
       const assignment = (ctx.assignment as ModelAssignment) || doc.hostConfig || emptyAssignment();
+      const specialistStep = (ctx.specialistStep as DispatchStep | undefined) || undefined;
       const step: DispatchStep = {
         role: "host",
         model: assignment.modelName,
@@ -3050,9 +3313,9 @@ export async function resumeDispatch(
       return {
         ok: true,
         mode: doc.mode,
-        steps: [step],
+        steps: specialistStep ? [specialistStep, step] : [step],
         finalReply: output || "Local model call completed.",
-        multiAgent: false,
+        multiAgent: !!specialistStep,
         confirmationRequired: false,
       };
     }

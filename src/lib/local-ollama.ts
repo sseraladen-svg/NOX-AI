@@ -48,7 +48,10 @@ export async function generateFromBrowser(
   endpoint: string,
   model: string,
   prompt: string
-): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; text: string; tokens?: { input: number; output: number; total: number }; latencyMs?: number }
+  | { ok: false; error: string }
+> {
   const base = normalizeEndpoint(endpoint);
 
   try {
@@ -64,7 +67,20 @@ export async function generateFromBrowser(
     }
 
     const json = await res.json();
-    return { ok: true, text: json.response || "" };
+    const inputTokens = typeof json.prompt_eval_count === "number" ? json.prompt_eval_count : 0;
+    const outputTokens = typeof json.eval_count === "number" ? json.eval_count : 0;
+    const totalTokens = inputTokens + outputTokens;
+
+    return {
+      ok: true,
+      text: json.response || "",
+      tokens: {
+        input: inputTokens,
+        output: outputTokens,
+        total: totalTokens,
+      },
+      latencyMs: typeof json.total_duration === "number" ? Math.round(json.total_duration / 1_000_000) : undefined,
+    };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
