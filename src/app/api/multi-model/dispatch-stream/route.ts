@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
             feature: body.feature,
             skipSpecialist: body.skipSpecialist,
             cachedClassification: body.cachedClassification,
+            onChunk: (role, text) => send({ type: "chunk", text, role }),
           });
 
           if (result.pendingClientExec) {
@@ -95,11 +96,8 @@ export async function POST(req: NextRequest) {
           // Send each step's output progressively
           for (const step of result.steps) {
             send({ type: "step", step });
-
-            // Send the complete output immediately without fake chunking
-            // The provider calls are batched, but we want the UI to update
-            // as soon as each step completes rather than adding artificial delays
-            if (step.output && step.output.length > 0) {
+            const alreadyStreamed = step.provider === "gemini";
+            if (!alreadyStreamed && step.output && step.output.length > 0) {
               send({ type: "chunk", text: step.output, role: step.role });
             }
           }

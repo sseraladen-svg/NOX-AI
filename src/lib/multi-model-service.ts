@@ -1512,6 +1512,78 @@ async function callGemini(
   return { text, tokens };
 }
 
+async function callGeminiStreaming(
+  apiKey: string,
+  model: string,
+  systemHint: string,
+  conv: ChatMessage[],
+  endpoint: string | undefined,
+  onChunk: (text: string) => void
+): Promise<{ text: string; tokens?: TokenUsage }> {
+  const keyError = validateApiKey(apiKey);
+  if (keyError) throw new Error(keyError);
+
+  const normalizedKey = normalizeApiKey(apiKey)!;
+  const runtime = resolveProviderConfig("gemini", normalizedKey, endpoint);
+  const useQueryKey = isGoogleApiKey(normalizedKey);
+
+  const base = (runtime.defaultBase || "https://generativelanguage.googleapis.com/v1beta").trim().replace(/\/+$/, "");
+  const modelsBase = base.endsWith("/models") ? base : `${base}/models`;
+  let url = `${modelsBase}/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
+  if (useQueryKey) url += `&key=${encodeURIComponent(normalizedKey.trim())}`;
+
+  const contents = conv.map((m) => {
+    const parts: unknown[] = [{ text: m.content }];
+    if (m.image) parts.push({ inline_data: { mime_type: m.image.mimeType, data: m.image.data } });
+    return { role: m.role === "assistant" ? "model" : "user", parts };
+  });
+
+  const init = buildGeminiRequestInit(normalizedKey, "POST", {
+    contents,
+    systemInstruction: { parts: [{ text: systemHint }] },
+    generationConfig: { maxOutputTokens: 1024 },
+  });
+
+  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(DEFAULT_TIMEOUTS.API) });
+  if (!res.ok || !res.body) {
+    const body = await res.text().catch(() => res.statusText);
+    throw new Error(classifyProviderError("gemini", res.status, body).message);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let fullText = "";
+  let tokens: TokenUsage | undefined;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const chunk = JSON.parse(line.slice(6));
+        const text = chunk.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("") || "";
+        if (text) {
+          fullText += text;
+          onChunk(text);
+        }
+        if (chunk.usageMetadata) {
+          const u = chunk.usageMetadata;
+          tokens = { input: u.promptTokenCount || 0, output: u.candidatesTokenCount || 0, total: u.totalTokenCount || 0 };
+        }
+      } catch {
+        // partial line, keep buffering
+      }
+    }
+  }
+
+  return { text: fullText, tokens };
+}
+
 function validateApiKey(apiKey: string | undefined): string | null {
   const trimmed = apiKey?.trim();
   return trimmed ? null : "API key is required.";
@@ -2259,11 +2331,59 @@ export async function dispatch(
     feature?: FeatureId;
     skipSpecialist?: boolean;
     cachedClassification?: IntentClassification;
+    onChunk?: (roleId: string, text: string) => void;
   } = {}
 ): Promise<DispatchResult> {
   const doc = await getConfigInternal(userId);
   const timeoutOverrides = doc.timeoutOverrides || {};
   const steps: DispatchStep[] = [];
+
+  const runFinalModelCall = async (
+    assignment: ModelAssignment,
+    incomingMessages: ChatMessage[],
+    role: string,
+    intent?: string,
+    timeoutMs?: number
+  ) => {
+    if (assignment.provider === "gemini" && opts.onChunk) {
+      const systemHint =
+        role === "host"
+          ? "You are NOX Host. Analyze the user's intent and either answer directly or synthesize the response from a specialist model into a clean reply to the user. Be concise."
+          : intent
+          ? `You are NOX ${role} specialist (intent: ${intent}). Answer the user's request focused on your specialty. Be concise and useful.`
+          : "You are NOX AI. Respond helpfully and concisely.";
+      const conv: ChatMessage[] = incomingMessages
+        .filter((m) => m.role !== "system")
+        .map((m) => ({
+          role: m.role === "assistant" ? "assistant" : "user",
+          content: m.content,
+          image: m.image,
+        }));
+      const streamed = await callGeminiStreaming(
+        assignment.apiKey || "",
+        assignment.modelName,
+        systemHint,
+        conv,
+        assignment.endpoint,
+        (delta) => opts.onChunk!(role, delta)
+      );
+      return {
+        output: streamed.text,
+        latencyMs: 0,
+        retries: 0,
+        timedOut: false,
+        lastError: undefined,
+        tokens: streamed.tokens,
+        heartbeats: 0,
+      };
+    }
+
+    return callModel(assignment, incomingMessages, {
+      timeoutMs: timeoutMs || DEFAULT_TIMEOUTS[assignment.connectionType],
+      role,
+      intent,
+    });
+  };
 
   // "€"€"€ ORCHESTRATOR MODE: model-driven classification "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
   //
