@@ -263,7 +263,7 @@ function isTransientProviderError(message: string): boolean {
 
 
 
-// "€"€"€ Persistence (encrypt on write, mask on read) "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ---
 
 function encryptAssignment(a?: ModelAssignment | null): ModelAssignment | null {
   if (!a) return null;
@@ -522,7 +522,7 @@ export async function saveConfig(
   });
 }
 
-// "€"€"€ Test / connect validation "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ---
 
 export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
   const started = Date.now();
@@ -607,7 +607,7 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
 
   const latencyMs = Date.now() - started + 120;
 
-  // "€"€"€ Fix #3: Gemini-specific lightweight test call "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+  // ---
   //
   // For Gemini, instead of (or before) running a full generateContent call,
   // hit the cheaper/faster ListModels endpoint:
@@ -641,13 +641,13 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
     };
   }
 
-  // "€"€"€ Anthropic test: actually ping the API "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+  // ---
   // Anthropic has its own auth header (x-api-key) + its own /v1/models endpoint.
   if (a.connectionType === "API" && a.provider === "anthropic") {
     return await testAnthropicConnection(a.apiKey!, a.modelName, a.endpoint);
   }
 
-  // "€"€"€ OpenAI-compatible test: actually ping the API "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+  // ---
   // For openai, mistral, groq "" hit GET /v1/models with Bearer auth.
   if (a.connectionType === "API" && ["openai", "mistral", "groq"].includes(a.provider)) {
     return await testOpenAiCompatibleConnection(
@@ -730,21 +730,21 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
   };
 }
 
-// "€"€"€ Limit / capacity check "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ---
 //
 // HONEST implementation: instead of returning fake hardcoded quota numbers,
 // this function does a real reachability check for each model:
 //
-//   "¢ API models (openai/anthropic/gemini/mistral/groq): pings the provider's
+//   "- API models (openai/anthropic/gemini/mistral/groq): pings the provider's
 //     /models endpoint with the API key. If it returns 200, the key works and
-//     the API is reachable †' canFinish = true. If 401/403/429/5xx, returns
+//     the API is reachable -' canFinish = true. If 401/403/429/5xx, returns
 //     canFinish = false with the real reason.
 //
-//   "¢ LOCAL models (ollama): pings GET /api/tags. If reachable, canFinish =
+//   "- LOCAL models (ollama): pings GET /api/tags. If reachable, canFinish =
 //     true. If not, canFinish = false with "Ollama is not reachable from the
 //     server."
 //
-//   "¢ LOCAL models (llamacpp/llamafile): can't easily verify without running
+//   "- LOCAL models (llamacpp/llamafile): can't easily verify without running
 //     the binary, so we report canFinish = true with a note that the binary
 //     path hasn't been verified.
 //
@@ -927,7 +927,7 @@ async function quickApiReachabilityCheck(
   }
 }
 
-// "€"€"€ Dispatch "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ---
 
 function emptyAssignment(): ModelAssignment {
   return {
@@ -1151,7 +1151,7 @@ async function realCall(
   return callApi(assignment, systemHint, conv);
 }
 
-// "€"€"€ API connection "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ---
 
 async function callApi(assignment: ModelAssignment, systemHint: string, conv: ChatMessage[]): Promise<ModelCallResult> {
   const { provider, modelName, apiKey, endpoint } = assignment;
@@ -1774,7 +1774,7 @@ export async function testOllamaConnection(
   }
 }
 
-// "€"€"€ Heartbeat-based subprocess execution "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ---
 //
 // spawnWithHeartbeat: runs a CLI binary via spawn() and monitors stdout for
 // incoming data. Each time new stdout data arrives, the timeout clock resets
@@ -1855,7 +1855,7 @@ function spawnWithHeartbeat(
   });
 }
 
-// "€"€"€ LOCAL CLI connection "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ---
 //
 // For ollama: uses the HTTP API (POST /api/generate) instead of spawning a
 // subprocess. This is faster, more reliable, and supports remote ollama
@@ -2080,7 +2080,7 @@ async function callOllamaHttp(
   }
 }
 
-// "€"€"€ Context handoff: token counting + truncation "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ---
 //
 // Rough token estimate: ~4 characters per token (industry-standard heuristic
 // for English text). This is not exact but good enough for deciding when to
@@ -2162,7 +2162,7 @@ function truncateForContext(
   };
 }
 
-// "€"€"€ Host-model-driven intent classification "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ---
 //
 // Instead of keyword regex matching, the Host model itself classifies the
 // user's intent. A lightweight call with a structured system prompt asks the
@@ -2339,7 +2339,7 @@ export async function dispatch(
     });
   };
 
-  // "€"€"€ ORCHESTRATOR MODE: model-driven classification "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+  // ---
   //
   // Instead of keyword regex matching, the Host model classifies the intent
   // via a lightweight JSON-output call. This replaces the old resolvePlan()
@@ -2351,7 +2351,7 @@ export async function dispatch(
       timeoutOverrides[hostAssignment.connectionType] ||
       DEFAULT_TIMEOUTS[hostAssignment.connectionType];
 
-    // "€"€"€ GAP 2 FIX: Pre-verify Host reachability before classification "€"€"€"€"€
+    // ---
     //
     // Before spending a classification call, verify the Host model is actually
     // reachable. If it's not, return immediately with a clear error "" no point
@@ -2735,7 +2735,7 @@ export async function dispatch(
     };
   }
 
-  // "€"€"€ skipSpecialist path (user chose "Let Host handle directly") "€"€"€"€"€"€"€"€"€
+  // ---
   if (doc.mode === "ORCHESTRATOR" && opts.skipSpecialist) {
     const hostAssignment = doc.hostConfig || emptyAssignment();
     const hostTimeout =
@@ -2803,7 +2803,7 @@ export async function dispatch(
     };
   }
 
-  // "€"€"€ SINGLE or MULTI mode (keyword-based resolvePlan, unchanged) "€"€"€"€"€"€"€"€"€"€
+  // ---
   const plan = resolvePlan(doc, messages, opts.feature);
 
   if (plan.multiAgent && !opts.confirmMultiAgent) {
@@ -3287,7 +3287,7 @@ export async function resumeDispatch(
   }
 }
 
-// "€"€"€ Conversations "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ---
 
 export interface ConversationSummary {
   id: string;
@@ -3461,7 +3461,7 @@ export async function addMessage(
   }
 }
 
-// "€"€"€ Usage / cost tracking "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ---
 //
 // After a successful dispatch, the dispatch route calls saveUsage() with the
 // steps from the DispatchResult. Each step becomes one UsageRecord row.
