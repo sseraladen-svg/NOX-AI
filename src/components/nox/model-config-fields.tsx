@@ -179,16 +179,14 @@ export function ModelConfigFields({
       {/* Model name (with known-models dropdown) */}
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">Model</Label>
-        {currentProvider && currentProvider.models.length > 1 ? (
+        {!customMode ? (
           <Select
-            value={customMode ? "__custom__" : currentModelName}
+            value={currentModelName}
             onValueChange={(v) => {
               if (v === "__custom__") {
                 setCustomMode(true);
-                updateActiveState({ ...assignment, modelName: currentModelName || "" });
                 return;
               }
-              setCustomMode(false);
               updateActiveState({ ...assignment, modelName: v });
             }}
           >
@@ -196,7 +194,7 @@ export function ModelConfigFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {currentProvider.models.map((m) => (
+              {currentProvider?.models.map((m) => (
                 <SelectItem key={m} value={m}>
                   {m}
                 </SelectItem>
@@ -205,20 +203,17 @@ export function ModelConfigFields({
             </SelectContent>
           </Select>
         ) : (
-          <Input
-            className="h-9"
-            value={currentModelName}
-            onChange={(e) => updateActiveState({ ...assignment, modelName: e.target.value })}
-            placeholder="model-name"
-          />
-        )}
-        {customMode && !knownModel && (
-          <Input
-            className="h-9 mt-1"
-            placeholder="Type exact model name"
-            value={currentModelName}
-            onChange={(e) => updateActiveState({ ...assignment, modelName: e.target.value })}
-          />
+          <div className="flex gap-2">
+            <Input
+              className="h-9"
+              value={currentModelName}
+              onChange={(e) => updateActiveState({ ...assignment, modelName: e.target.value })}
+              placeholder="Type exact model name"
+            />
+            <Button variant="ghost" size="sm" onClick={() => setCustomMode(false)}>
+              ← Choose from list
+            </Button>
+          </div>
         )}
       </div>
 
@@ -248,22 +243,6 @@ export function ModelConfigFields({
               Encrypted at rest. Masked when reloaded. The Test button sends a real request to the official provider API and shows the provider response if authentication fails.
             </p>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">
-              Endpoint (optional)
-            </Label>
-            <Input
-              className="h-9 font-mono"
-              value={activeEndpoint}
-              onChange={(e) =>
-                updateActiveState({
-                  ...assignment,
-                  endpoint: e.target.value,
-                })
-              }
-              placeholder="https://api.provider.com/v1"
-            />
-          </div>
             </>
           )}
         </>
@@ -277,11 +256,11 @@ export function ModelConfigFields({
               </Label>
               <Input
                 className="h-9 font-mono"
-                value={activeEndpoint}
+                value={assignment.localEndpoint || assignment.endpoint || "http://127.0.0.1:11434"}
                 onChange={(e) =>
                   updateActiveState({
                     ...assignment,
-                    endpoint: e.target.value,
+                    localEndpoint: e.target.value,
                   })
                 }
                 placeholder="http://127.0.0.1:11434"
