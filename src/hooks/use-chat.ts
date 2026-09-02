@@ -249,78 +249,106 @@ export function useChat() {
         }
 
         if (pendingClientExec) {
-          const local = await generateFromBrowser(
-            pendingClientExec.endpoint || "",
-            pendingClientExec.model,
-            pendingClientExec.prompt
-          );
+          let execCtx = pendingClientExec;
+          while (execCtx) {
+            const local = await generateFromBrowser(
+              execCtx.endpoint || "",
+              execCtx.model,
+              execCtx.prompt
+            );
 
-          if (!local.ok) {
+            if (!local.ok) {
+              useConversations.setState((s) => ({
+                activeMessages: s.activeMessages.map((m) =>
+                  m.id === aiMsgId
+                    ? { ...m, content: local.error || "Local Ollama call failed.", error: true }
+                    : m
+                ),
+              }));
+              setSending(false);
+              return;
+            }
+
+            const resumed = await authFetch("/api/multi-model/dispatch-resume", {
+              method: "POST",
+              body: {
+                stepId: execCtx.stepId,
+                resultText: local.text,
+                resumeContext: execCtx.resumeContext,
+                browserTokens: local.tokens,
+                browserLatencyMs: local.latencyMs,
+              },
+            });
+            const resumedJson = await resumed.json();
+
+            if (!resumedJson.ok || !resumedJson.result) {
+              useConversations.setState((s) => ({
+                activeMessages: s.activeMessages.map((m) =>
+                  m.id === aiMsgId
+                    ? { ...m, content: resumedJson.error || "Resume failed.", error: true }
+                    : m
+                ),
+              }));
+              setSending(false);
+              return;
+            }
+
+            const resumedResult = resumedJson.result as any;
+
+            // Handle confirmationRequired inside the resume loop
+            if (resumedResult.confirmationRequired) {
+              useConversations.setState((s) => ({
+                activeMessages: s.activeMessages.filter((m) => m.id !== aiMsgId),
+              }));
+              setConfirmLimits(resumedResult.limits || []);
+              setConfirmClassification(resumedResult.classification || undefined);
+              setConfirmOpen(true);
+              setPendingText(text);
+              setPendingFeature(feature);
+              setPendingClassification(resumedResult.classification || undefined);
+              setSending(false);
+              return;
+            }
+
+            // If another pendingClientExec is returned, continue the loop
+            if (resumedResult.pendingClientExec) {
+              execCtx = resumedResult.pendingClientExec;
+              continue;
+            }
+
+            // Final result
+            const steps = (resumedResult.steps as DispatchStep[]) || [];
+            const aggUsage = aggregateUsage(steps);
+            const finalText = resumedResult.finalReply || "(no response)";
+
             useConversations.setState((s) => ({
               activeMessages: s.activeMessages.map((m) =>
                 m.id === aiMsgId
-                  ? { ...m, content: local.error || "Local Ollama call failed.", error: true }
+                  ? {
+                      ...m,
+                      content: finalText,
+                      trace: steps,
+                      mode: resumedResult.mode,
+                      multiAgent: resumedResult.multiAgent,
+                      usage: aggUsage,
+                    }
                   : m
               ),
             }));
+
+            await persist(conversationId, {
+              role: "assistant",
+              content: finalText,
+              trace: steps,
+              mode: resumedResult.mode,
+              multiAgent: resumedResult.multiAgent,
+              error: false,
+              usage: aggUsage,
+            });
+            convs.loadList();
             setSending(false);
             return;
           }
-
-          const resumed = await authFetch("/api/multi-model/dispatch-resume", {
-            method: "POST",
-            body: {
-              stepId: pendingClientExec.stepId,
-              resultText: local.text,
-              resumeContext: pendingClientExec.resumeContext,
-            },
-          });
-          const resumedJson = await resumed.json();
-
-          if (!resumedJson.ok || !resumedJson.result) {
-            useConversations.setState((s) => ({
-              activeMessages: s.activeMessages.map((m) =>
-                m.id === aiMsgId
-                  ? { ...m, content: resumedJson.error || "Resume failed.", error: true }
-                  : m
-              ),
-            }));
-            setSending(false);
-            return;
-          }
-
-          const resumedResult = resumedJson.result as any;
-          const steps = resumedResult.steps || [];
-          const aggUsage = aggregateUsage(steps);
-          const finalText = resumedResult.finalReply || "(no response)";
-
-          useConversations.setState((s) => ({
-            activeMessages: s.activeMessages.map((m) =>
-              m.id === aiMsgId
-                ? {
-                    ...m,
-                    content: finalText,
-                    trace: steps,
-                    mode: resumedResult.mode,
-                    multiAgent: resumedResult.multiAgent,
-                    usage: aggUsage,
-                  }
-                : m
-            ),
-          }));
-
-          await persist(conversationId, {
-            role: "assistant",
-            content: finalText,
-            trace: steps,
-            mode: resumedResult.mode,
-            multiAgent: resumedResult.multiAgent,
-            error: false,
-            usage: aggUsage,
-          });
-          convs.loadList();
-          setSending(false);
-          return;
         }
 
         // Handle confirmation required
@@ -410,77 +438,103 @@ export function useChat() {
       const r = json.result;
 
       if (r.pendingClientExec) {
-        const local = await generateFromBrowser(
-          r.pendingClientExec.endpoint || "",
-          r.pendingClientExec.model,
-          r.pendingClientExec.prompt
-        );
+        let execCtx = r.pendingClientExec;
+        while (execCtx) {
+          const local = await generateFromBrowser(
+            execCtx.endpoint || "",
+            execCtx.model,
+            execCtx.prompt
+          );
 
-        if (!local.ok) {
-          const errMsg: ConversationMessage = {
+          if (!local.ok) {
+            const errMsg: ConversationMessage = {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: local.error || "Local Ollama call failed.",
+              error: true,
+              multiAgent: false,
+              createdAt: new Date().toISOString(),
+            };
+            convs.appendLocal(errMsg);
+            setSending(false);
+            return;
+          }
+
+          const resumed = await authFetch("/api/multi-model/dispatch-resume", {
+            method: "POST",
+            body: {
+              stepId: execCtx.stepId,
+              resultText: local.text,
+              resumeContext: execCtx.resumeContext,
+              browserTokens: local.tokens,
+              browserLatencyMs: local.latencyMs,
+            },
+          });
+          const resumedJson = await resumed.json();
+
+          if (!resumedJson.ok || !resumedJson.result) {
+            const errMsg: ConversationMessage = {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: resumedJson.error || "Resume failed.",
+              error: true,
+              multiAgent: false,
+              createdAt: new Date().toISOString(),
+            };
+            convs.appendLocal(errMsg);
+            setSending(false);
+            return;
+          }
+
+          const resumedResult = resumedJson.result as any;
+
+          // Handle confirmationRequired inside the resume loop
+          if (resumedResult.confirmationRequired) {
+            setConfirmLimits(resumedResult.limits || []);
+            setConfirmClassification(resumedResult.classification || undefined);
+            setConfirmOpen(true);
+            setPendingText(text);
+            setPendingFeature(feature);
+            setPendingClassification(resumedResult.classification || undefined);
+            setSending(false);
+            return;
+          }
+
+          // If another pendingClientExec is returned, continue the loop
+          if (resumedResult.pendingClientExec) {
+            execCtx = resumedResult.pendingClientExec;
+            continue;
+          }
+
+          // Final result
+          const steps = (resumedResult.steps as DispatchStep[]) || [];
+          const aggUsage = aggregateUsage(steps);
+          const finalText = resumedResult.finalReply || "(no response)";
+          const aiMsg: ConversationMessage = {
             id: crypto.randomUUID(),
             role: "assistant",
-            content: local.error || "Local Ollama call failed.",
-            error: true,
-            multiAgent: false,
+            content: finalText,
+            trace: steps,
+            mode: resumedResult.mode,
+            multiAgent: resumedResult.multiAgent,
+            error: false,
+            usage: aggUsage,
             createdAt: new Date().toISOString(),
           };
-          convs.appendLocal(errMsg);
+          convs.appendLocal(aiMsg);
+          await persist(conversationId, {
+            role: "assistant",
+            content: finalText,
+            trace: steps,
+            mode: resumedResult.mode,
+            multiAgent: resumedResult.multiAgent,
+            error: false,
+            usage: aggUsage,
+          });
+          convs.loadList();
           setSending(false);
           return;
         }
-
-        const resumed = await authFetch("/api/multi-model/dispatch-resume", {
-          method: "POST",
-          body: {
-            stepId: r.pendingClientExec.stepId,
-            resultText: local.text,
-            resumeContext: r.pendingClientExec.resumeContext,
-          },
-        });
-        const resumedJson = await resumed.json();
-        if (!resumedJson.ok || !resumedJson.result) {
-          const errMsg: ConversationMessage = {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: resumedJson.error || "Resume failed.",
-            error: true,
-            multiAgent: false,
-            createdAt: new Date().toISOString(),
-          };
-          convs.appendLocal(errMsg);
-          setSending(false);
-          return;
-        }
-
-        const resumedResult = resumedJson.result as any;
-        const steps = resumedResult.steps || [];
-        const aggUsage = aggregateUsage(steps);
-        const finalText = resumedResult.finalReply || "(no response)";
-        const aiMsg: ConversationMessage = {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: finalText,
-          trace: steps,
-          mode: resumedResult.mode,
-          multiAgent: resumedResult.multiAgent,
-          error: false,
-          usage: aggUsage,
-          createdAt: new Date().toISOString(),
-        };
-        convs.appendLocal(aiMsg);
-        await persist(conversationId, {
-          role: "assistant",
-          content: finalText,
-          trace: steps,
-          mode: resumedResult.mode,
-          multiAgent: resumedResult.multiAgent,
-          error: false,
-          usage: aggUsage,
-        });
-        convs.loadList();
-        setSending(false);
-        return;
       }
 
       if (r.confirmationRequired) {

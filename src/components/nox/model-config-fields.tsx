@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, CheckCircle2, XCircle, Zap } from "lucide-react";
 import type { ModelAssignment, ConnectionType } from "@/lib/multi-model-types";
+import { listOllamaModels } from "@/lib/local-ollama";
 import { useMultiModel, type TestState } from "@/store/multi-model-store";
 
 interface Provider {
@@ -40,6 +41,36 @@ export function ModelConfigFields({
   testState,
 }: Props) {
   const test = useMultiModel((s) => s.test);
+  const [dynamicOllamaModels, setDynamicOllamaModels] = React.useState<string[]>([]);
+
+  React.useEffect(() => {
+    if (
+      assignment.connectionType !== "LOCAL" ||
+      assignment.provider !== "ollama"
+    ) {
+      setDynamicOllamaModels([]);
+      return;
+    }
+
+    let cancelled = false;
+    const endpoint =
+      assignment.localEndpoint ||
+      assignment.endpoint ||
+      "http://127.0.0.1:11434";
+
+    listOllamaModels(endpoint).then((models) => {
+      if (!cancelled) setDynamicOllamaModels(models);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    assignment.connectionType,
+    assignment.provider,
+    assignment.localEndpoint,
+    assignment.endpoint,
+  ]);
 
   const apiProviders = providers.filter((p) => p.connectionType === "API");
   const localProviders = providers.filter((p) => p.connectionType === "LOCAL");
@@ -195,7 +226,10 @@ export function ModelConfigFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {currentProvider?.models.map((m) => (
+              {(assignment.provider === "ollama" && dynamicOllamaModels.length > 0
+                ? dynamicOllamaModels
+                : currentProvider?.models || []
+              ).map((m) => (
                 <SelectItem key={m} value={m}>
                   {m}
                 </SelectItem>
@@ -267,9 +301,10 @@ export function ModelConfigFields({
                 placeholder="http://127.0.0.1:11434"
               />
               <p className="text-[10px] text-muted-foreground leading-relaxed">
-                NOX AI's server connects to this address. If hosted,
-                "localhost" refers to the server — set this to a public Ollama
-                host you control.
+                Your browser connects directly to this address to run local models.
+                Use <code>http://127.0.0.1:11434</code> for a local Ollama install,
+                or a publicly reachable host if running Ollama remotely.
+                Ensure <code>OLLAMA_ORIGINS</code> allows this site.
               </p>
             </div>
           ) : (

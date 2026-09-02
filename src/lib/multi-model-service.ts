@@ -798,56 +798,6 @@ export async function checkLimits(
         return result;
       }
 
-      // For ollama: ping GET /api/tags.
-      if (
-        assignment.connectionType === "LOCAL" &&
-        assignment.provider === "ollama"
-      ) {
-        const ollamaBase = normalizeOllamaEndpoint(assignment.endpoint);
-        try {
-          const res = await fetch(`${ollamaBase}/api/tags`, {
-            method: "GET",
-            signal: AbortSignal.timeout(5_000),
-          });
-          if (!res.ok) {
-            const result = {
-              ...base,
-              canFinish: false,
-              reason: `Ollama returned HTTP ${res.status}.`,
-            };
-            setCachedReachability(userId, assignment, result);
-            return result;
-          }
-          const json = await res.json();
-          const availableModels: string[] = (json.models || []).map(
-            (m: { name?: string }) => m.name || ""
-          );
-          const modelAvailable =
-            availableModels.length === 0 ||
-            availableModels.includes(assignment.modelName);
-          if (!modelAvailable) {
-            const result = {
-              ...base,
-              canFinish: false,
-              reason: `Model "${assignment.modelName}" not pulled. Available: ${availableModels.slice(0, 3).join(", ")}`,
-            };
-            setCachedReachability(userId, assignment, result);
-            return result;
-          }
-          const result = { ...base, canFinish: true };
-          setCachedReachability(userId, assignment, result);
-          return result;
-        } catch {
-          const result = {
-            ...base,
-            canFinish: false,
-            reason: `Ollama at ${ollamaBase} is not reachable from the server. (Note: localhost is automatically resolved to 127.0.0.1 to avoid IPv6 issues)`,
-          };
-          setCachedReachability(userId, assignment, result);
-          return result;
-        }
-      }
-
       // For API models: ping the provider's /models endpoint.
       if (assignment.connectionType === "API") {
         const testResult = await quickApiReachabilityCheck(userId, assignment);
@@ -2960,7 +2910,9 @@ export async function resumeDispatch(
   userId: string,
   _stepId: string,
   resultText: string,
-  resumeContext?: Record<string, unknown>
+  resumeContext?: Record<string, unknown>,
+  browserTokens?: { input: number; output: number; total: number },
+  browserLatencyMs?: number
 ): Promise<DispatchResult> {
   const doc = await getConfigInternal(userId);
   const ctx = (resumeContext || {}) as Record<string, any>;
@@ -2984,11 +2936,14 @@ export async function resumeDispatch(
       intent: roleIntent,
       input: inputOverride || messages[messages.length - 1]?.content || "",
       output,
-      latencyMs: 0,
+      latencyMs: browserLatencyMs ?? 0,
       retries: 0,
       timedOut: false,
       lastError: undefined,
-      cost: undefined,
+      tokens: browserTokens,
+      cost: browserTokens
+        ? computeCost(browserTokens, assignment.modelName)
+        : undefined,
     };
     return {
       ok: true,

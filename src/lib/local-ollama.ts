@@ -85,3 +85,19 @@ export async function generateFromBrowser(
     return { ok: false, error: (err as Error).message };
   }
 }
+
+export async function listOllamaModels(endpoint: string): Promise<string[]> {
+  const base = normalizeEndpoint(endpoint);
+  try {
+    const res = await fetch(`${base}/api/tags`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return (json.models || [])
+      .map((m: { name?: string }) => m.name || "")
+      .filter((name: string) => name.length > 0);
+  } catch {
+    return [];
+  }
+}

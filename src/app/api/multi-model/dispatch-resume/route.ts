@@ -15,13 +15,22 @@ export async function POST(req: NextRequest) {
       stepId?: string;
       resultText?: string;
       resumeContext?: Record<string, unknown>;
+      browserTokens?: { input: number; output: number; total: number };
+      browserLatencyMs?: number;
     };
 
     if (!body?.stepId || typeof body.resultText !== "string") {
       return NextResponse.json({ ok: false, error: "Missing stepId or resultText." }, { status: 400 });
     }
 
-    const result = await resumeDispatch(user.id, body.stepId, body.resultText, body.resumeContext);
+    const result = await resumeDispatch(
+      user.id,
+      body.stepId,
+      body.resultText,
+      body.resumeContext,
+      body.browserTokens,
+      body.browserLatencyMs
+    );
 
     if (result.ok && result.steps.length > 0) {
       try {
