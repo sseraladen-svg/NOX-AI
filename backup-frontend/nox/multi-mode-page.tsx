@@ -27,7 +27,7 @@ import {
   type ModelAssignment,
   type Mode,
 } from "@/lib/multi-model-types";
-import { ConversationDrawer, ConversationSidebar, UserMenu, AdvancedDialog, ConfirmWrapper, IconButton } from "./shared-chat";
+import { ConversationDrawer, UserMenu, AdvancedDialog, ConfirmWrapper, IconButton } from "./shared-chat";
 import {
   ChatFeatureUI,
   CodingFeatureUI,
@@ -235,20 +235,19 @@ export function MultiModePage() {
             <IconButton
               onClick={() => chat.setConvDrawerOpen(true)}
               label="Conversations"
-              className="lg:hidden"
             >
               <PanelLeft className="h-4 w-4" />
             </IconButton>
             <button
-              onClick={() => router.push("/")}
+              onClick={() => router.push("/?mode=")}
               className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Modes</span>
             </button>
             <div className="flex items-center gap-2 ml-1">
-              <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-foreground to-foreground/60 flex items-center justify-center">
-                <Layers className="h-3.5 w-3.5 text-background" />
+              <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-fuchsia-500 to-cyan-500 flex items-center justify-center">
+                <Layers className="h-3.5 w-3.5 text-white" />
               </div>
               <div className="leading-none">
                 <div className="font-semibold text-sm">Multi Mode</div>
@@ -292,10 +291,10 @@ export function MultiModePage() {
                 <Icon className="h-3.5 w-3.5" />
                 {f.label}
                 {hasConv && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-foreground/50" title="Has conversation history" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" title="Has conversation history" />
                 )}
                 {hasConfig && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-foreground" title="Has model configured" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" title="Has model configured" />
                 )}
               </button>
             );
@@ -312,13 +311,10 @@ export function MultiModePage() {
         />
       </div>
 
-      {/* Body: persistent sidebar (desktop) + feature-specific UI */}
-      <div className="flex-1 mx-auto w-full max-w-6xl px-3 sm:px-4 py-4 flex gap-4 min-h-0">
-        <ConversationSidebar />
-        <main className="flex-1 min-w-0 flex min-h-0">
-          {renderFeatureUI()}
-        </main>
-      </div>
+      {/* Feature-specific UI */}
+      <main className="flex-1 mx-auto w-full max-w-6xl px-3 sm:px-4 py-4 flex min-h-0">
+        {renderFeatureUI()}
+      </main>
 
       <ConversationDrawer
         open={chat.convDrawerOpen}
@@ -385,8 +381,8 @@ function FeatureModelStrip({
           className={cn(
             "px-2 py-0.5 rounded text-[10px] font-medium",
             assignment.connectionType === "API"
-              ? "bg-foreground/10 text-foreground"
-              : "bg-muted text-muted-foreground"
+              ? "bg-cyan-500/10 text-cyan-400"
+              : "bg-amber-500/10 text-amber-400"
           )}
         >
           {assignment.connectionType === "API" ? (

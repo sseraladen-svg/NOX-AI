@@ -107,13 +107,13 @@ function DispatchTrace({ steps }: { steps: DispatchStep[] }) {
           {s.intent && (
             <>
               <span className="text-muted-foreground">·</span>
-              <span className="text-foreground/80 italic">{s.intent}</span>
+              <span className="text-fuchsia-400">{s.intent}</span>
             </>
           )}
           <span className="text-muted-foreground ml-auto">{s.latencyMs}ms</span>
           {s.tokens && (
             <span
-              className="px-1.5 py-0 rounded bg-foreground/10 text-foreground text-[9px]"
+              className="px-1.5 py-0 rounded bg-cyan-500/10 text-cyan-400 text-[9px]"
               title={`${s.tokens.input} input + ${s.tokens.output} output`}
             >
               {s.tokens.total} tok
@@ -138,7 +138,7 @@ function DispatchTrace({ steps }: { steps: DispatchStep[] }) {
         <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono pt-1.5 mt-1 border-t border-border/60 text-muted-foreground">
           <span className="uppercase tracking-wider">Total:</span>
           {totals.hasTokens && (
-            <span className="text-foreground">
+            <span className="text-cyan-400">
               {totals.total} tok ({totals.input} in + {totals.output} out)
             </span>
           )}
@@ -158,7 +158,7 @@ function ModeBadge({ msg }: { msg: ConversationMessage }) {
   return (
     <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
       {msg.multiAgent && (
-        <Badge className="bg-foreground/10 text-foreground border-foreground/20 hover:bg-foreground/15 text-[9px] py-0 px-1.5">
+        <Badge className="bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/30 hover:bg-fuchsia-500/20 text-[9px] py-0 px-1.5">
           <Network className="h-2.5 w-2.5 mr-0.5" />
           Multi-Agent
         </Badge>
@@ -200,9 +200,9 @@ export function ChatFeatureUI({
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="h-16 w-16 rounded-2xl bg-gradient-to-br from-foreground to-foreground/60 flex items-center justify-center nox-glow mb-4"
+              className="h-16 w-16 rounded-2xl bg-gradient-to-br from-primary to-fuchsia-500 flex items-center justify-center nox-glow mb-4"
             >
-              <Bot className="h-7 w-7 text-background" />
+              <Bot className="h-7 w-7 text-primary-foreground" />
             </motion.div>
             <h2 className="text-2xl font-semibold mb-1">Chat</h2>
             <p className="text-sm text-muted-foreground mb-6">
@@ -258,7 +258,7 @@ function ChatBubble({ msg }: { msg: ConversationMessage }) {
             ? "bg-muted text-foreground"
             : msg.error
             ? "bg-red-500/15 text-red-400"
-            : "bg-gradient-to-br from-foreground to-foreground/60 text-background"
+            : "bg-gradient-to-br from-primary to-fuchsia-500 text-primary-foreground"
         }`}
       >
         {isUser ? (
@@ -1484,10 +1484,10 @@ function SensorCard({
   color: "emerald" | "cyan" | "amber" | "violet";
 }) {
   const colorMap = {
-    emerald: "text-foreground bg-foreground/10 border-foreground/20",
-    cyan: "text-foreground/90 bg-foreground/[0.07] border-foreground/15",
-    amber: "text-foreground/80 bg-muted border-border",
-    violet: "text-muted-foreground bg-muted/50 border-border/60",
+    emerald: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+    cyan: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
+    amber: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+    violet: "text-violet-400 bg-violet-500/10 border-violet-500/20",
   };
   return (
     <div className={`rounded-lg border p-2.5 ${colorMap[color]}`}>

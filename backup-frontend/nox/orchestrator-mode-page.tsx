@@ -28,14 +28,12 @@ import {
 import {
   ChatInput,
   ConversationDrawer,
-  ConversationSidebar,
   UserMenu,
   AdvancedDialog,
   ConfirmWrapper,
   MessagesArea,
   IconButton,
 } from "./shared-chat";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 const SPECIALIST_ICONS: Record<
@@ -61,7 +59,6 @@ export function OrchestratorModePage() {
   const chat = useChat();
   const mm = useMultiModel();
   const convs = useConversations();
-  const [rosterOpen, setRosterOpen] = React.useState(false);
 
   // Ensure mode is ORCHESTRATOR + clear conversation from other modes
   React.useEffect(() => {
@@ -89,20 +86,19 @@ export function OrchestratorModePage() {
             <IconButton
               onClick={() => chat.setConvDrawerOpen(true)}
               label="Conversations"
-              className="xl:hidden"
             >
               <PanelLeft className="h-4 w-4" />
             </IconButton>
             <button
-              onClick={() => router.push("/")}
+              onClick={() => router.push("/?mode=")}
               className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Modes</span>
             </button>
             <div className="flex items-center gap-2 ml-1">
-              <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-foreground to-foreground/60 flex items-center justify-center">
-                <Network className="h-3.5 w-3.5 text-background" />
+              <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-cyan-500 to-emerald-500 flex items-center justify-center">
+                <Network className="h-3.5 w-3.5 text-white" />
               </div>
               <div className="leading-none">
                 <div className="font-semibold text-sm">Orchestrator Mode</div>
@@ -113,13 +109,6 @@ export function OrchestratorModePage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <IconButton
-              onClick={() => setRosterOpen(true)}
-              label="Roster"
-              className="lg:hidden"
-            >
-              <Network className="h-4 w-4" />
-            </IconButton>
             <IconButton
               onClick={() => chat.setAdvancedOpen(true)}
               label="Advanced settings"
@@ -133,8 +122,6 @@ export function OrchestratorModePage() {
 
       {/* Body: roster sidebar + chat */}
       <div className="flex-1 mx-auto w-full max-w-7xl px-3 sm:px-4 py-4 flex gap-4 min-h-0">
-        <ConversationSidebar breakpoint="xl" />
-
         {/* Roster sidebar (desktop) */}
         <aside className="hidden lg:flex w-72 shrink-0 flex-col gap-2 overflow-y-auto nox-scroll">
           <RosterSidebar
@@ -143,21 +130,6 @@ export function OrchestratorModePage() {
             onConfigure={() => chat.setAdvancedOpen(true)}
           />
         </aside>
-
-        {/* Roster sidebar (mobile/tablet — same content, in a sheet) */}
-        <Sheet open={rosterOpen} onOpenChange={setRosterOpen}>
-          <SheetContent side="left" className="w-72 p-3 gap-2 overflow-y-auto nox-scroll">
-            <SheetTitle className="text-sm">Host &amp; Specialists</SheetTitle>
-            <RosterSidebar
-              hostAssignment={hostAssignment}
-              specialistConfigs={mm.specialistConfigs}
-              onConfigure={() => {
-                setRosterOpen(false);
-                chat.setAdvancedOpen(true);
-              }}
-            />
-          </SheetContent>
-        </Sheet>
 
         {/* Chat area */}
         <main className="flex-1 flex flex-col gap-3 min-h-0">
@@ -300,8 +272,8 @@ function ModelLine({ assignment }: { assignment: ModelAssignment }) {
         className={cn(
           "shrink-0 px-1.5 py-0.5 rounded text-[9px] font-medium",
           assignment.connectionType === "API"
-            ? "bg-foreground/10 text-foreground"
-            : "bg-muted text-muted-foreground"
+            ? "bg-cyan-500/10 text-cyan-400"
+            : "bg-amber-500/10 text-amber-400"
         )}
       >
         {assignment.connectionType === "API" ? (

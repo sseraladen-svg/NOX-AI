@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import * as React from "react";
 import { motion } from "framer-motion";
@@ -19,7 +19,6 @@ import type { ConnectionType, ModelAssignment } from "@/lib/multi-model-types";
 import {
   ChatInput,
   ConversationDrawer,
-  ConversationSidebar,
   UserMenu,
   AdvancedDialog,
   ConfirmWrapper,
@@ -66,23 +65,19 @@ export function SingleModePage() {
       <header className="sticky top-0 z-30 glass border-b border-border">
         <div className="mx-auto max-w-4xl px-3 sm:px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <IconButton
-              onClick={() => chat.setConvDrawerOpen(true)}
-              label="Conversations"
-              className="lg:hidden"
-            >
+            <IconButton onClick={() => chat.setConvDrawerOpen(true)} label="Conversations">
               <PanelLeft className="h-4 w-4" />
             </IconButton>
             <button
-              onClick={() => router.push("/")}
+              onClick={() => router.push("/?mode=")}
               className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Modes</span>
             </button>
             <div className="flex items-center gap-2 ml-1">
-              <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-foreground to-foreground/60 flex items-center justify-center">
-                <Globe className="h-3.5 w-3.5 text-background" />
+              <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
+                <Globe className="h-3.5 w-3.5 text-white" />
               </div>
               <div className="leading-none">
                 <div className="font-semibold text-sm">Single Mode</div>
@@ -105,39 +100,35 @@ export function SingleModePage() {
       </header>
 
       {/* Inline model strip */}
-      <div className="mx-auto w-full max-w-6xl px-3 sm:px-4 pt-4">
+      <div className="mx-auto w-full max-w-4xl px-3 sm:px-4 pt-4">
         <ModelStrip
           assignment={assignment}
           onConfigure={() => chat.setAdvancedOpen(true)}
         />
       </div>
 
-      {/* Body: persistent sidebar (desktop) + chat */}
-      <div className="flex-1 mx-auto w-full max-w-6xl px-3 sm:px-4 py-4 flex gap-4 min-h-0">
-        <ConversationSidebar />
-
-        <main className="flex-1 min-w-0 flex flex-col gap-3 min-h-0">
-          <MessagesArea
-            scrollRef={chat.scrollRef}
-            messages={chat.convs.activeMessages}
-            sending={chat.sending}
-            loadingMessages={chat.convs.loadingMessages}
-            welcomeProps={{
-              examples: EXAMPLES,
-              onPick: (t) => chat.setInput(t),
-              mode: "SINGLE",
-              subtitle: "One model handles everything. Configure it above.",
-            }}
-          />
-          <ChatInput
-            input={chat.input}
-            setInput={chat.setInput}
-            onSend={() => chat.sendMessage(chat.input)}
-            sending={chat.sending}
-            placeholder="Message your single modelâ€¦"
-          />
-        </main>
-      </div>
+      {/* Chat area */}
+      <main className="flex-1 mx-auto w-full max-w-4xl px-3 sm:px-4 py-4 flex flex-col gap-3 min-h-0">
+        <MessagesArea
+          scrollRef={chat.scrollRef}
+          messages={chat.convs.activeMessages}
+          sending={chat.sending}
+          loadingMessages={chat.convs.loadingMessages}
+          welcomeProps={{
+            examples: EXAMPLES,
+            onPick: (t) => chat.setInput(t),
+            mode: "SINGLE",
+            subtitle: "One model handles everything. Configure it above.",
+          }}
+        />
+        <ChatInput
+          input={chat.input}
+          setInput={chat.setInput}
+          onSend={() => chat.sendMessage(chat.input)}
+          sending={chat.sending}
+          placeholder="Message your single model..."
+        />
+      </main>
 
       <ConversationDrawer
         open={chat.convDrawerOpen}
@@ -199,8 +190,8 @@ function ModelStrip({
           variant="outline"
           className={
             assignment.connectionType === "API"
-              ? "bg-foreground/10 text-foreground border-foreground/20"
-              : "bg-muted text-muted-foreground border-border"
+              ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/30"
+              : "bg-amber-500/10 text-amber-400 border-amber-500/30"
           }
         >
           {assignment.connectionType === "API" ? (

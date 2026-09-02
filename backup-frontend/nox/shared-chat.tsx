@@ -19,8 +19,6 @@ import {
   PanelLeft,
   X,
   Settings2,
-  Search,
-  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -48,7 +46,6 @@ import type { Mode } from "@/lib/multi-model-types";
 import { AdvancedCustomization } from "./advanced-customization";
 import { MultiAgentConfirmDialog } from "./multi-agent-confirm-dialog";
 import type { LimitRow } from "@/store/multi-model-store";
-import { cn } from "@/lib/utils";
 
 // ─── MessageBubble ──────────────────────────────────────────────────────────
 
@@ -66,7 +63,7 @@ export function MessageBubble({ msg }: { msg: ConversationMessage }) {
             ? "bg-muted text-foreground"
             : msg.error
             ? "bg-red-500/15 text-red-400"
-            : "bg-gradient-to-br from-foreground to-foreground/60 text-background"
+            : "bg-gradient-to-br from-primary to-fuchsia-500 text-primary-foreground"
         }`}
       >
         {isUser ? (
@@ -85,7 +82,7 @@ export function MessageBubble({ msg }: { msg: ConversationMessage }) {
         {msg.mode && (
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
             {msg.multiAgent && (
-              <Badge className="bg-foreground/10 text-foreground border-foreground/20 hover:bg-foreground/15 text-[9px] py-0 px-1.5">
+              <Badge className="bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/30 hover:bg-fuchsia-500/20 text-[9px] py-0 px-1.5">
                 <Network className="h-2.5 w-2.5 mr-0.5" />
                 Multi-Agent
               </Badge>
@@ -128,7 +125,7 @@ export function MessageBubble({ msg }: { msg: ConversationMessage }) {
                 {s.intent && (
                   <>
                     <span className="text-muted-foreground">·</span>
-                    <span className="text-foreground/80 italic">{s.intent}</span>
+                    <span className="text-fuchsia-400">{s.intent}</span>
                   </>
                 )}
                 <span className="text-muted-foreground ml-auto">
@@ -136,7 +133,7 @@ export function MessageBubble({ msg }: { msg: ConversationMessage }) {
                 </span>
                 {s.tokens && (
                   <span
-                    className="px-1.5 py-0 rounded bg-foreground/10 text-foreground text-[9px]"
+                    className="px-1.5 py-0 rounded bg-cyan-500/10 text-cyan-400 text-[9px]"
                     title={`${s.tokens.input} input + ${s.tokens.output} output`}
                   >
                     {s.tokens.total} tok
@@ -172,7 +169,7 @@ export function MessageBubble({ msg }: { msg: ConversationMessage }) {
             {msg.usage?.tokens && (
               <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono pt-1.5 mt-1 border-t border-border/60 text-muted-foreground">
                 <span className="uppercase tracking-wider">Total:</span>
-                <span className="text-foreground">
+                <span className="text-cyan-400">
                   {msg.usage.tokens.total} tok ({msg.usage.tokens.input} in + {msg.usage.tokens.output} out)
                 </span>
                 {msg.usage.cost && msg.usage.cost.total > 0 && (
@@ -210,8 +207,8 @@ export function WelcomeScreen({
         transition={{ duration: 0.5 }}
         className="relative mb-6"
       >
-        <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-foreground to-foreground/60 flex items-center justify-center nox-glow nox-pulse">
-          <Sparkles className="h-9 w-9 text-background" />
+        <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-primary via-fuchsia-500 to-cyan-500 flex items-center justify-center nox-glow nox-pulse">
+          <Sparkles className="h-9 w-9 text-primary-foreground" />
         </div>
       </motion.div>
       <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight mb-2">
@@ -327,182 +324,7 @@ export function UserMenu() {
   );
 }
 
-// ─── Conversation list (shared content for sidebar + mobile drawer) ────────
-
-function ConversationListContent({ onAfterSelect }: { onAfterSelect: () => void }) {
-  const convs = useConversations();
-  const mm = useMultiModel();
-  const [query, setQuery] = React.useState("");
-  const [renamingId, setRenamingId] = React.useState<string | null>(null);
-  const [renameValue, setRenameValue] = React.useState("");
-
-  const handleNew = async () => {
-    await convs.create(mm.mode as Mode);
-    onAfterSelect();
-  };
-
-  const startRename = (id: string, currentTitle: string) => {
-    setRenamingId(id);
-    setRenameValue(currentTitle);
-  };
-
-  const commitRename = async () => {
-    if (renamingId) await convs.rename(renamingId, renameValue);
-    setRenamingId(null);
-  };
-
-  const filtered = query.trim()
-    ? convs.items.filter((c) =>
-        c.title.toLowerCase().includes(query.trim().toLowerCase())
-      )
-    : convs.items;
-
-  return (
-    <>
-      <Button
-        onClick={handleNew}
-        className="w-full justify-start bg-primary/15 border border-primary/30 text-foreground hover:bg-primary/25"
-        variant="ghost"
-      >
-        <Plus className="h-4 w-4 mr-2" /> New conversation
-      </Button>
-
-      {convs.items.length > 0 && (
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search conversations…"
-            className="w-full h-8 pl-8 pr-2 rounded-lg bg-muted/40 border border-border text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
-          />
-        </div>
-      )}
-
-      <Separator className="my-1" />
-
-      <div className="flex-1 overflow-y-auto nox-scroll space-y-1 -mx-1 px-1">
-        {convs.loading && (
-          <div className="text-xs text-muted-foreground text-center py-6">
-            <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
-            Loading…
-          </div>
-        )}
-        {!convs.loading && convs.items.length === 0 && (
-          <div className="text-xs text-muted-foreground text-center py-6 px-3 leading-relaxed">
-            No conversations yet. Click <strong>New conversation</strong>{" "}
-            to start.
-          </div>
-        )}
-        {!convs.loading && convs.items.length > 0 && filtered.length === 0 && (
-          <div className="text-xs text-muted-foreground text-center py-6 px-3 leading-relaxed">
-            No conversations match &ldquo;{query}&rdquo;.
-          </div>
-        )}
-        {filtered.map((c) => (
-          <div
-            key={c.id}
-            className={`group rounded-lg border px-3 py-2 cursor-pointer transition ${
-              convs.activeId === c.id
-                ? "border-primary/40 bg-primary/10"
-                : "border-transparent hover:bg-muted/50"
-            }`}
-            onClick={() => {
-              if (renamingId === c.id) return;
-              convs.select(c.id);
-              onAfterSelect();
-            }}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                {renamingId === c.id ? (
-                  <input
-                    autoFocus
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    onBlur={commitRename}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        commitRename();
-                      } else if (e.key === "Escape") {
-                        setRenamingId(null);
-                      }
-                    }}
-                    className="w-full h-6 px-1.5 -mx-1.5 rounded bg-background border border-primary/40 text-sm font-medium focus:outline-none"
-                  />
-                ) : (
-                  <div className="text-sm font-medium truncate">
-                    {c.title}
-                  </div>
-                )}
-                <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                  <span className="uppercase tracking-wider">
-                    {c.mode}
-                  </span>
-                  <span>·</span>
-                  <span>
-                    {new Date(c.updatedAt).toLocaleDateString()}
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    startRename(c.id, c.title);
-                  }}
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label="Rename conversation"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    convs.remove(c.id);
-                  }}
-                  className="text-muted-foreground hover:text-red-400"
-                  aria-label="Delete conversation"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
-// ─── ConversationSidebar (persistent, desktop lg+) ──────────────────────────
-
-export function ConversationSidebar({
-  breakpoint = "lg",
-}: {
-  /** Tailwind breakpoint at which the sidebar becomes visible. Use "xl" on
-   * pages that already reserve a lg+ sidebar for something else (e.g. the
-   * Orchestrator roster) so the two don't compete for space. */
-  breakpoint?: "lg" | "xl";
-}) {
-  return (
-    <aside
-      className={cn(
-        "hidden w-72 shrink-0 flex-col gap-2 h-full",
-        breakpoint === "lg" ? "lg:flex" : "xl:flex"
-      )}
-    >
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-sm font-medium">Conversations</span>
-      </div>
-      <ConversationListContent onAfterSelect={() => {}} />
-    </aside>
-  );
-}
-
-// ─── ConversationDrawer (mobile/tablet overlay, below lg) ───────────────────
+// ─── ConversationDrawer (sidebar + mobile drawer) ───────────────────────────
 
 export function ConversationDrawer({
   open,
@@ -511,6 +333,14 @@ export function ConversationDrawer({
   open: boolean;
   onClose: () => void;
 }) {
+  const convs = useConversations();
+  const mm = useMultiModel();
+
+  const handleNew = async () => {
+    await convs.create(mm.mode as Mode);
+    onClose();
+  };
+
   return (
     <AnimatePresence>
       {open && (
@@ -519,7 +349,7 @@ export function ConversationDrawer({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
             onClick={onClose}
           />
           <motion.aside
@@ -527,7 +357,7 @@ export function ConversationDrawer({
             animate={{ x: 0 }}
             exit={{ x: -300 }}
             transition={{ type: "spring", damping: 26, stiffness: 240 }}
-            className="fixed left-0 top-0 bottom-0 w-72 bg-card border-r border-border z-50 p-3 flex flex-col gap-2 lg:hidden"
+            className="fixed left-0 top-0 bottom-0 w-72 bg-card border-r border-border z-50 p-3 flex flex-col gap-2"
           >
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium">Conversations</span>
@@ -540,7 +370,68 @@ export function ConversationDrawer({
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            <ConversationListContent onAfterSelect={onClose} />
+            <Button
+              onClick={handleNew}
+              className="w-full justify-start bg-primary/15 border border-primary/30 text-foreground hover:bg-primary/25"
+              variant="ghost"
+            >
+              <Plus className="h-4 w-4 mr-2" /> New conversation
+            </Button>
+            <Separator className="my-1" />
+            <div className="flex-1 overflow-y-auto nox-scroll space-y-1 -mx-1 px-1">
+              {convs.loading && (
+                <div className="text-xs text-muted-foreground text-center py-6">
+                  <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
+                  Loading…
+                </div>
+              )}
+              {!convs.loading && convs.items.length === 0 && (
+                <div className="text-xs text-muted-foreground text-center py-6 px-3 leading-relaxed">
+                  No conversations yet. Click <strong>New conversation</strong>{" "}
+                  to start.
+                </div>
+              )}
+              {convs.items.map((c) => (
+                <div
+                  key={c.id}
+                  className={`group rounded-lg border px-3 py-2 cursor-pointer transition ${
+                    convs.activeId === c.id
+                      ? "border-primary/40 bg-primary/10"
+                      : "border-transparent hover:bg-muted/50"
+                  }`}
+                  onClick={() => {
+                    convs.select(c.id);
+                    onClose();
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium truncate">
+                        {c.title}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                        <span className="uppercase tracking-wider">
+                          {c.mode}
+                        </span>
+                        <span>·</span>
+                        <span>
+                          {new Date(c.updatedAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        convs.remove(c.id);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </motion.aside>
         </>
       )}
@@ -634,18 +525,16 @@ export function IconButton({
   onClick,
   children,
   label,
-  className,
 }: {
   onClick: () => void;
   children: React.ReactNode;
   label?: string;
-  className?: string;
 }) {
   return (
     <Button
       variant="ghost"
       size="icon"
-      className={cn("h-8 w-8", className)}
+      className="h-8 w-8"
       onClick={onClick}
       aria-label={label}
     >

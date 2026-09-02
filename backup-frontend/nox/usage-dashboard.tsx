@@ -114,8 +114,8 @@ export function UsageDashboard({ onBack }: { onBack: () => void }) {
               <span className="hidden sm:inline">Back</span>
             </button>
             <div className="flex items-center gap-2 ml-1">
-              <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-foreground to-foreground/60 flex items-center justify-center">
-                <TrendingUp className="h-3.5 w-3.5 text-background" />
+              <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center">
+                <TrendingUp className="h-3.5 w-3.5 text-white" />
               </div>
               <div className="leading-none">
                 <div className="font-semibold text-sm">Usage & Cost</div>
@@ -219,21 +219,10 @@ export function UsageDashboard({ onBack }: { onBack: () => void }) {
                     Daily Cost
                   </h3>
                   <span className="text-[10px] text-muted-foreground">
-                    Last {summary.byDay.length} day{summary.byDay.length === 1 ? "" : "s"}
+                    Last {summary.byDay.length} days
                   </span>
                 </div>
-                {summary.byDay.every((d) => d.totalCost === 0) ? (
-                  <div className="h-32 flex flex-col items-center justify-center gap-1.5 text-center">
-                    <TrendingUp className="h-5 w-5 text-muted-foreground/50" />
-                    <p className="text-xs text-muted-foreground">
-                      {summary.totalCalls > 0
-                        ? "No billable cost yet — calls so far were free, failed, or timed out."
-                        : "No activity yet. Costs will appear here once you send a message."}
-                    </p>
-                  </div>
-                ) : (
-                  <DailyCostChart data={summary.byDay} />
-                )}
+                <DailyCostChart data={summary.byDay} />
               </Card>
             )}
 
@@ -299,14 +288,14 @@ export function UsageDashboard({ onBack }: { onBack: () => void }) {
                             <span className="font-mono text-foreground capitalize">
                               {p.provider}
                             </span>
-                            <span className="text-foreground font-mono ml-2 shrink-0">
+                            <span className="text-emerald-400 font-mono ml-2 shrink-0">
                               ${p.totalCost.toFixed(6)}
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
                             <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
                               <motion.div
-                                className="h-full bg-foreground/70"
+                                className="h-full bg-gradient-to-r from-fuchsia-500 to-cyan-500"
                                 initial={{ width: 0 }}
                                 animate={{ width: `${pct}%` }}
                                 transition={{ duration: 0.5, delay: i * 0.05 }}
@@ -365,12 +354,12 @@ export function UsageDashboard({ onBack }: { onBack: () => void }) {
                       </div>
                       <div className="text-right shrink-0">
                         {r.totalTokens != null && (
-                          <div className="text-foreground font-mono text-[11px]">
+                          <div className="text-cyan-400 font-mono text-[11px]">
                             {r.totalTokens} tok
                           </div>
                         )}
                         {r.totalCost != null && r.totalCost > 0 && (
-                          <div className="text-foreground font-mono text-[11px]">
+                          <div className="text-emerald-400 font-mono text-[11px]">
                             ${r.totalCost.toFixed(6)}
                           </div>
                         )}
@@ -420,10 +409,10 @@ function StatCard({
   accent: "emerald" | "cyan" | "violet" | "amber";
 }) {
   const colorMap = {
-    emerald: "from-foreground/15 to-foreground/5 text-foreground border-foreground/20",
-    cyan: "from-foreground/10 to-foreground/[0.03] text-foreground/90 border-foreground/15",
-    violet: "from-muted to-muted/40 text-muted-foreground border-border",
-    amber: "from-muted/70 to-muted/20 text-foreground/70 border-border/60",
+    emerald: "from-emerald-500/20 to-emerald-500/5 text-emerald-400 border-emerald-500/20",
+    cyan: "from-cyan-500/20 to-cyan-500/5 text-cyan-400 border-cyan-500/20",
+    violet: "from-violet-500/20 to-violet-500/5 text-violet-400 border-violet-500/20",
+    amber: "from-amber-500/20 to-amber-500/5 text-amber-400 border-amber-500/20",
   };
   return (
     <Card className={cn("p-4 bg-gradient-to-br border", colorMap[accent])}>

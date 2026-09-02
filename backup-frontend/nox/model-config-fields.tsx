@@ -179,46 +179,56 @@ export function ModelConfigFields({
       {/* Model name (with known-models dropdown) */}
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">Model</Label>
-        {currentProvider && currentProvider.models.length > 1 ? (
-          <Select
-            value={customMode ? "__custom__" : currentModelName}
-            onValueChange={(v) => {
-              if (v === "__custom__") {
-                setCustomMode(true);
-                updateActiveState({ ...assignment, modelName: currentModelName || "" });
-                return;
-              }
-              setCustomMode(false);
-              updateActiveState({ ...assignment, modelName: v });
-            }}
-          >
-            <SelectTrigger className="h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {currentProvider.models.map((m) => (
-                <SelectItem key={m} value={m}>
-                  {m}
-                </SelectItem>
-              ))}
-              <SelectItem value="__custom__">+ Custom model…</SelectItem>
-            </SelectContent>
-          </Select>
+        {!customMode ? (
+          currentProvider && currentProvider.models.length > 1 ? (
+            <Select
+              value={currentModelName}
+              onValueChange={(v) => {
+                if (v === "__custom__") {
+                  setCustomMode(true);
+                  return;
+                }
+                updateActiveState({ ...assignment, modelName: v });
+              }}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {currentProvider.models.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m}
+                  </SelectItem>
+                ))}
+                <SelectItem value="__custom__">+ Custom model…</SelectItem>
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              className="h-9"
+              value={currentModelName}
+              onChange={(e) => updateActiveState({ ...assignment, modelName: e.target.value })}
+              placeholder="model-name"
+            />
+          )
         ) : (
-          <Input
-            className="h-9"
-            value={currentModelName}
-            onChange={(e) => updateActiveState({ ...assignment, modelName: e.target.value })}
-            placeholder="model-name"
-          />
-        )}
-        {customMode && !knownModel && (
-          <Input
-            className="h-9 mt-1"
-            placeholder="Type exact model name"
-            value={currentModelName}
-            onChange={(e) => updateActiveState({ ...assignment, modelName: e.target.value })}
-          />
+          <div className="flex gap-2">
+            <Input
+              className="h-9 flex-1"
+              placeholder="Type exact model name"
+              value={currentModelName}
+              onChange={(e) => updateActiveState({ ...assignment, modelName: e.target.value })}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-9 px-2"
+              onClick={() => setCustomMode(false)}
+            >
+              ← List
+            </Button>
+          </div>
         )}
       </div>
 
@@ -247,22 +257,6 @@ export function ModelConfigFields({
             <p className="text-[10px] text-muted-foreground">
               Encrypted at rest. Masked when reloaded. The Test button sends a real request to the official provider API and shows the provider response if authentication fails.
             </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">
-              Endpoint (optional)
-            </Label>
-            <Input
-              className="h-9 font-mono"
-              value={activeEndpoint}
-              onChange={(e) =>
-                updateActiveState({
-                  ...assignment,
-                  endpoint: e.target.value,
-                })
-              }
-              placeholder="https://api.provider.com/v1"
-            />
           </div>
             </>
           )}

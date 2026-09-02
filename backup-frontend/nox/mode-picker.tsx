@@ -24,7 +24,7 @@ const MODE_CARDS: {
     description:
       "Connect one model (API or Local CLI) and use it for all six feature types — chat, voice, vision, coding, automation, robotics. Simplest setup, fastest responses.",
     icon: Globe,
-    accent: "from-foreground to-foreground/70",
+    accent: "from-violet-500 to-fuchsia-500",
     features: [
       "One config card",
       "All features share the model",
@@ -38,7 +38,7 @@ const MODE_CARDS: {
     description:
       "Assign a different model to each of the 6 features. Use GPT-4o for chat, Claude for coding, Gemini for vision — each prompt routes to the best-fit model automatically.",
     icon: Layers,
-    accent: "from-foreground/85 to-foreground/55",
+    accent: "from-fuchsia-500 to-cyan-500",
     features: [
       "6 independent feature cards",
       "Per-feature provider + connection",
@@ -52,7 +52,7 @@ const MODE_CARDS: {
     description:
       "A Host model reads your prompt, decides what kind of task it is, routes it to the right specialist (planning, coding, vision, automation, robotics), then synthesizes the final reply.",
     icon: Network,
-    accent: "from-foreground/70 to-foreground/40",
+    accent: "from-cyan-500 to-emerald-500",
     features: [
       "Host + 5 specialist cards",
       "Multi-agent confirmation flow",
@@ -68,7 +68,7 @@ export function ModePicker() {
   const enterMode = async (mode: Mode) => {
     mm.setMode(mode);
     await mm.save();
-    router.push(`/${mode.toLowerCase()}`);
+    router.push(`/?mode=${mode.toLowerCase()}`);
   };
 
   return (
@@ -77,8 +77,8 @@ export function ModePicker() {
       <header className="sticky top-0 z-30 glass border-b border-border">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="relative h-8 w-8 rounded-lg bg-gradient-to-br from-foreground to-foreground/60 flex items-center justify-center nox-glow-sm">
-              <span className="text-background font-bold text-sm">
+            <div className="relative h-8 w-8 rounded-lg bg-gradient-to-br from-primary to-fuchsia-500 flex items-center justify-center nox-glow-sm">
+              <span className="text-primary-foreground font-bold text-sm">
                 N
               </span>
             </div>
@@ -91,7 +91,7 @@ export function ModePicker() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => router.push("/usage")}
+              onClick={() => router.push("/?view=usage")}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-muted/30 hover:bg-muted/60 text-muted-foreground hover:text-foreground transition"
             >
               <TrendingUp className="h-3.5 w-3.5" />
@@ -110,13 +110,13 @@ export function ModePicker() {
           transition={{ duration: 0.4 }}
           className="text-center mb-10 sm:mb-14"
         >
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-gradient-to-br from-foreground to-foreground/60 mb-4 nox-glow nox-pulse">
-            <Sparkles className="h-7 w-7 text-background" />
+          <div className="mb-4 inline-flex items-center justify-center rounded-full border border-primary/25 bg-primary/5 px-3 py-2 text-primary nox-glow-sm">
+            <Sparkles className="h-4 w-4" />
           </div>
-          <h1 className="text-3xl sm:text-5xl font-semibold tracking-tight mb-3">
+          <h1 className="mb-3 text-3xl font-semibold tracking-[-0.05em] sm:text-5xl">
             Welcome to <span className="nox-text-gradient">NOX AI</span>
           </h1>
-          <p className="text-sm sm:text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+          <p className="mx-auto max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
             Three ways to wield multi-model intelligence. Pick the mode that
             matches your task — you can switch any time.
           </p>
@@ -144,7 +144,7 @@ export function ModePicker() {
                 <div
                   className={`h-12 w-12 rounded-xl bg-gradient-to-br ${card.accent} flex items-center justify-center mb-4 nox-glow-sm`}
                 >
-                  <Icon className="h-6 w-6 text-background" />
+                  <Icon className="h-6 w-6 text-white" />
                 </div>
 
                 <div className="flex items-baseline gap-2 mb-1">

@@ -78,8 +78,8 @@ export function AuthOverlay() {
       >
         {/* Logo */}
         <div className="flex flex-col items-center mb-6">
-          <div className="relative h-16 w-16 rounded-2xl bg-gradient-to-br from-foreground to-foreground/60 flex items-center justify-center nox-glow nox-pulse mb-3">
-            <Sparkles className="h-7 w-7 text-background" />
+          <div className="relative h-16 w-16 rounded-2xl bg-gradient-to-br from-primary via-fuchsia-500 to-cyan-500 flex items-center justify-center nox-glow nox-pulse mb-3">
+            <Sparkles className="h-7 w-7 text-primary-foreground" />
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">
             <span className="nox-text-gradient">NOX AI</span>
