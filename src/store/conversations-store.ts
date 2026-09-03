@@ -13,6 +13,10 @@ export interface ConversationMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  image?: {
+    data: string;
+    mimeType: string;
+  };
   trace?: DispatchStep[];
   mode?: string;
   multiAgent: boolean;

@@ -143,6 +143,7 @@ export function useChat() {
         id: crypto.randomUUID(),
         role: "user",
         content: text,
+        image,
         multiAgent: false,
         error: false,
         createdAt: new Date().toISOString(),
@@ -158,7 +159,7 @@ export function useChat() {
     const apiMessages = [
       ...currentMessages
         .filter((m) => !m.error)
-        .map((m) => ({ role: m.role, content: m.content })),
+        .map((m) => ({ role: m.role, content: m.content, image: m.image })),
       // Only add the user message if it's not already in the history
       // (on confirmation re-dispatch, it's already there)
       ...(confirmMultiAgent
