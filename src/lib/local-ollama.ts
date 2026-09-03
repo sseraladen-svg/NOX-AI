@@ -48,6 +48,7 @@ export async function generateFromBrowser(
   endpoint: string,
   model: string,
   prompt: string,
+  image?: { data: string; mimeType: string },
   onChunk?: (text: string) => void
 ): Promise<
   | { ok: true; text: string; tokens?: { input: number; output: number; total: number }; latencyMs?: number }
@@ -59,7 +60,12 @@ export async function generateFromBrowser(
     const res = await fetch(`${base}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, prompt, stream: true }),
+      body: JSON.stringify({
+        model,
+        prompt,
+        stream: true,
+        ...(image ? { images: [image.data] } : {}),
+      }),
       signal: AbortSignal.timeout(BROWSER_OLLAMA_TIMEOUT_MS),
     });
 

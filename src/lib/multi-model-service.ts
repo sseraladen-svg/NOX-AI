@@ -1977,6 +1977,10 @@ async function callLocalCli(
   // Build a single text prompt from the system hint + last user message.
   const lastUser = [...conv].reverse().find((m) => m.role === "user");
   const prompt = `${systemHint}\n\nUser: ${lastUser?.content || ""}\nAssistant:`;
+  const images = conv
+    .filter((m) => m.image)
+    .map((m) => m.image?.data)
+    .filter((data): data is string => Boolean(data));
 
   let args: string[];
   if (provider === "llamacpp" || provider === "llamafile") {
@@ -2041,6 +2045,7 @@ async function callOllamaHttp(
         model,
         prompt,
         stream: true, // streaming mode "" each chunk is a heartbeat
+        ...(images.length > 0 ? { images } : {}),
         options: {
           num_predict: 1024,
         },

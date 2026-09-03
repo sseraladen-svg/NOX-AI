@@ -251,10 +251,18 @@ export function useChat() {
         if (pendingClientExec) {
           let execCtx = pendingClientExec;
           while (execCtx) {
+            const execMessages = Array.isArray(execCtx.resumeContext?.messages)
+              ? execCtx.resumeContext.messages
+              : [];
+            const execImage = [...execMessages]
+              .reverse()
+              .find((message: { role?: string; image?: { data: string; mimeType: string } }) => message.role === "user")
+              ?.image;
             const local = await generateFromBrowser(
               execCtx.endpoint || "",
               execCtx.model,
               execCtx.prompt,
+              execImage,
               (chunk) => {
                 progressiveText += chunk;
                 useConversations.setState((s) => ({
@@ -448,10 +456,18 @@ export function useChat() {
       if (r.pendingClientExec) {
         let execCtx = r.pendingClientExec;
         while (execCtx) {
+          const execMessages = Array.isArray(execCtx.resumeContext?.messages)
+            ? execCtx.resumeContext.messages
+            : [];
+          const execImage = [...execMessages]
+            .reverse()
+            .find((message: { role?: string; image?: { data: string; mimeType: string } }) => message.role === "user")
+            ?.image;
           const local = await generateFromBrowser(
             execCtx.endpoint || "",
             execCtx.model,
-            execCtx.prompt
+            execCtx.prompt,
+            execImage
           );
 
           if (!local.ok) {
