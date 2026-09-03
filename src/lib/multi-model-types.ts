@@ -326,7 +326,7 @@ export const DEFAULT_TIMEOUTS = {
   GENERATION: 60_000, // Full model responses need additional headroom
 } as const;
 
-export const MAX_RETRY = 1; // Reduced from 2 for faster fallback
+export const MAX_RETRY = 0; // No automatic retry - fail fast on first attempt
 
 // ─── Pricing table ─────────────────────────────────────────────────────────
 //
