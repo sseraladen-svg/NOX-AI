@@ -286,6 +286,8 @@ function isTransientProviderError(message: string): boolean {
 
 
 
+
+
 // ---
 
 function encryptAssignment(a?: ModelAssignment | null): ModelAssignment | null {
@@ -1092,7 +1094,12 @@ function resolvePlan(
 async function callModel(
   assignment: ModelAssignment,
   messages: ChatMessage[],
-  opts: { timeoutMs: number; role: string; intent?: string }
+  opts: {
+    timeoutMs: number;
+    role: string;
+    intent?: string;
+    onChunk?: (text: string) => void;
+  }
 ): Promise<{
   output: string;
   latencyMs: number;
@@ -1107,15 +1114,32 @@ async function callModel(
   let timedOut = false;
   let lastError: string | undefined;
   let tokens: TokenUsage | undefined;
+  const effectiveTimeout =
+    assignment.provider === "gemini" && opts.onChunk
+      ? DEFAULT_TIMEOUTS.GENERATION
+      : opts.timeoutMs;
 
   for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
     try {
       const result = await Promise.race([
-        realCall(assignment, messages, opts.role, opts.intent, opts.timeoutMs),
+        assignment.provider === "gemini" && opts.onChunk
+          ? callGeminiStreaming(
+              assignment.apiKey || "",
+              assignment.modelName,
+              opts.role === "host"
+                ? "You are NOX Host. Analyze the user's intent and either answer directly or synthesize the response from a specialist model into a clean reply to the user. Be concise."
+                : opts.intent
+                ? `You are NOX ${opts.role} specialist (intent: ${opts.intent}). Answer the user's request focused on your specialty. Be concise and useful.`
+                : "You are NOX AI. Respond helpfully and concisely.",
+              messages.filter((m) => m.role !== "system"),
+              assignment.endpoint,
+              opts.onChunk
+            )
+          : realCall(assignment, messages, opts.role, opts.intent, opts.timeoutMs),
         new Promise<never>((_, reject) =>
           setTimeout(
-            () => reject(new Error(`timeout after ${opts.timeoutMs}ms`)),
-            opts.timeoutMs
+              () => reject(new Error(`timeout after ${effectiveTimeout}ms`)),
+              effectiveTimeout
           )
         ),
       ]);
@@ -2557,6 +2581,7 @@ export async function dispatch(
         timeoutMs: hostTimeout,
         role: "host",
         intent: "direct",
+        onChunk: opts.onChunk,
       });
 
       steps.push({
@@ -2735,6 +2760,7 @@ export async function dispatch(
     const finalResult = await callModel(hostAssignment, finalMessages, {
       timeoutMs: hostTimeout,
       role: "host",
+      onChunk: opts.onChunk,
     });
 
     // Log specialist step
@@ -2827,6 +2853,7 @@ export async function dispatch(
       timeoutMs: hostTimeout,
       role: "host",
       intent: "direct",
+      onChunk: opts.onChunk,
     });
 
     steps.push({
@@ -2930,6 +2957,7 @@ export async function dispatch(
     timeoutMs: timeout,
     role: plan.assignments[0].label,
     intent: plan.intent,
+    onChunk: opts.onChunk,
   });
 
   steps.push({
@@ -3763,7 +3791,4 @@ export async function getRecentUsage(
     createdAt: r.createdAt.toISOString(),
   }));
 }
-
-
-
 
