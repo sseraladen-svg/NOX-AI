@@ -1539,7 +1539,7 @@ async function callGeminiStreaming(
     generationConfig: { maxOutputTokens: 1024 },
   });
 
-  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(DEFAULT_TIMEOUTS.API) });
+  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(DEFAULT_TIMEOUTS.GENERATION) });
   if (!res.ok || !res.body) {
     const body = await res.text().catch(() => res.statusText);
     throw new Error(classifyProviderError("gemini", res.status, body).message);
@@ -2578,8 +2578,8 @@ export async function dispatch(
       });
 
       const finalReply = result.output || (result.lastError
-        ? `š  Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
-        : "š  Model returned no response. Check your configuration in Advanced Customization.");
+        ? `Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
+        : "Model returned no response. Check your configuration in Advanced Customization.");
 
       return {
         ok: true,
@@ -2778,8 +2778,8 @@ export async function dispatch(
     });
 
     const finalReply = finalResult.output || (finalResult.lastError
-      ? `š  Model call failed after ${finalResult.retries} attempt(s).\n\nError: ${finalResult.lastError}\n\nCheck your configuration in Advanced Customization.`
-      : "š  Model returned no response. Check your configuration in Advanced Customization.");
+      ? `Model call failed after ${finalResult.retries} attempt(s).\n\nError: ${finalResult.lastError}\n\nCheck your configuration in Advanced Customization.`
+      : "Model returned no response. Check your configuration in Advanced Customization.");
 
     return {
       ok: true,
@@ -2848,8 +2848,8 @@ export async function dispatch(
     });
 
     const finalReply = result.output || (result.lastError
-      ? `š  Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
-      : "š  Model returned no response. Check your configuration in Advanced Customization.");
+      ? `Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
+      : "Model returned no response. Check your configuration in Advanced Customization.");
 
     return {
       ok: true,
@@ -2951,8 +2951,8 @@ export async function dispatch(
   // If the call failed (empty output after retries), surface the error as
   // the final reply so the user sees what went wrong in the chat.
   const finalReply = result.output || (result.lastError
-    ? `š  Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
-    : "š  Model returned no response. Check your configuration in Advanced Customization.");
+    ? `Model call failed after ${result.retries} attempt(s).\n\nError: ${result.lastError}\n\nCheck your configuration in Advanced Customization.`
+    : "Model returned no response. Check your configuration in Advanced Customization.");
 
   return {
     ok: true,
@@ -3763,7 +3763,6 @@ export async function getRecentUsage(
     createdAt: r.createdAt.toISOString(),
   }));
 }
-
 
 
 

@@ -322,7 +322,8 @@ export const PROVIDERS = [
 
 export const DEFAULT_TIMEOUTS = {
   LOCAL: 120_000,
-  API: 15_000, // Reduced from 30_000 for faster failure detection
+  API: 15_000, // Quick connection and reachability checks
+  GENERATION: 60_000, // Full model responses need additional headroom
 } as const;
 
 export const MAX_RETRY = 1; // Reduced from 2 for faster fallback
