@@ -218,7 +218,9 @@ async function fetchWithRetry(url: string, init: RequestInit, timeoutMs = PROVID
       await new Promise((resolve) => setTimeout(resolve, PROVIDER_RETRY_DELAY_MS * (attempt + 1)));
     }
   }
-  throw lastError || new Error("Provider request failed");
+  const cause = (lastError as { cause?: { code?: string; message?: string } }).cause;
+  const detail = cause?.code || cause?.message;
+  throw lastError || new Error(`Provider request failed${detail ? ` (${detail})` : ""}`);
 }
 
 function parseErrorBody(body: string): string {
@@ -912,15 +914,19 @@ async function quickApiReachabilityCheck(
     return result;
   } catch (err) {
     const e = err as Error;
+    const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+    const detail = cause?.code || cause?.message;
     const isConn =
       e.message.includes("fetch failed") ||
       e.message.includes("aborted") ||
       e.message.includes("ECONNREFUSED");
+    const baseReason = isConn
+      ? `Cannot reach ${provider} from the server (network/region block).`
+      : `${provider} error: ${e.message}`;
+    const reason = detail ? `${baseReason} (${detail})` : baseReason;
     const result = {
       canFinish: false,
-      reason: isConn
-        ? `Cannot reach ${provider} from the server (network/region block).`
-        : `${provider} error: ${e.message}`,
+      reason,
     };
     setCachedReachability(userId, assignment, { id: "cached", label: "cached", connectionType: assignment.connectionType, provider: assignment.provider, modelName: assignment.modelName, canFinish: false, reason: result.reason });
     return result;
@@ -1095,7 +1101,10 @@ async function callModel(
     } catch (err) {
       retries = attempt + 1;
       timedOut = true;
-      lastError = (err as Error).message;
+      const e = err as Error;
+      const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+      const detail = cause?.code || cause?.message;
+      lastError = detail ? `${e.message} (${detail})` : e.message;
       if (attempt === MAX_RETRY) break;
       await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
     }
@@ -1599,7 +1608,10 @@ export async function testGeminiConnection(
     return { ok: true, status: "ready", message: `Connected to Google Gemini (key verified via official API). Model "${model}" ready.`, version: model, latencyMs };
   } catch (err) {
     const e = err as Error;
-    const message = isTransientProviderError(e.message) ? `Could not reach Google's Gemini API: ${e.message}` : `Gemini error: ${e.message}`;
+    const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+    const detail = cause?.code || cause?.message;
+    const baseMessage = isTransientProviderError(e.message) ? `Could not reach Google's Gemini API: ${e.message}` : `Gemini error: ${e.message}`;
+    const message = detail ? `${baseMessage} (${detail})` : baseMessage;
     return { ok: false, status: "error", message, reason: e.message, fixSteps: ["Check your network connection", "Verify the Gemini endpoint", "Retry in a moment"], latencyMs: Date.now() - started };
   }
 }
@@ -1645,7 +1657,11 @@ export async function testOpenAiCompatibleConnection(
     return { ok: true, status: "ready", message: `Connected to ${runtime.displayName} (official API). ${modelCount} models available. Model "${model}" ready.`, version: model, latencyMs: Date.now() - started };
   } catch (err) {
     const e = err as Error;
-    return { ok: false, status: "error", message: isTransientProviderError(e.message) ? `Could not reach ${runtime.displayName}'s API from the server.` : `${runtime.displayName} error: ${e.message}`, reason: e.message, fixSteps: ["Check your network connection", "Verify the provider endpoint", "Retry in a moment"], latencyMs: Date.now() - started };
+    const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+    const detail = cause?.code || cause?.message;
+    const baseMessage = isTransientProviderError(e.message) ? `Could not reach ${runtime.displayName}'s API from the server.` : `${runtime.displayName} error: ${e.message}`;
+    const message = detail ? `${baseMessage} (${detail})` : baseMessage;
+    return { ok: false, status: "error", message, reason: e.message, fixSteps: ["Check your network connection", "Verify the provider endpoint", "Retry in a moment"], latencyMs: Date.now() - started };
   }
 }
 
@@ -1681,7 +1697,11 @@ export async function testAnthropicConnection(
     return { ok: true, status: "ready", message: `Connected to Anthropic (official API). ${modelCount} models available. Model "${model}" ready.`, version: model, latencyMs: Date.now() - started };
   } catch (err) {
     const e = err as Error;
-    return { ok: false, status: "error", message: isTransientProviderError(e.message) ? `Could not reach Anthropic's API from the server.` : `Anthropic error: ${e.message}`, reason: e.message, fixSteps: ["Check your network connection", "Verify the Anthropic endpoint", "Retry in a moment"], latencyMs: Date.now() - started };
+    const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+    const detail = cause?.code || cause?.message;
+    const baseMessage = isTransientProviderError(e.message) ? `Could not reach Anthropic's API from the server.` : `Anthropic error: ${e.message}`;
+    const message = detail ? `${baseMessage} (${detail})` : baseMessage;
+    return { ok: false, status: "error", message, reason: e.message, fixSteps: ["Check your network connection", "Verify the Anthropic endpoint", "Retry in a moment"], latencyMs: Date.now() - started };
   }
 }
 
@@ -1749,19 +1769,25 @@ export async function testOllamaConnection(
     };
   } catch (err) {
     const e = err as Error;
+    const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+    const detail = cause?.code || cause?.message;
     const isConnRefused =
       e.message.includes("ECONNREFUSED") ||
       e.message.includes("fetch failed") ||
       e.message.includes("aborted");
+    const baseMessage = isConnRefused
+      ? `Could not connect to Ollama at ${base}. If NOX AI is hosted, 127.0.0.1 refers to the SERVER, not your machine. Set the Endpoint field to a publicly reachable Ollama host.`
+      : `Ollama error: ${e.message}`;
+    const message = detail ? `${baseMessage} (${detail})` : baseMessage;
+    const baseReason = isConnRefused
+      ? "Connection refused - Ollama is not running at this address from the server's perspective. (Note: localhost is automatically resolved to 127.0.0.1 to avoid IPv6 issues)"
+      : e.message;
+    const reason = detail ? `${baseReason} (${detail})` : baseReason;
     return {
       ok: false,
       status: "error",
-      message: isConnRefused
-        ? `Could not connect to Ollama at ${base}. If NOX AI is hosted, 127.0.0.1 refers to the SERVER, not your machine. Set the Endpoint field to a publicly reachable Ollama host.`
-        : `Ollama error: ${e.message}`,
-      reason: isConnRefused
-        ? "Connection refused - Ollama is not running at this address from the server's perspective. (Note: localhost is automatically resolved to 127.0.0.1 to avoid IPv6 issues)"
-        : e.message,
+      message,
+      reason,
       fixSteps: isConnRefused
         ? [
             "If running locally: ensure Ollama is started (ollama serve)",
@@ -2071,12 +2097,15 @@ async function callOllamaHttp(
     return { text, tokens, heartbeats };
   } catch (err) {
     const e = err as Error;
+    const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+    const detail = cause?.code || cause?.message;
     if (e.message.includes("ECONNREFUSED") || e.message.includes("fetch failed")) {
-      throw new Error(
-        `Could not connect to Ollama at ${base}. The server cannot reach this address - if NOX AI is hosted, 127.0.0.1 refers to the SERVER, not your machine. Either install Ollama on the server, or set the Endpoint field to a publicly reachable Ollama host.`
-      );
+      const baseMessage = `Could not connect to Ollama at ${base}. The server cannot reach this address - if NOX AI is hosted, 127.0.0.1 refers to the SERVER, not your machine. Either install Ollama on the server, or set the Endpoint field to a publicly reachable Ollama host.`;
+      const message = detail ? `${baseMessage} (${detail})` : baseMessage;
+      throw new Error(message);
     }
-    throw new Error(`Ollama error: ${e.message}`);
+    const message = detail ? `Ollama error: ${e.message} (${detail})` : `Ollama error: ${e.message}`;
+    throw new Error(message);
   }
 }
 
