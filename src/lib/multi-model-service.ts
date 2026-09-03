@@ -55,12 +55,33 @@ function normalizeOllamaEndpoint(endpoint?: string): string {
   return base.replace("://localhost", "://127.0.0.1");
 }
 
+// Helper to resolve the correct endpoint field based on connection type
+// This is the single source of truth for which endpoint field to use
+function resolveEndpoint(a: ModelAssignment): string | undefined {
+  return a.connectionType === "API" ? a.apiEndpoint : a.localEndpoint;
+}
+
+// Migration function to auto-heal legacy endpoint field
+// Moves the old endpoint value to the correct field based on connection type
+// and removes the legacy field to prevent future contamination
+function migrateEndpoint(a: ModelAssignment | null | undefined): ModelAssignment | null | undefined {
+  if (!a || !a.endpoint) return a;
+  const migrated = { ...a };
+  if (a.connectionType === "API" && !a.apiEndpoint) {
+    migrated.apiEndpoint = a.endpoint;
+  } else if (a.connectionType === "LOCAL" && !a.localEndpoint) {
+    migrated.localEndpoint = a.endpoint;
+  }
+  delete migrated.endpoint; // clear the legacy field so it can never leak again
+  return migrated;
+}
+
 // Simple in-memory cache for reachability checks with 60s TTL
 const reachabilityCache = new Map<string, { result: ModelLimit; expiresAt: number }>();
 const CACHE_TTL_MS = 60_000; // 60 seconds
 
 function getCacheKey(userId: string, assignment: ModelAssignment): string {
-  return `${userId}-${assignment.connectionType}-${assignment.provider}-${assignment.modelName}-${assignment.endpoint || ""}-${assignment.apiKey?.slice(-4) || ""}`;
+  return `${userId}-${assignment.connectionType}-${assignment.provider}-${assignment.modelName}-${resolveEndpoint(assignment) || ""}-${assignment.apiKey?.slice(-4) || ""}`;
 }
 
 function getCachedReachability(userId: string, assignment: ModelAssignment): ModelLimit | null {
@@ -443,20 +464,24 @@ export async function saveConfig(
 
   const preserveMaskedKey = (incoming: ModelAssignment | null | undefined, existingJson: string | null): ModelAssignment | null => {
     if (!incoming) return null;
+    // First migrate any legacy endpoint field to the correct field
+    const migrated = migrateEndpoint(incoming);
+    if (!migrated) return null;
+    
     // If the incoming key is missing or masked, preserve the existing key.
-    if (!incoming.apiKey || isMaskedApiKey(incoming.apiKey)) {
+    if (!migrated.apiKey || isMaskedApiKey(migrated.apiKey)) {
       if (existingJson) {
         try {
           const existingAssign = JSON.parse(existingJson) as ModelAssignment;
           const decrypted = existingAssign.apiKey ? decryptApiKey(existingAssign.apiKey) : undefined;
-          return { ...incoming, apiKey: decrypted };
+          return { ...migrated, apiKey: decrypted };
         } catch {
-          return { ...incoming, apiKey: undefined };
+          return { ...migrated, apiKey: undefined };
         }
       }
-      return { ...incoming, apiKey: undefined };
+      return { ...migrated, apiKey: undefined };
     }
-    return incoming;
+    return migrated;
   };
 
   const globalConfig = doc.globalConfig
@@ -480,13 +505,17 @@ export async function saveConfig(
     const out: Record<string, ModelAssignment> = {};
     for (const [k, v] of Object.entries(incoming)) {
       if (!v) continue;
-      if (!v.apiKey || isMaskedApiKey(v.apiKey)) {
+      // First migrate any legacy endpoint field to the correct field
+      const migrated = migrateEndpoint(v);
+      if (!migrated) continue;
+      
+      if (!migrated.apiKey || isMaskedApiKey(migrated.apiKey)) {
         // Preserve the existing key for this role, but decrypt it before the
         // next encryptAssignment pass so we never double-encrypt a stored key.
         const preserved = existingMap[k]?.apiKey ? decryptApiKey(existingMap[k].apiKey) : undefined;
-        out[k] = { ...v, apiKey: preserved };
+        out[k] = { ...migrated, apiKey: preserved };
       } else {
-        out[k] = v;
+        out[k] = migrated;
       }
     }
     return out;
@@ -619,7 +648,7 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
   // generation tokens. If it fails, we return the specific error from
   // formatGeminiHttpError so the user gets an actionable message.
   if (a.connectionType === "API" && a.provider === "gemini") {
-    const geminiResult = await testGeminiConnection(a.apiKey!, a.modelName, a.endpoint);
+    const geminiResult = await testGeminiConnection(a.apiKey!, a.modelName, resolveEndpoint(a));
     if (!geminiResult.ok) {
       return geminiResult;
     }
@@ -646,7 +675,7 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
   // ---
   // Anthropic has its own auth header (x-api-key) + its own /v1/models endpoint.
   if (a.connectionType === "API" && a.provider === "anthropic") {
-    return await testAnthropicConnection(a.apiKey!, a.modelName, a.endpoint);
+    return await testAnthropicConnection(a.apiKey!, a.modelName, resolveEndpoint(a));
   }
 
   // ---
@@ -656,14 +685,14 @@ export async function testAssignment(a: ModelAssignment): Promise<TestResult> {
       a.apiKey!,
       a.modelName,
       a.provider,
-      a.endpoint
+      resolveEndpoint(a)
     );
   }
 
   if (a.connectionType === "LOCAL") {
     // For ollama: actually ping the HTTP API to verify it's reachable.
     if (a.provider === "ollama") {
-      return await testOllamaConnection(a.modelName, a.endpoint);
+      return await testOllamaConnection(a.modelName, resolveEndpoint(a));
     }
     // For llamacpp/llamafile: actually verify the binary exists on disk and
     // is executable, rather than assuming the path is valid.
@@ -2347,7 +2376,7 @@ export async function dispatch(
         assignment.modelName,
         systemHint,
         conv,
-        assignment.endpoint,
+        resolveEndpoint(assignment),
         (delta) => opts.onChunk!(role, delta)
       );
       return {
@@ -2429,7 +2458,7 @@ export async function dispatch(
           confirmationRequired: false,
           pendingClientExec: {
             stepId: crypto.randomUUID(),
-            endpoint: hostAssignment.endpoint || "",
+            endpoint: resolveEndpoint(hostAssignment) || "",
             model: hostAssignment.modelName,
             prompt: buildClassificationPrompt(messages),
             resumeContext: {
@@ -2510,7 +2539,7 @@ export async function dispatch(
           confirmationRequired: false,
           pendingClientExec: {
             stepId: crypto.randomUUID(),
-            endpoint: hostAssignment.endpoint || "",
+            endpoint: resolveEndpoint(hostAssignment) || "",
             model: hostAssignment.modelName,
             prompt: buildPromptFromMessages(messages, "host", "direct"),
             resumeContext: {
@@ -2643,7 +2672,7 @@ export async function dispatch(
         confirmationRequired: false,
         pendingClientExec: {
           stepId: crypto.randomUUID(),
-          endpoint: specialistAssignment.endpoint || "",
+          endpoint: resolveEndpoint(specialistAssignment) || "",
           model: specialistAssignment.modelName,
           prompt: buildPromptFromMessages(specialistMessages, specialistId, specialistId),
           resumeContext: {
@@ -2689,7 +2718,7 @@ export async function dispatch(
         confirmationRequired: false,
         pendingClientExec: {
           stepId: crypto.randomUUID(),
-          endpoint: hostAssignment.endpoint || "",
+          endpoint: resolveEndpoint(hostAssignment) || "",
           model: hostAssignment.modelName,
           prompt: buildPromptFromMessages(finalMessages, "host"),
           resumeContext: {
@@ -2780,7 +2809,7 @@ export async function dispatch(
         confirmationRequired: false,
         pendingClientExec: {
           stepId: crypto.randomUUID(),
-          endpoint: hostAssignment.endpoint || "",
+          endpoint: resolveEndpoint(hostAssignment) || "",
           model: hostAssignment.modelName,
           prompt: buildPromptFromMessages(messages, "host", "direct"),
           resumeContext: {
@@ -2882,7 +2911,7 @@ export async function dispatch(
       confirmationRequired: false,
       pendingClientExec: {
         stepId: crypto.randomUUID(),
-        endpoint: a.endpoint || "",
+        endpoint: resolveEndpoint(a) || "",
         model: a.modelName,
         prompt: buildPromptFromMessages(messages, plan.assignments[0].label, plan.intent),
         resumeContext: {
@@ -3027,7 +3056,7 @@ export async function resumeDispatch(
             confirmationRequired: false,
             pendingClientExec: {
               stepId: crypto.randomUUID(),
-              endpoint: hostAssignment.endpoint || "",
+              endpoint: resolveEndpoint(hostAssignment) || "",
               model: hostAssignment.modelName,
               prompt: buildPromptFromMessages(messages, "host", "direct"),
               resumeContext: {
@@ -3096,7 +3125,7 @@ export async function resumeDispatch(
           confirmationRequired: false,
           pendingClientExec: {
             stepId: crypto.randomUUID(),
-            endpoint: specialistAssignment.endpoint || "",
+            endpoint: resolveEndpoint(specialistAssignment) || "",
             model: specialistAssignment.modelName,
             prompt: buildPromptFromMessages(specialistMessages, specialistId, specialistId),
             resumeContext: {
@@ -3156,7 +3185,7 @@ export async function resumeDispatch(
           confirmationRequired: false,
           pendingClientExec: {
             stepId: crypto.randomUUID(),
-            endpoint: hostAssignment.endpoint || "",
+            endpoint: resolveEndpoint(hostAssignment) || "",
             model: hostAssignment.modelName,
             prompt: buildPromptFromMessages(finalMessages, "host"),
             resumeContext: {
@@ -3235,7 +3264,7 @@ export async function resumeDispatch(
           confirmationRequired: false,
           pendingClientExec: {
             stepId: crypto.randomUUID(),
-            endpoint: hostAssignment.endpoint || "",
+            endpoint: resolveEndpoint(hostAssignment) || "",
             model: hostAssignment.modelName,
             prompt: buildPromptFromMessages(finalMessages, "host"),
             resumeContext: {
