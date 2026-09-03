@@ -184,6 +184,46 @@ function buildProviderUrl(base: string | undefined, suffix: string): string {
   return normalizedBase.endsWith(suffix) ? normalizedBase : `${normalizedBase}${suffix}`;
 }
 
+function isImageGenerationPrompt(text: string): boolean {
+  return /\b(generate|create|make|draw|design|render)\b.{0,30}\b(image|picture|illustration|logo|poster|avatar)\b/i.test(text);
+}
+
+async function generateImage(
+  assignment: ModelAssignment,
+  prompt: string
+): Promise<{ markdown: string; latencyMs: number }> {
+  const started = Date.now();
+  const apiKey = normalizeApiKey(assignment.apiKey);
+  if (!apiKey) throw new Error("An API key is required for image generation.");
+
+  const provider = normalizeProviderSelection(assignment.provider, apiKey, assignment.endpoint);
+  if (provider !== "openai" && provider !== "auto") {
+    throw new Error("Image generation currently requires an OpenAI API connection.");
+  }
+
+  const runtime = resolveProviderConfig(provider, apiKey, assignment.endpoint);
+  const response = await fetchWithRetry(
+    buildProviderUrl(runtime.defaultBase, "/images/generations"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: "gpt-image-1", prompt, size: "1024x1024", quality: "auto" }),
+    },
+    DEFAULT_TIMEOUTS.GENERATION
+  );
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => response.statusText);
+    throw new Error(`Image generation failed (HTTP ${response.status}): ${parseErrorBody(body)}`);
+  }
+
+  const data = (await response.json()) as { data?: Array<{ url?: string; b64_json?: string }> };
+  const item = data.data?.[0];
+  if (!item?.url && !item?.b64_json) throw new Error("Image generation returned no image.");
+  const source = item.url || `data:image/png;base64,${item.b64_json}`;
+  return { markdown: `![Generated image](${source})`, latencyMs: Date.now() - started };
+}
+
 function isGoogleApiKey(apiKey: string): boolean {
   const trimmed = apiKey?.trim();
   if (!trimmed) return false;
@@ -2906,6 +2946,48 @@ export async function dispatch(
 
   // ---
   const plan = resolvePlan(doc, messages, opts.feature);
+
+  // Explicit image requests in SINGLE mode use the image generation endpoint
+  // instead of asking the text model to describe an image.
+  if (doc.mode === "SINGLE" && !opts.confirmMultiAgent) {
+    const prompt = messages[messages.length - 1]?.content || "";
+    const assignment = plan.assignments[0].assignment;
+    if (isImageGenerationPrompt(prompt)) {
+      try {
+        const generated = await generateImage(assignment, prompt);
+        const step: DispatchStep = {
+          role: plan.assignments[0].label,
+          model: "gpt-image-1",
+          provider: assignment.provider,
+          connectionType: assignment.connectionType,
+          intent: "image-generation",
+          input: prompt,
+          output: generated.markdown,
+          latencyMs: generated.latencyMs,
+          retries: 0,
+          timedOut: false,
+        };
+        return {
+          ok: true,
+          mode: doc.mode,
+          steps: [step],
+          finalReply: generated.markdown,
+          multiAgent: false,
+          confirmationRequired: false,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          mode: doc.mode,
+          steps: [],
+          finalReply: "",
+          multiAgent: false,
+          confirmationRequired: false,
+          error: (err as Error).message,
+        };
+      }
+    }
+  }
 
   if (plan.multiAgent && !opts.confirmMultiAgent) {
     const limits = await checkLimits(userId, plan.assignments, "medium");

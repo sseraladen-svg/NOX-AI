@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Copy,
   Check,
+  Download,
   Code2,
   Mic,
   MicOff,
@@ -433,6 +434,17 @@ export function CodingFeatureUI({
     setTimeout(() => setCopiedIdx(null), 2000);
   };
 
+  const download = (block: { lang: string; code: string }, idx: number) => {
+    const extension = block.lang || "txt";
+    const blob = new Blob([block.code], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `artifact-${idx + 1}.${extension}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="flex flex-col lg:flex-row gap-3 min-h-0 flex-1">
       {/* Left: prompt + history */}
@@ -549,20 +561,28 @@ export function CodingFeatureUI({
                     <span className="text-[10px] font-mono text-muted-foreground uppercase">
                       {block.lang || "code"}
                     </span>
-                    <button
-                      onClick={() => copy(block.code, i)}
-                      className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
-                    >
-                      {copiedIdx === i ? (
-                        <>
-                          <Check className="h-3 w-3" /> Copied
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="h-3 w-3" /> Copy
-                        </>
-                      )}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => copy(block.code, i)}
+                        className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+                      >
+                        {copiedIdx === i ? (
+                          <>
+                            <Check className="h-3 w-3" /> Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3 w-3" /> Copy
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => download(block, i)}
+                        className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+                      >
+                        <Download className="h-3 w-3" /> Artifact
+                      </button>
+                    </div>
                   </div>
                   <pre className="p-3 text-xs font-mono leading-relaxed overflow-x-auto nox-scroll text-foreground/90">
                     <code>{block.code}</code>
