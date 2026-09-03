@@ -2076,6 +2076,11 @@ async function callOllamaHttp(
   // Build the prompt: system hint + conversation turns.
   const lastUser = [...conv].reverse().find((m) => m.role === "user");
   const prompt = `${systemHint}\n\nUser: ${lastUser?.content || ""}\nAssistant:`;
+  const images = conv
+    .filter((m) => m.image)
+    .map((m) => m.image?.data)
+    .filter((data): data is string => Boolean(data))
+    .map((data) => data.replace(/^data:image\/[^;]+;base64,/, ""));
 
   try {
     const res = await fetch(url, {

@@ -57,6 +57,7 @@ export async function generateFromBrowser(
   const base = normalizeEndpoint(endpoint);
 
   try {
+    const imageData = image?.data.replace(/^data:image\/[^;]+;base64,/, "");
     const res = await fetch(`${base}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -64,7 +65,7 @@ export async function generateFromBrowser(
         model,
         prompt,
         stream: true,
-        ...(image ? { images: [image.data] } : {}),
+        ...(imageData ? { images: [imageData] } : {}),
       }),
       signal: AbortSignal.timeout(BROWSER_OLLAMA_TIMEOUT_MS),
     });
