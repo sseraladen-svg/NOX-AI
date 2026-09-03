@@ -254,7 +254,15 @@ export function useChat() {
             const local = await generateFromBrowser(
               execCtx.endpoint || "",
               execCtx.model,
-              execCtx.prompt
+              execCtx.prompt,
+              (chunk) => {
+                progressiveText += chunk;
+                useConversations.setState((s) => ({
+                  activeMessages: s.activeMessages.map((m) =>
+                    m.id === aiMsgId ? { ...m, content: progressiveText } : m
+                  ),
+                }));
+              }
             );
 
             if (!local.ok) {
@@ -658,4 +666,3 @@ export function useChat() {
     onConfirmHostDirectly,
   };
 }
-

@@ -47,7 +47,8 @@ export async function testOllamaFromBrowser(endpoint: string, model: string) {
 export async function generateFromBrowser(
   endpoint: string,
   model: string,
-  prompt: string
+  prompt: string,
+  onChunk?: (text: string) => void
 ): Promise<
   | { ok: true; text: string; tokens?: { input: number; output: number; total: number }; latencyMs?: number }
   | { ok: false; error: string }
@@ -58,7 +59,7 @@ export async function generateFromBrowser(
     const res = await fetch(`${base}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, prompt, stream: false }),
+      body: JSON.stringify({ model, prompt, stream: true }),
       signal: AbortSignal.timeout(BROWSER_OLLAMA_TIMEOUT_MS),
     });
 
@@ -66,20 +67,55 @@ export async function generateFromBrowser(
       return { ok: false, error: `Ollama HTTP ${res.status}` };
     }
 
-    const json = await res.json();
-    const inputTokens = typeof json.prompt_eval_count === "number" ? json.prompt_eval_count : 0;
-    const outputTokens = typeof json.eval_count === "number" ? json.eval_count : 0;
+    if (!res.body) return { ok: false, error: "Ollama response had no readable body stream." };
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let text = "";
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let totalDuration: number | undefined;
+
+    const processChunk = (json: {
+      response?: string;
+      prompt_eval_count?: number;
+      eval_count?: number;
+      total_duration?: number;
+    }) => {
+      if (json.response) {
+        text += json.response;
+        onChunk?.(json.response);
+      }
+      if (typeof json.prompt_eval_count === "number") inputTokens = json.prompt_eval_count;
+      if (typeof json.eval_count === "number") outputTokens = json.eval_count;
+      if (typeof json.total_duration === "number") totalDuration = json.total_duration;
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        processChunk(JSON.parse(line));
+      }
+    }
+    if (buffer.trim()) processChunk(JSON.parse(buffer));
+
     const totalTokens = inputTokens + outputTokens;
 
     return {
       ok: true,
-      text: json.response || "",
+      text,
       tokens: {
         input: inputTokens,
         output: outputTokens,
         total: totalTokens,
       },
-      latencyMs: typeof json.total_duration === "number" ? Math.round(json.total_duration / 1_000_000) : undefined,
+      latencyMs: typeof totalDuration === "number" ? Math.round(totalDuration / 1_000_000) : undefined,
     };
   } catch (err) {
     return { ok: false, error: (err as Error).message };

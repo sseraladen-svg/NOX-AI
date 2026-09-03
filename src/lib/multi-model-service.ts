@@ -1115,7 +1115,7 @@ async function callModel(
   let lastError: string | undefined;
   let tokens: TokenUsage | undefined;
   const effectiveTimeout =
-    assignment.provider === "gemini" && opts.onChunk
+    (assignment.provider === "gemini" || assignment.provider === "ollama") && opts.onChunk
       ? DEFAULT_TIMEOUTS.GENERATION
       : opts.timeoutMs;
 
@@ -1135,7 +1135,14 @@ async function callModel(
               assignment.endpoint,
               opts.onChunk
             )
-          : realCall(assignment, messages, opts.role, opts.intent, opts.timeoutMs),
+          : realCall(
+              assignment,
+              messages,
+              opts.role,
+              opts.intent,
+              effectiveTimeout,
+              opts.onChunk
+            ),
         new Promise<never>((_, reject) =>
           setTimeout(
               () => reject(new Error(`timeout after ${effectiveTimeout}ms`)),
@@ -1186,7 +1193,8 @@ async function realCall(
   messages: ChatMessage[],
   role: string,
   intent?: string,
-  timeoutMs?: number
+  timeoutMs?: number,
+  onChunk?: (text: string) => void
 ): Promise<ModelCallResult> {
   // Build the system hint the same way "" this is the NOX persona prompt.
   const systemHint =
@@ -1207,7 +1215,7 @@ async function realCall(
 
   // Route based on the assignment's connection type.
   if (assignment.connectionType === "LOCAL") {
-    return callLocalCli(assignment, systemHint, conv, timeoutMs);
+    return callLocalCli(assignment, systemHint, conv, timeoutMs, onChunk);
   }
 
   return callApi(assignment, systemHint, conv);
@@ -1949,13 +1957,14 @@ async function callLocalCli(
   assignment: ModelAssignment,
   systemHint: string,
   conv: ChatMessage[],
-  timeoutMs?: number
+  timeoutMs?: number,
+  onChunk?: (text: string) => void
 ): Promise<ModelCallResult> {
   const { provider, modelName, cliPath, cliArgs, endpoint } = assignment;
 
   // Ollama: use HTTP API (no subprocess needed).
   if (provider === "ollama") {
-    return callOllamaHttp(modelName, systemHint, conv, endpoint, timeoutMs);
+    return callOllamaHttp(modelName, systemHint, conv, endpoint, timeoutMs, onChunk);
   }
 
   // llamacpp / llamafile: subprocess call.
@@ -2012,7 +2021,8 @@ async function callOllamaHttp(
   systemHint: string,
   conv: ChatMessage[],
   endpoint?: string,
-  timeoutMs?: number
+  timeoutMs?: number,
+  onChunk?: (text: string) => void
 ): Promise<ModelCallResult> {
   const base = normalizeOllamaEndpoint(endpoint);
   const url = `${base}/api/generate`;
@@ -2107,6 +2117,7 @@ async function callOllamaHttp(
           const chunk = JSON.parse(line);
           if (chunk.response) {
             text += chunk.response;
+            onChunk?.(chunk.response);
           }
           // Token counts come in the final chunk.
           if (typeof chunk.prompt_eval_count === "number") {
@@ -3791,4 +3802,3 @@ export async function getRecentUsage(
     createdAt: r.createdAt.toISOString(),
   }));
 }
-
