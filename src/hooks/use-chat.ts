@@ -118,7 +118,7 @@ export function useChat() {
     skipSpecialist = false,
     cachedClassification?: IntentClassification
   ) => {
-    if (!text.trim() || sending) return;
+    if ((!text.trim() && !image) || sending) return;
     const controller = new AbortController();
     abortRef.current = controller;
     setSending(true);

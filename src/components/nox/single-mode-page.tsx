@@ -132,7 +132,7 @@ export function SingleModePage() {
           <ChatInput
             input={chat.input}
             setInput={chat.setInput}
-            onSend={() => chat.sendMessage(chat.input)}
+            onSend={(image) => chat.sendMessage(chat.input, false, undefined, image)}
             sending={chat.sending}
             placeholder="Message your single model…"
           />
@@ -226,4 +226,3 @@ function ModelStrip({
     </div>
   );
 }
-

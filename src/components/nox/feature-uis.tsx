@@ -305,8 +305,43 @@ function ChatInputBar({
   sending: boolean;
   placeholder: string;
 }) {
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [attachmentName, setAttachmentName] = React.useState<string | null>(null);
+  const [imageAttachment, setImageAttachment] = React.useState<{ data: string; mimeType: string }>();
+  const [attachmentError, setAttachmentError] = React.useState<string | null>(null);
+
+  const readAttachment = async (file: File) => {
+    setAttachmentError(null);
+    if (file.type.startsWith("image/")) {
+      const dataUrl = await fileToDataUrl(file);
+      setImageAttachment({ data: dataUrl.slice(dataUrl.indexOf(",") + 1), mimeType: file.type });
+      setAttachmentName(file.name);
+      return;
+    }
+    if (!/\.(txt|md|csv|json|html?|xml)$/i.test(file.name)) {
+      setAttachmentError("Use an image or a text document.");
+      return;
+    }
+    const text = await file.text();
+    setInput(`${input}\n\n[RAG document: ${file.name}]\n${text.slice(0, 100_000)}\n[/RAG document]\n`);
+    setAttachmentName(file.name);
+    setImageAttachment(undefined);
+  };
+
   return (
     <div className="rounded-2xl border border-border bg-card/40 backdrop-blur p-3">
+      {(attachmentName || attachmentError) && (
+        <div className="mb-2 flex items-center gap-2 text-xs">
+          {attachmentName && (
+            <span className="flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-primary">
+              {imageAttachment ? <ImageIcon className="h-3 w-3" /> : <Upload className="h-3 w-3" />}
+              {attachmentName}
+              <button type="button" onClick={() => { setAttachmentName(null); setImageAttachment(undefined); }} aria-label="Remove attachment">×</button>
+            </span>
+          )}
+          {attachmentError && <span className="text-red-400">{attachmentError}</span>}
+        </div>
+      )}
       <div className="flex items-end gap-2">
         <Textarea
           value={input}
@@ -314,7 +349,7 @@ function ChatInputBar({
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              onSend();
+              onSend(imageAttachment);
             }
           }}
           placeholder={placeholder}
@@ -322,9 +357,31 @@ function ChatInputBar({
           rows={1}
         />
         <Button
+          type="button"
           size="icon"
-          onClick={() => onSend()}
-          disabled={sending || !input.trim()}
+          variant="ghost"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={sending}
+          aria-label="Upload document or image"
+          className="h-9 w-9 shrink-0"
+        >
+          <Upload className="h-4 w-4" />
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,.txt,.md,.csv,.json,.html,.htm,.xml"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void readAttachment(file);
+            e.currentTarget.value = "";
+          }}
+        />
+        <Button
+          size="icon"
+          onClick={() => onSend(imageAttachment)}
+          disabled={sending || (!input.trim() && !imageAttachment)}
           className="h-9 w-9 shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
         >
           {sending ? (
@@ -336,6 +393,15 @@ function ChatInputBar({
       </div>
     </div>
   );
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error || new Error("Could not read attachment."));
+    reader.readAsDataURL(file);
+  });
 }
 
 // ─── 2. CODING FEATURE - editor layout with prompt + code output ────────────
