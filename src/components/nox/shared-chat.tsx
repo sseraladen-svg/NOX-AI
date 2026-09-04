@@ -22,7 +22,6 @@ import {
   Search,
   Pencil,
   Upload,
-  Image as ImageIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -288,29 +287,44 @@ export function ChatInput({
 
   return (
     <div className="rounded-2xl border border-border bg-card/40 backdrop-blur p-3">
-      {(attachmentName || attachmentError) && (
-        <div className="mb-2 flex items-center gap-2 text-xs">
-          {attachmentName && (
-            <span className="flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-primary">
-              {imageAttachment ? <ImageIcon className="h-3 w-3" /> : <Upload className="h-3 w-3" />}
-              {attachmentName}
-              <button
-                type="button"
-                onClick={() => {
-                  setAttachmentName(null);
-                  setImageAttachment(undefined);
-                }}
-                aria-label="Remove attachment"
-                className="ml-1 text-muted-foreground hover:text-foreground"
-              >
-                ×
-              </button>
-            </span>
-          )}
-          {attachmentError && <span className="text-red-400">{attachmentError}</span>}
-        </div>
+      {attachmentError && (
+        <div className="mb-2 text-xs text-red-400">{attachmentError}</div>
       )}
       <div className="flex items-end gap-2">
+        {imageAttachment && (
+          <div className="relative flex-shrink-0">
+            <img
+              src={`data:${imageAttachment.mimeType};base64,${imageAttachment.data}`}
+              alt={attachmentName || "attachment"}
+              className="h-9 w-9 rounded-lg object-cover border border-border"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setAttachmentName(null);
+                setImageAttachment(undefined);
+              }}
+              aria-label="Remove attachment"
+              className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-background border border-border text-[10px] leading-none flex items-center justify-center text-muted-foreground hover:text-foreground"
+            >
+              ×
+            </button>
+          </div>
+        )}
+        {attachmentName && !imageAttachment && (
+          <div className="flex-shrink-0 flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-xs text-primary h-9">
+            <Upload className="h-3 w-3" />
+            <span className="max-w-[100px] truncate">{attachmentName}</span>
+            <button
+              type="button"
+              onClick={() => setAttachmentName(null)}
+              aria-label="Remove attachment"
+              className="ml-1 text-muted-foreground hover:text-foreground"
+            >
+              ×
+            </button>
+          </div>
+        )}
         <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -318,6 +332,9 @@ export function ChatInput({
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               onSend(imageAttachment);
+              setAttachmentName(null);
+              setImageAttachment(undefined);
+              setAttachmentError(null);
             }
           }}
           placeholder={
@@ -351,7 +368,12 @@ export function ChatInput({
         />
         <Button
           size="icon"
-          onClick={() => onSend(imageAttachment)}
+          onClick={() => {
+            onSend(imageAttachment);
+            setAttachmentName(null);
+            setImageAttachment(undefined);
+            setAttachmentError(null);
+          }}
           disabled={sending || (!input.trim() && !imageAttachment)}
           className="h-9 w-9 shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
         >
