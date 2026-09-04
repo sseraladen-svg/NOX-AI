@@ -103,7 +103,7 @@ export function UsageDashboard({ onBack }: { onBack: () => void }) {
   return (
     <div className="min-h-screen bg-background nox-aurora">
       {/* Header */}
-      <header className="sticky top-0 z-30 glass border-b border-border">
+      <header className="nox-topbar sticky top-0 z-30 glass border-b border-border">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <button

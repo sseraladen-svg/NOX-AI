@@ -40,8 +40,8 @@ interface ConversationsStore {
   loading: boolean;
   loadingMessages: boolean;
 
-  loadList: () => Promise<void>;
-  create: (mode?: Mode, title?: string) => Promise<string | null>;
+  loadList: (scope?: string) => Promise<void>;
+  create: (mode?: Mode | string, title?: string) => Promise<string | null>;
   select: (id: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
   clearActive: () => void;
@@ -56,10 +56,12 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   loading: false,
   loadingMessages: false,
 
-  loadList: async () => {
+  loadList: async (scope) => {
     set({ loading: true });
     try {
-      const res = await authFetch("/api/conversations/list");
+      const res = await authFetch(
+        scope ? `/api/conversations/list?scope=${encodeURIComponent(scope)}` : "/api/conversations/list"
+      );
       const json = await res.json();
       if (json.ok) {
         set({ items: json.items });

@@ -150,6 +150,15 @@
     -webkit-backdrop-filter: blur(16px);
   }
 
+  /* Keep controls readable on the white top navigation bar. */
+  .nox-topbar,
+  .nox-topbar .text-foreground,
+  .nox-topbar .text-muted-foreground,
+  .nox-topbar button,
+  .nox-topbar button:hover {
+    color: #000 !important;
+  }
+
   [class*="text-emerald-"],
   [class*="text-red-"],
   [class*="text-amber-"],

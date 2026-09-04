@@ -427,6 +427,7 @@ export function CodingFeatureUI({
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
   const codeBlocks = lastAssistant ? extractCodeBlocks(lastAssistant.content) : [];
   const [copiedIdx, setCopiedIdx] = React.useState<number | null>(null);
+  const [previewIdx, setPreviewIdx] = React.useState<number | null>(null);
 
   const copy = (text: string, idx: number) => {
     navigator.clipboard.writeText(text);
@@ -562,6 +563,14 @@ export function CodingFeatureUI({
                       {block.lang || "code"}
                     </span>
                     <div className="flex items-center gap-2">
+                      {["html", "htm"].includes(block.lang.toLowerCase()) && (
+                        <button
+                          onClick={() => setPreviewIdx(previewIdx === i ? null : i)}
+                          className="text-[10px] text-primary hover:underline"
+                        >
+                          {previewIdx === i ? "Code" : "Preview"}
+                        </button>
+                      )}
                       <button
                         onClick={() => copy(block.code, i)}
                         className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
@@ -584,9 +593,18 @@ export function CodingFeatureUI({
                       </button>
                     </div>
                   </div>
-                  <pre className="p-3 text-xs font-mono leading-relaxed overflow-x-auto nox-scroll text-foreground/90">
-                    <code>{block.code}</code>
-                  </pre>
+                  {previewIdx === i ? (
+                    <iframe
+                      title={`Live preview ${i + 1}`}
+                      sandbox=""
+                      srcDoc={block.code}
+                      className="w-full min-h-64 bg-white"
+                    />
+                  ) : (
+                    <pre className="p-3 text-xs font-mono leading-relaxed overflow-x-auto nox-scroll text-foreground/90">
+                      <code>{block.code}</code>
+                    </pre>
+                  )}
                 </div>
               ))}
               {lastAssistant && (
@@ -635,6 +653,7 @@ export function VoiceFeatureUI({
 }) {
   const [recording, setRecording] = React.useState(false);
   const [playingId, setPlayingId] = React.useState<string | null>(null);
+  const elevenAudioRef = React.useRef<HTMLAudioElement | null>(null);
   const [sttSupported, setSttSupported] = React.useState(true);
   const recognitionRef = React.useRef<any>(null);
 
@@ -704,6 +723,30 @@ export function VoiceFeatureUI({
     utterance.onerror = () => setPlayingId(null);
     window.speechSynthesis.speak(utterance);
     setPlayingId(msgId);
+  };
+
+  const playElevenLabs = async (msgId: string, text: string) => {
+    elevenAudioRef.current?.pause();
+    if (playingId === msgId) {
+      setPlayingId(null);
+      return;
+    }
+    try {
+      const response = await fetch("/api/voice/elevenlabs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!response.ok) throw new Error("ElevenLabs unavailable");
+      const audio = new Audio(URL.createObjectURL(await response.blob()));
+      elevenAudioRef.current = audio;
+      audio.onended = () => setPlayingId(null);
+      audio.onerror = () => setPlayingId(null);
+      setPlayingId(msgId);
+      await audio.play();
+    } catch {
+      togglePlay(msgId, text);
+    }
   };
 
   // Cleanup speech synthesis on unmount
@@ -802,21 +845,23 @@ export function VoiceFeatureUI({
                   <Badge variant="outline" className="text-[9px] py-0">
                     {m.role === "user" ? "INPUT" : "TTS"}
                   </Badge>
-                  {m.role === "assistant" && typeof window !== "undefined" && window.speechSynthesis && (
-                    <button
-                      onClick={() => togglePlay(m.id, m.content)}
-                      className="text-[10px] text-primary hover:underline flex items-center gap-1"
-                    >
-                      {playingId === m.id ? (
-                        <>
-                          <Pause className="h-3 w-3" /> Stop
-                        </>
-                      ) : (
-                        <>
-                          <Play className="h-3 w-3" /> Play
-                        </>
+                  {m.role === "assistant" && (
+                    <>
+                      {typeof window !== "undefined" && window.speechSynthesis && (
+                        <button
+                          onClick={() => togglePlay(m.id, m.content)}
+                          className="text-[10px] text-primary hover:underline flex items-center gap-1"
+                        >
+                          {playingId === m.id ? <><Pause className="h-3 w-3" /> Stop</> : <><Play className="h-3 w-3" /> Play</>}
+                        </button>
                       )}
-                    </button>
+                      <button
+                        onClick={() => playElevenLabs(m.id, m.content)}
+                        className="text-[10px] text-primary hover:underline"
+                      >
+                        ElevenLabs
+                      </button>
+                    </>
                   )}
                 </div>
                 <Markdown content={m.content} className="nox-prose" />

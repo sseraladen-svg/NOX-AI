@@ -3500,7 +3500,8 @@ export interface ConversationDetail extends ConversationSummary {
 }
 
 export async function listConversations(
-  userId: string
+  userId: string,
+  scope?: string
 ): Promise<ConversationSummary[]> {
   const rows = await db.conversation.findMany({
     where: { userId },
@@ -3513,7 +3514,10 @@ export async function listConversations(
       updatedAt: true,
     },
   });
-  return rows.map((r) => ({
+  const scopedRows = scope
+    ? rows.filter((r) => r.mode === scope)
+    : rows;
+  return scopedRows.map((r) => ({
     ...r,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
@@ -3522,7 +3526,7 @@ export async function listConversations(
 
 export async function createConversation(
   userId: string,
-  mode: Mode = "SINGLE",
+  mode: Mode | string = "SINGLE",
   title = "New conversation"
 ): Promise<ConversationSummary> {
   const row = await db.conversation.create({

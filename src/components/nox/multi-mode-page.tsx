@@ -174,12 +174,16 @@ export function MultiModePage() {
   React.useEffect(() => {
     const convState = useConversations.getState();
     if (convState.activeId && tabConversationIds[activeFeature] !== convState.activeId) {
+      const selected = convState.items.find((item) => item.id === convState.activeId);
+      const selectedScope = selected?.mode.startsWith("MULTI:")
+        ? selected.mode.slice("MULTI:".length)
+        : activeFeature;
       setTabConversationIds((prev) => ({
         ...prev,
-        [activeFeature]: convState.activeId,
+        [selectedScope]: convState.activeId,
       }));
     }
-  }, [convs.activeId, activeFeature, tabConversationIds]);
+  }, [convs.activeId, activeFeature, tabConversationIds, convs.items]);
 
   const assignment: ModelAssignment = mm.featureConfigs[activeFeature] || {
     connectionType: "API" as ConnectionType,
@@ -229,7 +233,7 @@ export function MultiModePage() {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background nox-aurora">
       {/* Header */}
-      <header className="sticky top-0 z-30 glass border-b border-border">
+      <header className="nox-topbar sticky top-0 z-30 glass border-b border-border">
         <div className="mx-auto max-w-6xl px-3 sm:px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <IconButton

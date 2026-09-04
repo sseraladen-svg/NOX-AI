@@ -93,14 +93,18 @@ export function useChat() {
   }, [convs.activeMessages, sending]);
 
   const ensureConversation = async (
-    mode: Mode,
+    mode: Mode | string,
     title?: string
   ): Promise<string | null> => {
     // Read CURRENT state from the store â€” not the stale closure value.
     // This fixes the bug where switching conversations or creating a new one
     // didn't update the activeId used by sendMessage.
     const current = useConversations.getState();
-    if (current.activeId) return current.activeId;
+    const active = current.items.find((item) => item.id === current.activeId);
+    if (current.activeId && active?.mode === mode) return current.activeId;
+    if (current.activeId && mode === "SINGLE" && active?.mode === "SINGLE") {
+      return current.activeId;
+    }
     return await current.create(mode, title);
   };
 
@@ -142,7 +146,9 @@ export function useChat() {
     const convTitle = mm.mode === "MULTI" && feature
       ? `${feature.charAt(0).toUpperCase() + feature.slice(1)} â€” ${text.slice(0, 40)}`
       : undefined;
-    const conversationId = await ensureConversation(mm.mode as Mode, convTitle);
+    const conversationScope =
+      mm.mode === "MULTI" && feature ? `MULTI:${feature}` : mm.mode;
+    const conversationId = await ensureConversation(conversationScope, convTitle);
     if (!conversationId) {
       toast.error("Could not start conversation");
       setSending(false);
@@ -190,6 +196,7 @@ export function useChat() {
           messages: apiMessages,
           confirmMultiAgent,
           feature,
+          conversationId,
           skipSpecialist,
           cachedClassification,
         },
@@ -259,6 +266,15 @@ export function useChat() {
               }
             } catch {
               // incomplete JSON
+            }
+          }
+          buffer += decoder.decode();
+          if (buffer.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(buffer.slice(6));
+              if (data.type === "done") finalResult = data.result;
+            } catch {
+              // Ignore an incomplete final SSE fragment.
             }
           }
         }
@@ -675,7 +691,7 @@ export function useChat() {
       setConfirmLimits([]);
       setConfirmClassification(undefined);
       // Re-dispatch with skipSpecialist=true â€” Host answers directly.
-      sendMessage(text, false, feature, undefined, true);
+      sendMessage(text, true, feature, undefined, true, pendingClassification);
     }
   };
 

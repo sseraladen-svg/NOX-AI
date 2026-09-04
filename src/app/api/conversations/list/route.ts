@@ -1,11 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { listConversations } from "@/lib/multi-model-service";
 
 export const runtime = "nodejs";
 
 // GET /api/conversations/list
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser();
     if (!user) {
@@ -14,7 +14,8 @@ export async function GET() {
         { status: 401 }
       );
     }
-    const items = await listConversations(user.id);
+    const scope = req.nextUrl.searchParams.get("scope") || undefined;
+    const items = await listConversations(user.id, scope);
     return NextResponse.json({ ok: true, items });
   } catch (err) {
     return NextResponse.json(

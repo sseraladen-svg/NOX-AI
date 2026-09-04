@@ -74,7 +74,7 @@ export function ModePicker() {
   return (
     <div className="min-h-screen bg-background nox-aurora">
       {/* Header */}
-      <header className="sticky top-0 z-30 glass border-b border-border">
+      <header className="nox-topbar sticky top-0 z-30 glass border-b border-border">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="relative h-8 w-8 rounded-lg bg-gradient-to-br from-foreground to-foreground/60 flex items-center justify-center nox-glow-sm">

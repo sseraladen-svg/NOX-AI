@@ -469,11 +469,14 @@ function ConversationListContent({ onAfterSelect }: { onAfterSelect: () => void 
     setRenamingId(null);
   };
 
+  const scopedItems = mm.mode === "MULTI"
+    ? convs.items.filter((c) => c.mode.startsWith("MULTI:") || c.mode === "MULTI")
+    : convs.items.filter((c) => c.mode === mm.mode);
   const filtered = query.trim()
-    ? convs.items.filter((c) =>
+    ? scopedItems.filter((c) =>
         c.title.toLowerCase().includes(query.trim().toLowerCase())
       )
-    : convs.items;
+    : scopedItems;
 
   return (
     <>

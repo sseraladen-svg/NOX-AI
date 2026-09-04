@@ -96,7 +96,10 @@ export async function POST(req: NextRequest) {
           // Send each step's output progressively
           for (const step of result.steps) {
             send({ type: "step", step });
-            const alreadyStreamed = step.provider === "gemini";
+            // Gemini and Ollama emit deltas through onChunk. Re-emitting their
+            // completed output here duplicates the response in the client.
+            const alreadyStreamed =
+              step.provider === "gemini" || step.provider === "ollama";
             if (!alreadyStreamed && step.output && step.output.length > 0) {
               send({ type: "chunk", text: step.output, role: step.role });
             }
