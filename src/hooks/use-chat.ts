@@ -48,6 +48,20 @@ function aggregateUsage(steps: DispatchStep[]): MessageUsage | undefined {
   return { tokens, cost };
 }
 
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const body = await response.text();
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    const detail = body.trim().slice(0, 300);
+    throw new Error(
+      detail
+        ? `Request failed (${response.status}): ${detail}`
+        : `Request failed (${response.status}).`
+    );
+  }
+}
+
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // useChat â€” shared chat logic for all three mode pages.
 //
@@ -296,7 +310,11 @@ export function useChat() {
                 browserLatencyMs: local.latencyMs,
               },
             });
-            const resumedJson = await resumed.json();
+            const resumedJson = await readJsonResponse<{
+              ok: boolean;
+              error?: string;
+              result?: any;
+            }>(resumed);
 
             if (!resumedJson.ok || !resumedJson.result) {
               useConversations.setState((s) => ({
@@ -436,7 +454,11 @@ export function useChat() {
       }
 
       // Fallback: non-streaming response (if SSE not supported)
-      const json = await streamRes.json();
+      const json = await readJsonResponse<{
+        ok: boolean;
+        error?: string;
+        result?: any;
+      }>(streamRes);
 
       if (!json.ok) {
         const errMsg: ConversationMessage = {

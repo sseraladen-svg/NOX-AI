@@ -290,41 +290,44 @@ export function ChatInput({
       {attachmentError && (
         <div className="mb-2 text-xs text-red-400">{attachmentError}</div>
       )}
+      {(attachmentName || imageAttachment) && (
+        <div className="mb-2 flex items-center gap-2 text-xs">
+          {imageAttachment ? (
+            <div className="relative flex-shrink-0">
+              <img
+                src={`data:${imageAttachment.mimeType};base64,${imageAttachment.data}`}
+                alt={attachmentName || "attachment"}
+                className="h-14 w-14 rounded-lg object-cover border border-border"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setAttachmentName(null);
+                  setImageAttachment(undefined);
+                }}
+                aria-label="Remove attachment"
+                className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-background border border-border text-[10px] leading-none flex items-center justify-center text-muted-foreground hover:text-foreground"
+              >
+                ×
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-primary">
+              <Upload className="h-3 w-3" />
+              <span className="max-w-[180px] truncate">{attachmentName}</span>
+              <button
+                type="button"
+                onClick={() => setAttachmentName(null)}
+                aria-label="Remove attachment"
+                className="ml-1 text-muted-foreground hover:text-foreground"
+              >
+                ×
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex items-end gap-2">
-        {imageAttachment && (
-          <div className="relative flex-shrink-0">
-            <img
-              src={`data:${imageAttachment.mimeType};base64,${imageAttachment.data}`}
-              alt={attachmentName || "attachment"}
-              className="h-9 w-9 rounded-lg object-cover border border-border"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setAttachmentName(null);
-                setImageAttachment(undefined);
-              }}
-              aria-label="Remove attachment"
-              className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-background border border-border text-[10px] leading-none flex items-center justify-center text-muted-foreground hover:text-foreground"
-            >
-              ×
-            </button>
-          </div>
-        )}
-        {attachmentName && !imageAttachment && (
-          <div className="flex-shrink-0 flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-xs text-primary h-9">
-            <Upload className="h-3 w-3" />
-            <span className="max-w-[100px] truncate">{attachmentName}</span>
-            <button
-              type="button"
-              onClick={() => setAttachmentName(null)}
-              aria-label="Remove attachment"
-              className="ml-1 text-muted-foreground hover:text-foreground"
-            >
-              ×
-            </button>
-          </div>
-        )}
         <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -362,7 +365,15 @@ export function ChatInput({
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];
-            if (file) void readAttachment(file);
+            if (file) {
+              void readAttachment(file).catch((err: unknown) => {
+                setAttachmentName(null);
+                setImageAttachment(undefined);
+                setAttachmentError(
+                  err instanceof Error ? err.message : "Could not read attachment."
+                );
+              });
+            }
             e.currentTarget.value = "";
           }}
         />

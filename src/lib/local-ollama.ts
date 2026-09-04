@@ -71,7 +71,13 @@ export async function generateFromBrowser(
     });
 
     if (!res.ok) {
-      return { ok: false, error: `Ollama HTTP ${res.status}` };
+      const detail = (await res.text()).trim().slice(0, 300);
+      return {
+        ok: false,
+        error: detail
+          ? `Ollama HTTP ${res.status}: ${detail}`
+          : `Ollama HTTP ${res.status}`,
+      };
     }
 
     if (!res.body) return { ok: false, error: "Ollama response had no readable body stream." };
@@ -107,10 +113,20 @@ export async function generateFromBrowser(
       buffer = lines.pop() || "";
       for (const line of lines) {
         if (!line.trim()) continue;
-        processChunk(JSON.parse(line));
+        try {
+          processChunk(JSON.parse(line));
+        } catch {
+          throw new Error(`Ollama returned invalid JSON: ${line.slice(0, 200)}`);
+        }
       }
     }
-    if (buffer.trim()) processChunk(JSON.parse(buffer));
+    if (buffer.trim()) {
+      try {
+        processChunk(JSON.parse(buffer));
+      } catch {
+        throw new Error(`Ollama returned invalid JSON: ${buffer.slice(0, 200)}`);
+      }
+    }
 
     const totalTokens = inputTokens + outputTokens;
 
