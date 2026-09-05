@@ -169,6 +169,28 @@ export type OrchestrationState =
   | "timeout"
   | "cancelled";
 
+export type OrchestrationStage =
+  | "host"
+  | "classification"
+  | "confirmation"
+  | "routing"
+  | "planning"
+  | "coding"
+  | "vision"
+  | "automation"
+  | "engineering"
+  | "agent_workspace"
+  | "verification"
+  | "synthesis"
+  | "final";
+
+export interface AgentWorkspace {
+  plan: string[];
+  files: string[];
+  execution: string[];
+  verification: string[];
+}
+
 export interface DispatchResult {
   ok: boolean;
   mode: Mode;
@@ -182,6 +204,8 @@ export interface DispatchResult {
   classification?: IntentClassification;
   classificationMethod?: "model" | "fallback";
   orchestrationState?: OrchestrationState;
+  orchestrationStage?: OrchestrationStage;
+  workspace?: AgentWorkspace;
   error?: string;
   pendingClientExec?: {
     stepId: string;

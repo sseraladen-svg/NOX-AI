@@ -21,6 +21,7 @@ import {
   type TokenUsage,
   type CostBreakdown,
   type IntentClassification,
+  type AgentWorkspace,
   FEATURES,
   SPECIALISTS,
   PROVIDERS,
@@ -2333,7 +2334,7 @@ Available specialists:
 - "none": General questions, conversation, explanations that don't need a specialist
 
 Respond with ONLY a JSON object. No markdown, no code blocks, no extra text:
-{"specialist": "coding", "confidence": 0.9, "reasoning": "User is asking to write a Python function."}`;
+{"specialist":"coding","confidence":0.9,"reasoning":"User is asking to write a Python function.","plan":["Understand the request","Implement the change","Verify the result"],"capabilities":["Code generation","Code review"],"externalActions":[],"destructiveActions":[],"expectedOutput":["Working code","Verification summary"]}`;
 
 // Parse the classification JSON from the Host model's response.
 // Handles: raw JSON, JSON wrapped in markdown code blocks, JSON with
@@ -2348,6 +2349,11 @@ function parseClassificationResponse(output: string): IntentClassification | nul
       specialist?: string;
       confidence?: number;
       reasoning?: string;
+      plan?: unknown;
+      capabilities?: unknown;
+      externalActions?: unknown;
+      destructiveActions?: unknown;
+      expectedOutput?: unknown;
     };
 
     // Validate specialist value
@@ -2360,10 +2366,34 @@ function parseClassificationResponse(output: string): IntentClassification | nul
       specialist: parsed.specialist as SpecialistId | "none",
       confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.5,
       reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "No reasoning provided.",
+      plan: Array.isArray(parsed.plan) ? parsed.plan.filter((item): item is string => typeof item === "string") : undefined,
+      capabilities: Array.isArray(parsed.capabilities) ? parsed.capabilities.filter((item): item is string => typeof item === "string") : undefined,
+      externalActions: Array.isArray(parsed.externalActions) ? parsed.externalActions.filter((item): item is string => typeof item === "string") : undefined,
+      destructiveActions: Array.isArray(parsed.destructiveActions) ? parsed.destructiveActions.filter((item): item is string => typeof item === "string") : undefined,
+      expectedOutput: Array.isArray(parsed.expectedOutput) ? parsed.expectedOutput.filter((item): item is string => typeof item === "string") : undefined,
     };
   } catch {
     return null;
   }
+}
+
+function buildWorkspace(
+  specialist: SpecialistId,
+  classification: IntentClassification
+): AgentWorkspace {
+  const plan = classification.plan?.length
+    ? classification.plan
+    : ["Inspect the request and relevant context", "Perform the specialist work", "Return the result to Host"];
+  const files = specialist === "engineering" || specialist === "coding"
+    ? ["Relevant project files identified by the specialist"]
+    : [];
+  const execution = specialist === "engineering" || specialist === "coding"
+    ? ["Apply the requested implementation or code review"]
+    : ["Execute the specialist analysis"];
+  const verification = classification.expectedOutput?.length
+    ? classification.expectedOutput
+    : ["Check the specialist result for completeness", "Report remaining risks or follow-up work"];
+  return { plan, files, execution, verification };
 }
 
 // Result of a classification call "" the parsed classification + call metadata
@@ -2688,21 +2718,28 @@ export async function dispatch(
     classification = {
       ...classification,
       specialistDescription,
-      plan: [
-        "Inspect the request and relevant context",
-        "Perform the specialist analysis",
-        "Return the specialist result to Host",
-        "Synthesize the final response",
-      ],
-      capabilities: [
-        "Read conversation context",
-        "Use the configured specialist model",
-        "Report execution details",
-      ],
-      externalActions: [],
-      destructiveActions: [],
-      expectedOutput: ["Specialist result", "Host-synthesized response"],
+      plan: classification.plan?.length
+        ? classification.plan
+        : [
+            "Inspect the request and relevant context",
+            "Perform the specialist analysis",
+            "Return the specialist result to Host",
+            "Synthesize the final response",
+          ],
+      capabilities: classification.capabilities?.length
+        ? classification.capabilities
+        : [
+            "Read conversation context",
+            "Use the configured specialist model",
+            "Report execution details",
+          ],
+      externalActions: classification.externalActions || [],
+      destructiveActions: classification.destructiveActions || [],
+      expectedOutput: classification.expectedOutput?.length
+        ? classification.expectedOutput
+        : ["Specialist result", "Host-synthesized response"],
     };
+    const workspace = buildWorkspace(specialistId, classification);
     const specialistAssignment =
       doc.specialistConfigs?.[specialistId] || emptyAssignment();
     const specialistTimeout =
@@ -2730,6 +2767,8 @@ export async function dispatch(
         classification: classification || undefined,
         classificationMethod,
         orchestrationState: "waiting_confirmation",
+        orchestrationStage: "confirmation",
+        workspace,
       };
     }
 
@@ -2756,6 +2795,8 @@ export async function dispatch(
         classification: classification || undefined,
         classificationMethod,
         orchestrationState: "error",
+        orchestrationStage: "routing",
+        workspace,
         error: `Cannot run: "${blocked.label}" cannot complete its part. ${
           blocked.reason || ""
         }`,
@@ -2772,7 +2813,12 @@ export async function dispatch(
       ...truncated.messages,
       {
         role: "assistant",
-        content: `[Host routed this to the ${specialistId} specialist (confidence: ${Math.round(classification.confidence * 100)}%). Fulfill the request.]`,
+        content: `[Host routed this to the ${specialistId} specialist (confidence: ${Math.round(classification.confidence * 100)}%). Fulfill the request through this workspace pipeline:
+1. PLAN: state the concrete steps.
+2. FILES: identify files or inputs involved; do not claim files were changed unless tools actually changed them.
+3. EXECUTION: perform or describe the specialist work.
+4. VERIFICATION: check the result and list remaining risks.
+Return these sections clearly so Host can verify and synthesize the result.]`,
       },
     ];
     if (needsClientOllama(specialistAssignment)) {
@@ -2783,6 +2829,9 @@ export async function dispatch(
         finalReply: "",
         multiAgent: true,
         confirmationRequired: false,
+        orchestrationState: "processing",
+        orchestrationStage: "agent_workspace",
+        workspace,
         pendingClientExec: {
           stepId: crypto.randomUUID(),
           endpoint: resolveEndpoint(specialistAssignment) || "",
@@ -2906,6 +2955,8 @@ export async function dispatch(
       classification: classification || undefined,
       classificationMethod,
       orchestrationState: "completed",
+      orchestrationStage: "final",
+      workspace,
     };
   }
 
@@ -3266,12 +3317,18 @@ export async function resumeDispatch(
       const specialistId = classification.specialist as SpecialistId;
       const specialistAssignment = doc.specialistConfigs?.[specialistId] || emptyAssignment();
       const specialistTimeout = timeoutOverrides[specialistAssignment.connectionType] || DEFAULT_TIMEOUTS[specialistAssignment.connectionType];
+      const workspace = buildWorkspace(specialistId, classification);
       const truncated = truncateForContext(messages);
       const specialistMessages: ChatMessage[] = [
         ...truncated.messages,
         {
           role: "assistant",
-          content: `[Host routed this to the ${specialistId} specialist (confidence: ${Math.round(classification.confidence * 100)}%). Fulfill the request.]`,
+          content: `[Host routed this to the ${specialistId} specialist (confidence: ${Math.round(classification.confidence * 100)}%). Fulfill the request through this workspace pipeline:
+1. PLAN: state the concrete steps.
+2. FILES: identify files or inputs involved; do not claim files were changed unless tools actually changed them.
+3. EXECUTION: perform or describe the specialist work.
+4. VERIFICATION: check the result and list remaining risks.
+Return these sections clearly so Host can verify and synthesize the result.]`,
         },
       ];
 
@@ -3283,6 +3340,9 @@ export async function resumeDispatch(
           finalReply: "",
           multiAgent: true,
           confirmationRequired: false,
+          orchestrationState: "processing",
+          orchestrationStage: "agent_workspace",
+          workspace,
           pendingClientExec: {
             stepId: crypto.randomUUID(),
             endpoint: resolveEndpoint(specialistAssignment) || "",
@@ -3389,6 +3449,9 @@ export async function resumeDispatch(
         finalReply: hostResult.output || specialistResult.output,
         multiAgent: true,
         confirmationRequired: false,
+        orchestrationState: "completed",
+        orchestrationStage: "final",
+        workspace,
       };
     }
     case "specialist": {

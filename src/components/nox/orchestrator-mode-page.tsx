@@ -239,7 +239,18 @@ function ExecutionRail({
       : steps.length > 0
         ? "Completed"
         : "Idle";
-  const nodes = ["Host", "Classification", "Specialist", "Execution", "Host synthesis"];
+  const nodes = [
+    "Host",
+    "Classification",
+    "Confirmation",
+    "Routing engine",
+    "Planning",
+    "Specialist",
+    "Agent workspace",
+    "Verification",
+    "Host synthesis",
+    "Final result",
+  ];
   return (
     <div className="hidden 2xl:flex w-52 shrink-0 flex-col gap-2 rounded-xl border border-border bg-card/30 p-3">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Orchestration</div>
@@ -247,7 +258,22 @@ function ExecutionRail({
       <div className="space-y-1.5">
         {nodes.map((node) => {
           const role = node === "Host synthesis" ? "host" : node.toLowerCase();
-          const complete = node === "Classification" ? steps.some((step) => step.intent === "classify") : completedRoles.has(role);
+        const complete =
+          node === "Classification"
+            ? steps.some((step) => step.intent === "classify")
+            : node === "Confirmation"
+              ? !waitingConfirmation && (sending || steps.length > 0)
+              : node === "Routing engine"
+                ? steps.length > 0
+                : node === "Planning"
+                  ? steps.some((step) => step.intent === "planning" || step.intent === "engineering")
+                  : node === "Agent workspace"
+                    ? steps.some((step) => ["coding", "engineering", "automation"].includes(step.role))
+                    : node === "Verification"
+                      ? steps.some((step) => step.intent === "verify" || step.intent === "synthesize")
+                      : node === "Final result"
+                        ? !sending && steps.length > 0
+                        : completedRoles.has(role);
           return (
             <div key={node} className="flex items-center gap-2 text-[11px]">
               <span className={cn("h-2 w-2 rounded-full", complete ? "bg-emerald-500" : "bg-muted-foreground/30")} />

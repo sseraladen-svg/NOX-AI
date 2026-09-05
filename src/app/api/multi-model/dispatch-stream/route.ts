@@ -70,7 +70,13 @@ export async function POST(req: NextRequest) {
           });
 
           if (result.pendingClientExec) {
-            send({ type: "pendingClientExec", pendingClientExec: result.pendingClientExec });
+            send({
+              type: "pendingClientExec",
+              pendingClientExec: result.pendingClientExec,
+              orchestrationState: result.orchestrationState,
+              orchestrationStage: result.orchestrationStage,
+              workspace: result.workspace,
+            });
             controller.close();
             return;
           }
@@ -81,6 +87,9 @@ export async function POST(req: NextRequest) {
               type: "confirmationRequired",
               limits: result.limits,
               classification: result.classification,
+              orchestrationState: result.orchestrationState,
+              orchestrationStage: result.orchestrationStage,
+              workspace: result.workspace,
             });
             controller.close();
             return;
@@ -131,7 +140,13 @@ export async function POST(req: NextRequest) {
           }
 
           // Send the final result
-          send({ type: "done", result });
+          send({
+            type: "done",
+            result,
+            orchestrationState: result.orchestrationState,
+            orchestrationStage: result.orchestrationStage,
+            workspace: result.workspace,
+          });
           controller.close();
         } catch (err) {
           send({ type: "error", error: (err as Error).message });
