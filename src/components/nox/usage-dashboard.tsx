@@ -441,33 +441,56 @@ function StatCard({
   );
 }
 
-// Simple bar chart for daily cost — no chart library, pure CSS.
+// Simple bar chart for daily cost — keeps the axis ordered and readable.
 function DailyCostChart({ data }: { data: { date: string; calls: number; totalCost: number }[] }) {
   const maxCost = Math.max(...data.map((d) => d.totalCost), 0.0001);
+  const labelInterval = Math.max(1, Math.ceil(data.length / 7));
+
   return (
-    <div className="flex items-end gap-1 h-32">
-      {data.map((d, i) => {
-        const height = (d.totalCost / maxCost) * 100;
-        return (
-          <div
-            key={i}
-            className="flex-1 group relative flex flex-col items-center justify-end"
-            title={`${d.date}: ${d.calls} calls · $${d.totalCost.toFixed(6)}`}
-          >
-            <motion.div
-              className="w-full bg-gradient-to-t from-primary/60 to-emerald-400/80 rounded-t-sm min-h-[2px]"
-              initial={{ height: 0 }}
-              animate={{ height: `${Math.max(height, 1)}%` }}
-              transition={{ duration: 0.4, delay: i * 0.02 }}
-            />
-            {data.length <= 14 && (
-              <span className="text-[8px] text-muted-foreground font-mono mt-1 rotate-45 origin-left whitespace-nowrap">
-                {d.date.slice(5)}
-              </span>
-            )}
-          </div>
-        );
-      })}
+    <div className="space-y-3">
+      <div className="flex items-end gap-1.5 h-32">
+        {data.map((d, i) => {
+          const height = (d.totalCost / maxCost) * 100;
+          return (
+            <div
+              key={i}
+              className="flex-1 group relative flex flex-col items-center justify-end"
+              title={`${d.date}: ${d.calls} calls · $${d.totalCost.toFixed(6)}`}
+            >
+              <motion.div
+                className="w-full bg-gradient-to-t from-primary/60 to-emerald-400/80 rounded-t-sm min-h-[2px]"
+                initial={{ height: 0 }}
+                animate={{ height: `${d.totalCost > 0 ? Math.max(height, 6) : 0}%` }}
+                transition={{ duration: 0.4, delay: i * 0.02 }}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      <div
+        className="grid gap-1 text-[10px] text-muted-foreground font-mono"
+        style={{ gridTemplateColumns: `repeat(${data.length}, minmax(0, 1fr))` }}
+      >
+        {data.map((d, i) => {
+          const showLabel = i % labelInterval === 0 || i === data.length - 1;
+          return (
+            <span
+              key={`${d.date}-${i}`}
+              className="text-center truncate"
+              style={{ opacity: showLabel ? 1 : 0.3 }}
+              title={d.date}
+            >
+              {showLabel ? formatShortDate(d.date) : ""}
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
+}
+
+function formatShortDate(dateString: string): string {
+  const date = new Date(`${dateString}T12:00:00`);
+  return date.toLocaleDateString("en-US", { month: "numeric", day: "numeric" });
 }

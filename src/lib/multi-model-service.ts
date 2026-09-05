@@ -4041,6 +4041,13 @@ export async function saveUsage(
   });
 }
 
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 // Aggregated usage summary for the cost dashboard.
 export interface UsageSummary {
   totalCost: number;
@@ -4078,13 +4085,14 @@ export async function getUsageSummary(
   userId: string,
   days = 30
 ): Promise<UsageSummary> {
-  const since = new Date();
-  since.setDate(since.getDate() - days);
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(end.getDate() - Math.max(1, days - 1));
 
   const records = await db.usageRecord.findMany({
     where: {
       userId,
-      createdAt: { gte: since },
+      createdAt: { gte: start },
     },
     select: {
       provider: true,
@@ -4157,10 +4165,14 @@ export async function getUsageSummary(
     modelMap.set(key, existing);
   }
 
-  // Group by day.
+  // Fill every day in the selected window so the chart remains continuous and
+  // the date axis stays aligned even when a day has zero cost.
   const dayMap = new Map<string, { calls: number; totalCost: number }>();
+  for (let cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+    dayMap.set(formatDateKey(cursor), { calls: 0, totalCost: 0 });
+  }
   for (const r of records) {
-    const date = r.createdAt.toISOString().slice(0, 10); // YYYY-MM-DD
+    const date = formatDateKey(new Date(r.createdAt));
     const existing = dayMap.get(date) || { calls: 0, totalCost: 0 };
     existing.calls += 1;
     existing.totalCost += r.totalCost || 0;
