@@ -184,6 +184,22 @@ export function MessageBubble({ msg }: { msg: ConversationMessage }) {
                 )}
               </div>
             )}
+            {msg.orchestration?.workspace && (
+              <div className="w-full rounded-lg border border-primary/20 bg-primary/5 p-2.5 space-y-1 text-[11px]">
+                <div className="font-medium text-primary">
+                  Agent Workspace
+                  {msg.orchestration.stage ? ` - ${msg.orchestration.stage.replaceAll("_", " ")}` : ""}
+                </div>
+                {msg.orchestration.workspace.changedFiles?.length ? (
+                  <div>Changed files: {msg.orchestration.workspace.changedFiles.join(", ")}</div>
+                ) : null}
+                {msg.orchestration.workspace.verificationResults?.map((result) => (
+                  <div key={result.command} className={result.ok ? "text-emerald-400" : "text-red-400"}>
+                    {result.ok ? "PASS" : "FAIL"} {result.command}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -708,6 +724,10 @@ export function ConfirmWrapper({
   onOpenSettings,
   onHostHandleDirectly,
   onChangeSpecialist,
+  highImpact = false,
+  highImpactActions = [],
+  onApproveHighImpact,
+  onCancelHighImpact,
 }: {
   open: boolean;
   limits: LimitRow[];
@@ -720,6 +740,10 @@ export function ConfirmWrapper({
   onOpenSettings: () => void;
   onHostHandleDirectly: () => void;
   onChangeSpecialist?: (specialist: SpecialistId) => void;
+  highImpact?: boolean;
+  highImpactActions?: string[];
+  onApproveHighImpact?: () => void;
+  onCancelHighImpact?: () => void;
 }) {
   return (
     <MultiAgentConfirmDialog
@@ -729,11 +753,14 @@ export function ConfirmWrapper({
       classification={classification}
       request={request}
       onContinue={onContinue}
-      onCancel={onCancel}
+      onCancel={highImpact ? (onCancelHighImpact || onCancel) : onCancel}
       onSwitchToGlobal={onSwitchToSingle}
       onOpenSettings={onOpenSettings}
       onHostHandleDirectly={onHostHandleDirectly}
       onChangeSpecialist={onChangeSpecialist}
+      highImpact={highImpact}
+      highImpactActions={highImpactActions}
+      onApproveHighImpact={onApproveHighImpact}
     />
   );
 }

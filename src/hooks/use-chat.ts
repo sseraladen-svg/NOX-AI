@@ -63,7 +63,7 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 }
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// useChat â€” shared chat logic for all three mode pages.
+// useChat - shared chat logic for all three mode pages.
 //
 // Handles: message sending, DB persistence, multi-agent confirmation flow,
 // conversation creation, and the advanced-settings dialog state.
@@ -80,6 +80,9 @@ export function useChat() {
   const [pendingFeature, setPendingFeature] = React.useState<FeatureId | undefined>(undefined);
   const [pendingClassification, setPendingClassification] = React.useState<IntentClassification | undefined>(undefined);
   const [confirmClassification, setConfirmClassification] = React.useState<IntentClassification | undefined>(undefined);
+  const [highImpactActions, setHighImpactActions] = React.useState<string[]>([]);
+  const [highImpactApprovalId, setHighImpactApprovalId] = React.useState<string | null>(null);
+  const [highImpactOpen, setHighImpactOpen] = React.useState(false);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [convDrawerOpen, setConvDrawerOpen] = React.useState(false);
   const abortRef = React.useRef<AbortController | null>(null);
@@ -96,7 +99,7 @@ export function useChat() {
     mode: Mode | string,
     title?: string
   ): Promise<string | null> => {
-    // Read CURRENT state from the store â€” not the stale closure value.
+    // Read CURRENT state from the store - not the stale closure value.
     // This fixes the bug where switching conversations or creating a new one
     // didn't update the activeId used by sendMessage.
     const current = useConversations.getState();
@@ -134,7 +137,9 @@ export function useChat() {
     feature?: FeatureId,
     image?: { data: string; mimeType: string },
     skipSpecialist = false,
-    cachedClassification?: IntentClassification
+    cachedClassification?: IntentClassification,
+    approveHighImpact = false,
+    approvalId?: string
   ) => {
     if ((!text.trim() && !image) || sending) return;
     const controller = new AbortController();
@@ -144,7 +149,7 @@ export function useChat() {
     // In MULTI mode, create the conversation with the feature name as title
     // so the sidebar shows which feature each conversation belongs to.
     const convTitle = mm.mode === "MULTI" && feature
-      ? `${feature.charAt(0).toUpperCase() + feature.slice(1)} â€” ${text.slice(0, 40)}`
+      ? `${feature.charAt(0).toUpperCase() + feature.slice(1)} - ${text.slice(0, 40)}`
       : undefined;
     const conversationScope =
       mm.mode === "MULTI" && feature ? `MULTI:${feature}` : mm.mode;
@@ -173,7 +178,7 @@ export function useChat() {
     }
     setInput("");
 
-    // Read CURRENT activeMessages from the store â€” not the stale closure.
+    // Read CURRENT activeMessages from the store - not the stale closure.
     const currentMessages = useConversations.getState().activeMessages;
 
     const apiMessages = [
@@ -199,6 +204,8 @@ export function useChat() {
           conversationId,
           skipSpecialist,
           cachedClassification,
+          approveHighImpact,
+          approvalId,
         },
       });
 
@@ -381,6 +388,11 @@ export function useChat() {
                       trace: steps,
                       mode: resumedResult.mode,
                       multiAgent: resumedResult.multiAgent,
+                      orchestration: {
+                        state: resumedResult.orchestrationState,
+                        stage: resumedResult.orchestrationStage,
+                        workspace: resumedResult.workspace,
+                      },
                       usage: aggUsage,
                     }
                   : m
@@ -393,6 +405,11 @@ export function useChat() {
               trace: steps,
               mode: resumedResult.mode,
               multiAgent: resumedResult.multiAgent,
+              orchestration: {
+                state: resumedResult.orchestrationState,
+                stage: resumedResult.orchestrationStage,
+                workspace: resumedResult.workspace,
+              },
               error: false,
               usage: aggUsage,
             });
@@ -433,6 +450,19 @@ export function useChat() {
 
         // Finalize the assistant message with trace + usage
         if (finalResult) {
+          if (finalResult.destructiveConfirmationRequired) {
+            useConversations.setState((s) => ({
+              activeMessages: s.activeMessages.filter((m) => m.id !== aiMsgId),
+            }));
+            setHighImpactActions(finalResult.highImpactActions || []);
+            setHighImpactApprovalId(finalResult.approvalId || null);
+            setHighImpactOpen(true);
+            setPendingText(text);
+            setPendingFeature(feature);
+            setPendingClassification(finalResult.classification || pendingClassification);
+            setSending(false);
+            return;
+          }
           const steps = (finalResult.steps as DispatchStep[]) || [];
           const aggUsage = aggregateUsage(steps);
           const finalText = finalResult.finalReply || progressiveText || "(no response)";
@@ -446,6 +476,11 @@ export function useChat() {
                     trace: steps,
                     mode: finalResult.mode,
                     multiAgent: finalResult.multiAgent,
+                    orchestration: {
+                      state: finalResult.orchestrationState,
+                      stage: finalResult.orchestrationStage,
+                      workspace: finalResult.workspace,
+                    },
                     usage: aggUsage,
                   }
                 : m
@@ -460,6 +495,11 @@ export function useChat() {
             mode: finalResult.mode,
             multiAgent: finalResult.multiAgent,
             error: false,
+            orchestration: {
+              state: finalResult.orchestrationState,
+              stage: finalResult.orchestrationStage,
+              workspace: finalResult.workspace,
+            },
             usage: aggUsage,
           });
           convs.loadList();
@@ -562,6 +602,16 @@ export function useChat() {
             setSending(false);
             return;
           }
+          if (resumedResult.destructiveConfirmationRequired) {
+            setHighImpactActions(resumedResult.highImpactActions || []);
+            setHighImpactApprovalId(resumedResult.approvalId || null);
+            setHighImpactOpen(true);
+            setPendingText(text);
+            setPendingFeature(feature);
+            setPendingClassification(resumedResult.classification || pendingClassification);
+            setSending(false);
+            return;
+          }
 
           // If another pendingClientExec is returned, continue the loop
           if (resumedResult.pendingClientExec) {
@@ -580,6 +630,11 @@ export function useChat() {
             trace: steps,
             mode: resumedResult.mode,
             multiAgent: resumedResult.multiAgent,
+            orchestration: {
+              state: resumedResult.orchestrationState,
+              stage: resumedResult.orchestrationStage,
+              workspace: resumedResult.workspace,
+            },
             error: false,
             usage: aggUsage,
             createdAt: new Date().toISOString(),
@@ -610,6 +665,16 @@ export function useChat() {
         setSending(false);
         return;
       }
+      if (r.destructiveConfirmationRequired) {
+        setHighImpactActions(r.highImpactActions || []);
+        setHighImpactApprovalId(r.approvalId || null);
+        setHighImpactOpen(true);
+        setPendingText(text);
+        setPendingFeature(feature);
+        setPendingClassification(r.classification || pendingClassification);
+        setSending(false);
+        return;
+      }
 
       // Aggregate token usage + cost across all dispatch steps.
       const steps = (r.steps as DispatchStep[]) || [];
@@ -622,6 +687,11 @@ export function useChat() {
         trace: steps,
         mode: r.mode,
         multiAgent: r.multiAgent,
+        orchestration: {
+          state: r.orchestrationState,
+          stage: r.orchestrationStage,
+          workspace: r.workspace,
+        },
         error: false,
         usage: aggUsage,
         createdAt: new Date().toISOString(),
@@ -633,6 +703,11 @@ export function useChat() {
         trace: steps,
         mode: r.mode,
         multiAgent: r.multiAgent,
+        orchestration: {
+          state: r.orchestrationState,
+          stage: r.orchestrationStage,
+          workspace: r.workspace,
+        },
         error: false,
         usage: aggUsage,
       });
@@ -663,7 +738,7 @@ export function useChat() {
       setConfirmLimits([]);
       setConfirmClassification(undefined);
       // Pass cached classification so the backend doesn't re-run the
-      // classification call â€” it already knows the specialist from the
+      // classification call - it already knows the specialist from the
       // first round-trip.
       sendMessage(text, true, feature, undefined, false, classification);
     }
@@ -701,9 +776,33 @@ export function useChat() {
       setPendingClassification(undefined);
       setConfirmLimits([]);
       setConfirmClassification(undefined);
-      // Re-dispatch with skipSpecialist=true â€” Host answers directly.
+      // Re-dispatch with skipSpecialist=true - Host answers directly.
       sendMessage(text, true, feature, undefined, true, pendingClassification);
     }
+  };
+
+  const onApproveHighImpact = () => {
+    setHighImpactOpen(false);
+    if (pendingText !== null && highImpactApprovalId) {
+      const text = pendingText;
+      const feature = pendingFeature;
+      const classification = pendingClassification;
+      setPendingText(null);
+      setPendingFeature(undefined);
+      setPendingClassification(undefined);
+      setHighImpactActions([]);
+      setHighImpactApprovalId(null);
+      sendMessage(text, true, feature, undefined, false, classification, true, highImpactApprovalId);
+    }
+  };
+
+  const onCancelHighImpact = () => {
+    setHighImpactOpen(false);
+    setPendingText(null);
+    setPendingFeature(undefined);
+    setPendingClassification(undefined);
+    setHighImpactActions([]);
+    setHighImpactApprovalId(null);
   };
 
   return {
@@ -715,6 +814,8 @@ export function useChat() {
     confirmClassification,
     confirmOpen,
     setConfirmOpen,
+    highImpactOpen,
+    highImpactActions,
     pendingText,
     setPendingText,
     advancedOpen,
@@ -731,5 +832,7 @@ export function useChat() {
     onChangeSpecialist,
     onConfirmSwitchToSingle,
     onConfirmHostDirectly,
+    onApproveHighImpact,
+    onCancelHighImpact,
   };
 }

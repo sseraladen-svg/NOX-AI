@@ -4,6 +4,11 @@ import { encryptApiKey, decryptApiKey, maskApiKey, isMaskedApiKey } from "@/lib/
 import { execFile, spawn } from "child_process";
 import { accessSync, constants as fsConstants, existsSync } from "fs";
 import { promisify } from "util";
+import {
+  applyApprovedPatches,
+  buildEngineeringContext,
+  runEngineeringVerification,
+} from "@/lib/engineering-workspace";
 
 const execFileAsync = promisify(execFile);
 import {
@@ -22,6 +27,9 @@ import {
   type CostBreakdown,
   type IntentClassification,
   type AgentWorkspace,
+  type VerificationResult,
+  type OrchestrationState,
+  type OrchestrationStage,
   FEATURES,
   SPECIALISTS,
   PROVIDERS,
@@ -46,6 +54,10 @@ export type {
   TokenUsage,
   CostBreakdown,
   IntentClassification,
+  AgentWorkspace,
+  VerificationResult,
+  OrchestrationState,
+  OrchestrationStage,
 };
 export { FEATURES, SPECIALISTS, PROVIDERS, DEFAULT_TIMEOUTS, MAX_RETRY };
 
@@ -80,6 +92,8 @@ function migrateEndpoint(a: ModelAssignment | null | undefined): ModelAssignment
 // Simple in-memory cache for reachability checks with 60s TTL
 const reachabilityCache = new Map<string, { result: ModelLimit; expiresAt: number }>();
 const CACHE_TTL_MS = 60_000; // 60 seconds
+const pendingHighImpactApprovals = new Map<string, { userId: string; expiresAt: number }>();
+const consumedResumeSteps = new Map<string, number>();
 
 function getCacheKey(userId: string, assignment: ModelAssignment): string {
   return `${userId}-${assignment.connectionType}-${assignment.provider}-${assignment.modelName}-${resolveEndpoint(assignment) || ""}-${assignment.apiKey?.slice(-4) || ""}`;
@@ -1197,7 +1211,9 @@ async function callModel(
         retries,
         timedOut: false,
         tokens: result.tokens,
-        heartbeats: result.heartbeats,
+        heartbeats: "heartbeats" in result && typeof result.heartbeats === "number"
+          ? result.heartbeats
+          : 0,
       };
     } catch (err) {
       retries = attempt + 1;
@@ -2341,11 +2357,36 @@ Respond with ONLY a JSON object. No markdown, no code blocks, no extra text:
 // surrounding text. Returns null if parsing fails.
 function parseClassificationResponse(output: string): IntentClassification | null {
   try {
-    // Try to extract JSON from the response (may be wrapped in ```json ... ```)
-    const jsonMatch = output.match(/\{[\s\S]*?\}/);
-    if (!jsonMatch) return null;
+    const start = output.indexOf("{");
+    if (start < 0) return null;
+    let depth = 0;
+    let quoted = false;
+    let escaped = false;
+    let end = -1;
+    for (let i = start; i < output.length; i += 1) {
+      const char = output[i];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === "\"") quoted = false;
+        continue;
+      }
+      if (char === "\"") quoted = true;
+      else if (char === "{") depth += 1;
+      else if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end < 0) return null;
+    const candidate = output.slice(start, end + 1)
+      .replace(/,\s*([}\]])/g, "$1")
+      .replace(/([{,]\s*)([A-Za-z_][\w-]*)\s*:/g, '$1"$2":');
 
-    const parsed = JSON.parse(jsonMatch[0]) as {
+    const parsed = JSON.parse(candidate) as {
       specialist?: string;
       confidence?: number;
       reasoning?: string;
@@ -2364,7 +2405,9 @@ function parseClassificationResponse(output: string): IntentClassification | nul
 
     return {
       specialist: parsed.specialist as SpecialistId | "none",
-      confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.5,
+      confidence: typeof parsed.confidence === "number"
+        ? Math.max(0, Math.min(1, parsed.confidence))
+        : 0.5,
       reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "No reasoning provided.",
       plan: Array.isArray(parsed.plan) ? parsed.plan.filter((item): item is string => typeof item === "string") : undefined,
       capabilities: Array.isArray(parsed.capabilities) ? parsed.capabilities.filter((item): item is string => typeof item === "string") : undefined,
@@ -2394,6 +2437,50 @@ function buildWorkspace(
     ? classification.expectedOutput
     : ["Check the specialist result for completeness", "Report remaining risks or follow-up work"];
   return { plan, files, execution, verification };
+}
+
+function detectHighImpactActions(
+  messages: ChatMessage[],
+  classification: IntentClassification
+): string[] {
+  const prompt = [...messages].reverse().find((message) => message.role === "user")?.content || "";
+  const actions = new Set(
+    (classification.destructiveActions || []).filter((action) => action.trim())
+  );
+  if (classification.specialist === "engineering") {
+    actions.add("Engineering workspace access and command execution");
+  }
+  if (/\b(delete|remove|drop|destroy|reset|overwrite|replace|migrate|deploy|publish)\b/i.test(prompt)) {
+    actions.add("Destructive or irreversible change requested");
+  }
+  if (/\b(edit|modify|write|patch|fix|refactor|implement|create|update)\b/i.test(prompt) &&
+      (classification.specialist === "engineering" || classification.specialist === "coding")) {
+    actions.add("Project files may be modified");
+  }
+  if (/\b(run|execute|install|test|build|lint|typecheck)\b/i.test(prompt)) {
+    actions.add("Local commands may execute in the agent workspace");
+  }
+  return [...actions];
+}
+
+function parseEngineeringPatches(output: string): Array<{ path: string; content: string }> {
+  const start = output.indexOf("{");
+  const end = output.lastIndexOf("}");
+  if (start < 0 || end <= start) return [];
+  try {
+    const parsed = JSON.parse(output.slice(start, end + 1)) as { patches?: unknown };
+    if (!Array.isArray(parsed.patches)) return [];
+    return parsed.patches.filter((patch): patch is { path: string; content: string } => {
+      return Boolean(
+        patch &&
+        typeof patch === "object" &&
+        typeof (patch as { path?: unknown }).path === "string" &&
+        typeof (patch as { content?: unknown }).content === "string"
+      );
+    });
+  } catch {
+    return [];
+  }
 }
 
 // Result of a classification call "" the parsed classification + call metadata
@@ -2455,6 +2542,8 @@ export async function dispatch(
   messages: ChatMessage[],
   opts: {
     confirmMultiAgent?: boolean;
+    approveHighImpact?: boolean;
+    approvalId?: string;
     feature?: FeatureId;
     skipSpecialist?: boolean;
     cachedClassification?: IntentClassification;
@@ -2674,7 +2763,7 @@ export async function dispatch(
         timeoutMs: hostTimeout,
         role: "host",
         intent: "direct",
-        onChunk: opts.onChunk,
+        onChunk: opts.onChunk ? (text) => opts.onChunk!("host", text) : undefined,
       });
 
       steps.push({
@@ -2739,12 +2828,13 @@ export async function dispatch(
         ? classification.expectedOutput
         : ["Specialist result", "Host-synthesized response"],
     };
-    const workspace = buildWorkspace(specialistId, classification);
+    let workspace = buildWorkspace(specialistId, classification);
     const specialistAssignment =
       doc.specialistConfigs?.[specialistId] || emptyAssignment();
     const specialistTimeout =
       timeoutOverrides[specialistAssignment.connectionType] ||
       DEFAULT_TIMEOUTS[specialistAssignment.connectionType];
+    const highImpactActions = detectHighImpactActions(messages, classification);
 
     // Step 3a: Pre-flight confirmation (first call, no confirmMultiAgent)
     if (!opts.confirmMultiAgent) {
@@ -2765,6 +2855,47 @@ export async function dispatch(
         confirmationRequired: true,
         limits,
         classification: classification || undefined,
+        classificationMethod,
+        orchestrationState: "waiting_confirmation",
+        orchestrationStage: "confirmation",
+        workspace,
+      };
+    }
+
+    if (opts.approveHighImpact) {
+      const approval = opts.approvalId ? pendingHighImpactApprovals.get(opts.approvalId) : undefined;
+      if (!approval || approval.userId !== userId || approval.expiresAt < Date.now()) {
+        if (opts.approvalId) pendingHighImpactApprovals.delete(opts.approvalId);
+        return {
+          ok: false,
+          mode: doc.mode,
+          steps,
+          finalReply: "",
+          multiAgent: true,
+          confirmationRequired: false,
+          orchestrationState: "error",
+          orchestrationStage: "confirmation",
+          error: "High-impact approval is missing or expired. Start the confirmation flow again.",
+        };
+      }
+      if (opts.approvalId) pendingHighImpactApprovals.delete(opts.approvalId);
+    } else if (highImpactActions.length > 0) {
+      const approvalId = crypto.randomUUID();
+      pendingHighImpactApprovals.set(approvalId, {
+        userId,
+        expiresAt: Date.now() + 10 * 60 * 1000,
+      });
+      return {
+        ok: false,
+        mode: doc.mode,
+        steps,
+        finalReply: "",
+        multiAgent: true,
+        confirmationRequired: false,
+        destructiveConfirmationRequired: true,
+        approvalId,
+        highImpactActions,
+        classification,
         classificationMethod,
         orchestrationState: "waiting_confirmation",
         orchestrationStage: "confirmation",
@@ -2809,6 +2940,9 @@ export async function dispatch(
     // Context handoff: truncate the message history to fit the specialist's
     // context window before forwarding.
     const truncated = truncateForContext(messages);
+    const engineeringContext = specialistId === "engineering"
+      ? buildEngineeringContext(messages[messages.length - 1]?.content || "")
+      : "";
     const specialistMessages: ChatMessage[] = [
       ...truncated.messages,
       {
@@ -2820,6 +2954,12 @@ export async function dispatch(
 4. VERIFICATION: check the result and list remaining risks.
 Return these sections clearly so Host can verify and synthesize the result.]`,
       },
+      ...(engineeringContext
+        ? [{
+            role: "assistant" as const,
+            content: `${engineeringContext}\n\nFor Engineering tasks, return a JSON object when proposing file changes: {"summary":"...","patches":[{"path":"relative/path","content":"complete new file content"}]}. Do not claim a patch was applied unless the workspace reports it.`,
+          }]
+        : []),
     ];
     if (needsClientOllama(specialistAssignment)) {
       return {
@@ -2846,6 +2986,8 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
             intent: specialistId,
             assignment: specialistAssignment,
             hostAssignment,
+            classification,
+            highImpactApproved: true,
             finalMessages: [...messages, { role: "assistant", content: `Specialist ${specialistId} responded with:\n\n[awaiting local Ollama completion]\n\nReply to the user, incorporating the specialist's work.` }],
           },
         },
@@ -2861,13 +3003,34 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
         intent: specialistId,
       }
     );
+    if (specialistId === "engineering") {
+      const patches = parseEngineeringPatches(specialistResult.output);
+      const changedFiles = opts.approveHighImpact && patches.length > 0
+        ? applyApprovedPatches(patches)
+        : [];
+      const verificationResults = await runEngineeringVerification();
+      workspace = {
+        ...workspace,
+        changedFiles,
+        commands: verificationResults.map((result) => result.command),
+        verificationResults,
+        files: [
+          ...workspace.files,
+          ...(changedFiles.length > 0 ? [`Changed files: ${changedFiles.join(", ")}`] : []),
+        ],
+      };
+    }
 
     // Host synthesizes the specialist's output
     const finalMessages: ChatMessage[] = [
       ...messages,
       {
         role: "assistant",
-        content: `Specialist ${specialistId} responded with:\n\n${specialistResult.output}\n\nReply to the user, incorporating the specialist's work.`,
+        content: `Specialist ${specialistId} responded with:\n\n${specialistResult.output}\n\n${
+          specialistId === "engineering"
+            ? `Engineering workspace report:\nChanged files: ${workspace.changedFiles?.join(", ") || "(none)"}\nVerification:\n${workspace.verificationResults?.map((result) => `${result.ok ? "PASS" : "FAIL"} ${result.command}\n${result.output}`).join("\n") || "Not run"}`
+            : ""
+        }\nReply to the user, incorporating the specialist's work. Never claim verification passed unless the report contains PASS for that exact command.`,
       },
     ];
     if (needsClientOllama(hostAssignment)) {
@@ -2890,6 +3053,7 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
             role: "host",
             assignment: hostAssignment,
             specialistId,
+            workspace,
           },
         },
       };
@@ -2897,7 +3061,7 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
     const finalResult = await callModel(hostAssignment, finalMessages, {
       timeoutMs: hostTimeout,
       role: "host",
-      onChunk: opts.onChunk,
+      onChunk: opts.onChunk ? (text) => opts.onChunk!("host", text) : undefined,
     });
 
     // Log specialist step
@@ -2994,7 +3158,7 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
       timeoutMs: hostTimeout,
       role: "host",
       intent: "direct",
-      onChunk: opts.onChunk,
+      onChunk: opts.onChunk ? (text) => opts.onChunk!("host", text) : undefined,
     });
 
     steps.push({
@@ -3140,7 +3304,7 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
     timeoutMs: timeout,
     role: plan.assignments[0].label,
     intent: plan.intent,
-    onChunk: opts.onChunk,
+    onChunk: opts.onChunk ? (text) => opts.onChunk!(plan.assignments[0].label, text) : undefined,
   });
 
   steps.push({
@@ -3183,6 +3347,12 @@ export async function resumeDispatch(
   browserTokens?: { input: number; output: number; total: number },
   browserLatencyMs?: number
 ): Promise<DispatchResult> {
+  const resumeKey = `${userId}:${_stepId}`;
+  const previousUse = consumedResumeSteps.get(resumeKey);
+  if (previousUse && previousUse > Date.now()) {
+    throw new Error("This dispatch-resume step has already been consumed.");
+  }
+  consumedResumeSteps.set(resumeKey, Date.now() + 10 * 60 * 1000);
   const doc = await getConfigInternal(userId);
   const ctx = (resumeContext || {}) as Record<string, any>;
   const output = typeof resultText === "string" ? resultText : "";
@@ -3415,6 +3585,7 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
               role: "host",
               assignment: hostAssignment,
               specialistStep,
+              workspace,
               intent: "synthesize",
             },
           },
@@ -3470,12 +3641,49 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
         retries: 0,
         timedOut: false,
       };
-      const finalMessages: ChatMessage[] = Array.isArray(ctx.finalMessages)
+      let workspace = buildWorkspace(
+        specialistId as SpecialistId,
+        (ctx.classification as IntentClassification) || {
+          specialist: specialistId as SpecialistId,
+          confidence: 1,
+          reasoning: "Approved specialist execution",
+        }
+      );
+      if (specialistId === "engineering") {
+        const patches = parseEngineeringPatches(output);
+        const changedFiles = ctx.highImpactApproved && patches.length > 0
+          ? applyApprovedPatches(patches)
+          : [];
+        const verificationResults = await runEngineeringVerification();
+        workspace = {
+          ...workspace,
+          changedFiles,
+          commands: verificationResults.map((result) => result.command),
+          verificationResults,
+        };
+      }
+      let finalMessages: ChatMessage[] = Array.isArray(ctx.finalMessages)
         ? (ctx.finalMessages as ChatMessage[])
         : [
             ...messages,
-            { role: "assistant", content: `Specialist ${specialistId} responded with:\n\n${output}\n\nReply to the user, incorporating the specialist's work.` },
+            {
+              role: "assistant",
+              content: `Specialist ${specialistId} responded with:\n\n${output}\n\n${
+                specialistId === "engineering"
+                  ? `Engineering workspace report:\nChanged files: ${workspace.changedFiles?.join(", ") || "(none)"}\nVerification:\n${workspace.verificationResults?.map((result) => `${result.ok ? "PASS" : "FAIL"} ${result.command}\n${result.output}`).join("\n") || "Not run"}`
+                  : ""
+              }\nReply to the user, incorporating the specialist's work. Never claim verification passed unless the report contains PASS for that exact command.`,
+            },
           ];
+      if (specialistId === "engineering") {
+        finalMessages = [
+          ...finalMessages,
+          {
+            role: "assistant",
+            content: `Engineering workspace report:\nChanged files: ${workspace.changedFiles?.join(", ") || "(none)"}\nVerification:\n${workspace.verificationResults?.map((result) => `${result.ok ? "PASS" : "FAIL"} ${result.command}\n${result.output}`).join("\n") || "Not run"}\nNever claim verification passed unless the report contains PASS for that exact command.`,
+          },
+        ];
+      }
       const hostTimeout = timeoutOverrides[hostAssignment.connectionType] || DEFAULT_TIMEOUTS[hostAssignment.connectionType];
       if (needsClientOllama(hostAssignment)) {
         return {
@@ -3485,6 +3693,9 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
           finalReply: "",
           multiAgent: true,
           confirmationRequired: false,
+          orchestrationState: "processing",
+          orchestrationStage: "verification",
+          workspace,
           pendingClientExec: {
             stepId: crypto.randomUUID(),
             endpoint: resolveEndpoint(hostAssignment) || "",
@@ -3529,11 +3740,22 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
         finalReply: hostResult.output || output,
         multiAgent: true,
         confirmationRequired: false,
+        orchestrationState: "completed",
+        orchestrationStage: "final",
+        workspace,
       };
     }
     case "synthesize": {
       const assignment = (ctx.assignment as ModelAssignment) || doc.hostConfig || emptyAssignment();
       const specialistStep = (ctx.specialistStep as DispatchStep | undefined) || undefined;
+      const workspace = (ctx.workspace as AgentWorkspace | undefined) || buildWorkspace(
+        String(ctx.specialistId || "specialist") as SpecialistId,
+        (ctx.classification as IntentClassification | undefined) || {
+          specialist: String(ctx.specialistId || "specialist") as SpecialistId,
+          confidence: 1,
+          reasoning: "Approved specialist execution",
+        }
+      );
       const step: DispatchStep = {
         role: "host",
         model: assignment.modelName,
@@ -3584,6 +3806,11 @@ export interface ConversationDetail extends ConversationSummary {
     role: string;
     content: string;
     trace?: DispatchStep[];
+    orchestration?: {
+      state?: OrchestrationState;
+      stage?: OrchestrationStage;
+      workspace?: AgentWorkspace;
+    };
     mode?: string;
     multiAgent: boolean;
     error: boolean;
@@ -3662,6 +3889,9 @@ export async function getConversation(
       role: m.role,
       content: m.content,
       trace: m.trace ? (JSON.parse(m.trace) as DispatchStep[]) : undefined,
+      orchestration: m.orchestration
+        ? JSON.parse(m.orchestration)
+        : undefined,
       mode: m.mode || undefined,
       multiAgent: m.multiAgent,
       error: m.error,
@@ -3700,6 +3930,11 @@ export async function addMessage(
     role: "user" | "assistant";
     content: string;
     trace?: DispatchStep[];
+    orchestration?: {
+      state?: OrchestrationState;
+      stage?: OrchestrationStage;
+      workspace?: AgentWorkspace;
+    };
     mode?: string;
     multiAgent?: boolean;
     error?: boolean;
@@ -3719,6 +3954,7 @@ export async function addMessage(
       role: msg.role,
       content: msg.content,
       trace: msg.trace ? JSON.stringify(msg.trace) : null,
+      orchestration: msg.orchestration ? JSON.stringify(msg.orchestration) : null,
       mode: msg.mode || null,
       multiAgent: msg.multiAgent || false,
       error: msg.error || false,

@@ -36,6 +36,8 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as {
       messages: ChatMessage[];
       confirmMultiAgent?: boolean;
+      approveHighImpact?: boolean;
+      approvalId?: string;
       feature?: FeatureId;
       conversationId?: string;
       skipSpecialist?: boolean;
@@ -63,6 +65,8 @@ export async function POST(req: NextRequest) {
 
           const result = await dispatch(user.id, body.messages, {
             confirmMultiAgent: body.confirmMultiAgent,
+            approveHighImpact: body.approveHighImpact,
+            approvalId: body.approvalId,
             feature: body.feature,
             skipSpecialist: body.skipSpecialist,
             cachedClassification: body.cachedClassification,
@@ -76,6 +80,9 @@ export async function POST(req: NextRequest) {
               orchestrationState: result.orchestrationState,
               orchestrationStage: result.orchestrationStage,
               workspace: result.workspace,
+              destructiveConfirmationRequired: result.destructiveConfirmationRequired,
+              approvalId: result.approvalId,
+              highImpactActions: result.highImpactActions,
             });
             controller.close();
             return;
@@ -90,6 +97,9 @@ export async function POST(req: NextRequest) {
               orchestrationState: result.orchestrationState,
               orchestrationStage: result.orchestrationStage,
               workspace: result.workspace,
+              destructiveConfirmationRequired: result.destructiveConfirmationRequired,
+              approvalId: result.approvalId,
+              highImpactActions: result.highImpactActions,
             });
             controller.close();
             return;

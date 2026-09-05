@@ -17,6 +17,8 @@ export async function POST(req: NextRequest) {
       resumeContext?: Record<string, unknown>;
       browserTokens?: { input: number; output: number; total: number };
       browserLatencyMs?: number;
+      approveHighImpact?: boolean;
+      approvalId?: string;
     };
 
     if (!body?.stepId || typeof body.resultText !== "string") {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { addMessage, type DispatchStep, type TokenUsage, type CostBreakdown } from "@/lib/multi-model-service";
+import { addMessage, type DispatchStep, type TokenUsage, type CostBreakdown, type AgentWorkspace, type OrchestrationState, type OrchestrationStage } from "@/lib/multi-model-service";
 
 export const runtime = "nodejs";
 
@@ -29,6 +29,11 @@ export async function POST(req: NextRequest) {
       role: "user" | "assistant";
       content: string;
       trace?: DispatchStep[];
+      orchestration?: {
+        state?: OrchestrationState;
+        stage?: OrchestrationStage;
+        workspace?: AgentWorkspace;
+      };
       mode?: string;
       multiAgent?: boolean;
       error?: boolean;
@@ -44,6 +49,7 @@ export async function POST(req: NextRequest) {
       role: body.role,
       content: body.content,
       trace: body.trace,
+      orchestration: body.orchestration,
       mode: body.mode,
       multiAgent: body.multiAgent,
       error: body.error,

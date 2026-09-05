@@ -148,7 +148,7 @@ export function SingleModePage() {
         onOpenChange={chat.setAdvancedOpen}
       />
       <ConfirmWrapper
-        open={chat.confirmOpen}
+        open={chat.confirmOpen || chat.highImpactOpen}
         limits={chat.confirmLimits}
         mode={mm.mode}
         onContinue={chat.onConfirmContinue}
@@ -159,12 +159,15 @@ export function SingleModePage() {
         onSwitchToSingle={chat.onConfirmSwitchToSingle}
         classification={chat.confirmClassification}
         request={chat.pendingText}
+        highImpact={chat.highImpactOpen}
+        highImpactActions={chat.highImpactActions}
+        onApproveHighImpact={chat.onApproveHighImpact}
+        onCancelHighImpact={chat.onCancelHighImpact}
         onHostHandleDirectly={chat.onConfirmHostDirectly}
         onChangeSpecialist={chat.onChangeSpecialist}
         onOpenSettings={() => {
           chat.setConfirmOpen(false);
           chat.setAdvancedOpen(true);
-          chat.setPendingText(null);
         }}
       />
     </div>

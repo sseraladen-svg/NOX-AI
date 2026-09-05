@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * Fix mojibake comments (€"€"€ pattern) caused by file corruption
  * Run: npm run fix-mojibake or node scripts/fix-mojibake.js

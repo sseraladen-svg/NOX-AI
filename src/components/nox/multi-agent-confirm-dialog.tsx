@@ -29,6 +29,9 @@ interface Props {
   onOpenSettings: () => void;
   onHostHandleDirectly: () => void;
   onChangeSpecialist?: (specialist: SpecialistId) => void;
+  highImpact?: boolean;
+  highImpactActions?: string[];
+  onApproveHighImpact?: () => void;
 }
 
 export function MultiAgentConfirmDialog({
@@ -43,6 +46,9 @@ export function MultiAgentConfirmDialog({
   onOpenSettings,
   onHostHandleDirectly,
   onChangeSpecialist,
+  highImpact = false,
+  highImpactActions = [],
+  onApproveHighImpact,
 }: Props) {
   const allCanFinish = limits.every((l) => l.canFinish);
   const blocked = limits.find((l) => !l.canFinish);
@@ -53,11 +59,12 @@ export function MultiAgentConfirmDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-amber-400" />
-            Multi-Agent Task Detected
+            {highImpact ? "High-Impact Approval Required" : "Multi-Agent Task Detected"}
           </DialogTitle>
           <DialogDescription>
-            The Host model classified this request and wants to route it to a
-            specialist. Review the reasoning and per-model status before continuing.
+            {highImpact
+              ? "The specialist has requested an action that can modify files or execute commands. Nothing will run until you explicitly approve this second gate."
+              : "The Host model classified this request and wants to route it to a specialist. Review the reasoning and per-model status before continuing."}
           </DialogDescription>
         </DialogHeader>
 
@@ -67,6 +74,17 @@ export function MultiAgentConfirmDialog({
               Request
             </div>
             <p className="text-sm leading-relaxed line-clamp-4">{request}</p>
+          </div>
+        )}
+
+        {highImpact && highImpactActions.length > 0 && (
+          <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-red-400 mb-1">
+              Actions requiring approval
+            </div>
+            <ul className="list-disc pl-4 text-sm text-red-200 space-y-1">
+              {highImpactActions.map((action) => <li key={action}>{action}</li>)}
+            </ul>
           </div>
         )}
 
@@ -191,7 +209,17 @@ export function MultiAgentConfirmDialog({
         )}
 
         <DialogFooter className="flex-col gap-2 sm:flex-col">
-          {allCanFinish ? (
+          {highImpact ? (
+            <div className="flex gap-2 w-full">
+              <Button variant="ghost" onClick={onCancel} className="flex-1">Cancel</Button>
+              <Button
+                onClick={onApproveHighImpact}
+                className="flex-1 bg-red-600 text-white hover:bg-red-700"
+              >
+                Approve and execute
+              </Button>
+            </div>
+          ) : allCanFinish ? (
             <div className="flex gap-2 w-full">
               <Button variant="ghost" onClick={onCancel} className="flex-1">
                 Cancel
@@ -231,7 +259,8 @@ export function MultiAgentConfirmDialog({
                 Cancel
               </Button>
             </div>
-          )}
+          )
+          }
         </DialogFooter>
       </DialogContent>
     </Dialog>

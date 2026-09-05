@@ -189,6 +189,16 @@ export interface AgentWorkspace {
   files: string[];
   execution: string[];
   verification: string[];
+  changedFiles?: string[];
+  commands?: string[];
+  verificationResults?: VerificationResult[];
+}
+
+export interface VerificationResult {
+  command: string;
+  ok: boolean;
+  output: string;
+  durationMs: number;
 }
 
 export interface DispatchResult {
@@ -206,6 +216,9 @@ export interface DispatchResult {
   orchestrationState?: OrchestrationState;
   orchestrationStage?: OrchestrationStage;
   workspace?: AgentWorkspace;
+  destructiveConfirmationRequired?: boolean;
+  approvalId?: string;
+  highImpactActions?: string[];
   error?: string;
   pendingClientExec?: {
     stepId: string;

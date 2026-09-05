@@ -2,7 +2,15 @@
 
 import { create } from "zustand";
 import { authFetch } from "@/lib/auth-fetch";
-import type { DispatchStep, Mode, TokenUsage, CostBreakdown } from "@/lib/multi-model-types";
+import type {
+  AgentWorkspace,
+  DispatchStep,
+  Mode,
+  OrchestrationStage,
+  OrchestrationState,
+  TokenUsage,
+  CostBreakdown,
+} from "@/lib/multi-model-types";
 
 export interface MessageUsage {
   tokens?: TokenUsage;
@@ -18,6 +26,11 @@ export interface ConversationMessage {
     mimeType: string;
   };
   trace?: DispatchStep[];
+  orchestration?: {
+    state?: OrchestrationState;
+    stage?: OrchestrationStage;
+    workspace?: AgentWorkspace;
+  };
   mode?: string;
   multiAgent: boolean;
   error: boolean;
@@ -44,6 +57,7 @@ interface ConversationsStore {
   create: (mode?: Mode | string, title?: string) => Promise<string | null>;
   select: (id: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
+  rename: (id: string, title: string) => Promise<void>;
   clearActive: () => void;
   appendLocal: (msg: ConversationMessage) => void;
   refreshActive: () => Promise<void>;
@@ -108,6 +122,18 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
       items: s.items.filter((i) => i.id !== id),
       activeId: s.activeId === id ? null : s.activeId,
       activeMessages: s.activeId === id ? [] : s.activeMessages,
+    }));
+  },
+
+  rename: async (id, title) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    await authFetch("/api/conversations/rename", {
+      method: "POST",
+      body: { id, title: trimmed },
+    });
+    set((s) => ({
+      items: s.items.map((item) => item.id === id ? { ...item, title: trimmed } : item),
     }));
   },
 

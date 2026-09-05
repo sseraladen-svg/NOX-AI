@@ -199,17 +199,20 @@ export function OrchestratorModePage() {
         onOpenChange={chat.setAdvancedOpen}
       />
       <ConfirmWrapper
-        open={chat.confirmOpen}
+        open={chat.confirmOpen || chat.highImpactOpen}
         limits={chat.confirmLimits}
         mode={mm.mode}
         onContinue={chat.onConfirmContinue}
         onCancel={() => {
           chat.setConfirmOpen(false);
-          chat.setPendingText(null);
         }}
         onSwitchToSingle={chat.onConfirmSwitchToSingle}
         classification={chat.confirmClassification}
         request={chat.pendingText}
+        highImpact={chat.highImpactOpen}
+        highImpactActions={chat.highImpactActions}
+        onApproveHighImpact={chat.onApproveHighImpact}
+        onCancelHighImpact={chat.onCancelHighImpact}
         onHostHandleDirectly={chat.onConfirmHostDirectly}
         onChangeSpecialist={chat.onChangeSpecialist}
         onOpenSettings={() => {
