@@ -1,21 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, CheckCircle2, XCircle, Globe, Settings, Bot } from "lucide-react";
+import { AlertTriangle, Bot, Code2, Cog, Cpu, Eye, Network, ShieldAlert } from "lucide-react";
 import type { LimitRow } from "@/store/multi-model-store";
-import type { IntentClassification } from "@/lib/multi-model-types";
-import { SPECIALISTS, type SpecialistId } from "@/lib/multi-model-types";
+import { SPECIALISTS, type IntentClassification, type SpecialistId } from "@/lib/multi-model-types";
 
 interface Props {
   open: boolean;
@@ -23,246 +14,112 @@ interface Props {
   mode: string | null;
   classification?: IntentClassification;
   request?: string | null;
-  onContinue: () => void;
-  onCancel: () => void;
-  onSwitchToGlobal: () => void;
-  onOpenSettings: () => void;
-  onHostHandleDirectly: () => void;
+  onContinue: () => void | Promise<void>;
+  onCancel: () => void | Promise<void>;
+  onSwitchToGlobal: () => void | Promise<void>;
+  onOpenSettings: () => void | Promise<void>;
+  onHostHandleDirectly: () => void | Promise<void>;
   onChangeSpecialist?: (specialist: SpecialistId) => void;
   highImpact?: boolean;
   highImpactActions?: string[];
-  onApproveHighImpact?: () => void;
+  onApproveHighImpact?: () => void | Promise<void>;
 }
 
+const ICONS = { planning: Network, coding: Code2, vision: Eye, automation: Cog, engineering: Cpu };
+
 export function MultiAgentConfirmDialog({
-  open,
-  limits,
-  mode,
-  classification,
-  request,
-  onContinue,
-  onCancel,
-  onSwitchToGlobal,
-  onOpenSettings,
-  onHostHandleDirectly,
-  onChangeSpecialist,
-  highImpact = false,
-  highImpactActions = [],
-  onApproveHighImpact,
+  open, limits, classification, request, onContinue, onCancel, onSwitchToGlobal,
+  onOpenSettings, onHostHandleDirectly, onChangeSpecialist, highImpact = false,
+  highImpactActions = [], onApproveHighImpact,
 }: Props) {
-  const allCanFinish = limits.every((l) => l.canFinish);
-  const blocked = limits.find((l) => !l.canFinish);
+  const [submitting, setSubmitting] = React.useState(false);
+  const specialistSelectRef = React.useRef<HTMLSelectElement>(null);
+  React.useEffect(() => {
+    if (!open) setSubmitting(false);
+  }, [open]);
+
+  const allCanFinish = limits.every((limit) => limit.canFinish);
+  const blocked = limits.find((limit) => !limit.canFinish);
+  const specialist = classification && SPECIALISTS.find((item) => item.id === classification.specialist);
+  const SpecialistIcon = specialist ? ICONS[specialist.id] : Bot;
+  const plan = classification?.plan?.length ? classification.plan : ["Understand the project", "Design the approach", "Implement required changes", "Test and verify"];
+  const capabilities = classification?.capabilities?.length ? classification.capabilities : ["Read project files", "Modify approved files", "Run tests, typecheck, lint, and build"];
+  const submit = (action: () => void | Promise<void>) => {
+    if (submitting) return;
+    setSubmitting(true);
+    void action();
+  };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
-      <DialogContent className="sm:max-w-lg bg-card/95 backdrop-blur-xl border-border">
+    <Dialog open={open} onOpenChange={(value) => { if (!value && !submitting) onCancel(); }}>
+      <DialogContent
+        className="sm:max-w-2xl max-h-[90vh] overflow-y-auto nox-scroll bg-[#0b1018]/98 backdrop-blur-2xl border-white/10 shadow-2xl"
+        onEscapeKeyDown={(event) => { if (submitting) event.preventDefault(); }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-400" />
-            {highImpact ? "High-Impact Approval Required" : "Multi-Agent Task Detected"}
+            {highImpact ? <ShieldAlert className="h-5 w-5 text-red-400" /> : <Bot className="h-5 w-5 text-primary" />}
+            {highImpact ? "Additional Approval Required" : "Confirm Orchestration"}
           </DialogTitle>
           <DialogDescription>
             {highImpact
-              ? "The specialist has requested an action that can modify files or execute commands. Nothing will run until you explicitly approve this second gate."
-              : "The Host model classified this request and wants to route it to a specialist. Review the reasoning and per-model status before continuing."}
+              ? "Review the exact high-impact action before it is executed."
+              : "The Host classified this request and is waiting for your approval before routing it."}
           </DialogDescription>
         </DialogHeader>
 
-        {request && (
-          <div className="rounded-lg border border-border bg-muted/30 p-3">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
-              Request
-            </div>
-            <p className="text-sm leading-relaxed line-clamp-4">{request}</p>
-          </div>
-        )}
+        {request && <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm"><div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Request</div>{request}</div>}
 
-        {highImpact && highImpactActions.length > 0 && (
-          <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3">
-            <div className="text-[10px] uppercase tracking-wider text-red-400 mb-1">
-              Actions requiring approval
-            </div>
-            <ul className="list-disc pl-4 text-sm text-red-200 space-y-1">
-              {highImpactActions.map((action) => <li key={action}>{action}</li>)}
+        {highImpact && (
+          <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-4">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-red-300"><AlertTriangle className="h-4 w-4" /> Action requiring approval</div>
+            <ul className="list-disc pl-5 mt-2 text-sm text-red-100 space-y-1">
+              {(highImpactActions.length ? highImpactActions : ["A high-impact specialist action"]).map((action) => <li key={action}>{action}</li>)}
             </ul>
+            <p className="text-xs text-red-200/80 mt-3">This may modify files, execute commands, or change data. Nothing runs until you approve it.</p>
           </div>
         )}
 
-        {/* Host classification reasoning — shows WHY it routed here */}
-        {classification && (
-          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
-                <Bot className="h-3.5 w-3.5 text-primary" />
-                <span className="text-xs font-medium text-primary uppercase tracking-wider">
-                  Host Classification
-                </span>
-              </div>
-              <Badge className="bg-primary/15 text-primary border-primary/30 text-[10px]">
-                {Math.round(classification.confidence * 100)}% confidence
-              </Badge>
+        {classification && !highImpact && (
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-medium"><Bot className="h-4 w-4 text-primary" />Host <span className="text-muted-foreground">→</span> {specialist?.label || classification.specialist}</div>
+              <Badge className="bg-primary/15 text-primary border-primary/30 text-[10px]">{Math.round(classification.confidence * 100)}% confidence</Badge>
             </div>
-            <div className="text-sm font-medium capitalize">
-              Specialist: {classification.specialist}
-            </div>
-            {onChangeSpecialist && (
-              <label className="block pt-1 text-xs">
-                <span className="text-muted-foreground">Change specialist</span>
-                <select
-                  value={classification.specialist === "none" ? "" : classification.specialist}
-                  onChange={(event) => onChangeSpecialist(event.target.value as SpecialistId)}
-                  className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"
-                >
-                  {SPECIALISTS.map((item) => (
-                    <option key={item.id} value={item.id}>{item.label}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <div className="text-xs text-muted-foreground leading-relaxed">
-              {classification.reasoning}
-            </div>
-            {"plan" in classification && Array.isArray(classification.plan) && (
-              <div className="pt-2 text-xs">
-                <div className="font-medium text-foreground mb-1">Proposed execution</div>
-                <ol className="list-decimal pl-4 space-y-0.5 text-muted-foreground">
-                  {classification.plan.map((step: string) => <li key={step}>{step}</li>)}
-                </ol>
-              </div>
-            )}
-            {"capabilities" in classification && Array.isArray(classification.capabilities) && (
-              <div className="pt-2 text-xs">
-                <div className="font-medium text-foreground mb-1">Capabilities</div>
-                <ul className="list-disc pl-4 space-y-0.5 text-muted-foreground">
-                  {classification.capabilities.map((item: string) => <li key={item}>{item}</li>)}
-                </ul>
-              </div>
-            )}
+            <div className="flex items-center gap-3 rounded-lg bg-black/20 p-3"><SpecialistIcon className="h-5 w-5 text-primary" /><div><div className="text-sm font-semibold">{specialist?.label || classification.specialist}</div><div className="text-xs text-muted-foreground">Selected specialist</div></div></div>
+            {onChangeSpecialist && <label className="block text-xs"><span className="text-muted-foreground">Change specialist</span><select ref={specialistSelectRef} disabled={submitting} value={classification.specialist === "none" ? "" : classification.specialist} onChange={(event) => onChangeSpecialist(event.target.value as SpecialistId)} className="mt-1 w-full rounded-md border border-border bg-background px-2 py-2 text-xs">{SPECIALISTS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
+            <div className="text-xs"><div className="text-muted-foreground mb-1">Routing reason</div><p>{classification.reasoning}</p></div>
+            <InfoList title="Proposed execution" items={plan} ordered />
+            <InfoList title="Capabilities" items={capabilities} />
+            <div className="grid sm:grid-cols-2 gap-3 text-xs"><div><div className="font-medium mb-1">External actions</div><div className="text-muted-foreground">{classification.externalActions?.join(", ") || "None"}</div></div><div><div className="font-medium mb-1">Destructive actions</div><div className="text-muted-foreground">{classification.destructiveActions?.join(", ") || "None"}</div></div></div>
           </div>
         )}
 
-        {/* Limit summary */}
-        <div className="space-y-2 max-h-72 overflow-y-auto nox-scroll py-1">
-          <AnimatePresence>
-            {limits.map((l) => (
-              <motion.div
-                key={l.id}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="rounded-lg border border-border bg-muted/40 p-3"
-              >
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-medium text-sm capitalize">{l.label}</span>
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] font-mono shrink-0"
-                    >
-                      {l.connectionType === "API" ? "API" : "LOCAL"}
-                    </Badge>
-                  </div>
-                  {l.canFinish ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                  ) : (
-                    <XCircle className="h-4 w-4 text-red-400 shrink-0" />
-                  )}
-                </div>
-                <div className="text-[11px] text-muted-foreground font-mono mb-1">
-                  {l.provider} · {l.modelName}
-                </div>
-                {/* Honest reachability status — no fake quota numbers.
-                    checkLimits() now actually pings each provider and reports
-                    whether the key works + the API is reachable. */}
-                <div className="text-[11px]">
-                  {l.canFinish ? (
-                    <span className="text-emerald-400 flex items-center gap-1">
-                      <CheckCircle2 className="h-3 w-3" />
-                      {l.connectionType === "API"
-                        ? "Key verified — API reachable"
-                        : "Endpoint reachable — model available"}
-                    </span>
-                  ) : (
-                    <span className="text-red-400 flex items-start gap-1">
-                      <XCircle className="h-3 w-3 mt-0.5 shrink-0" />
-                      <span>{l.reason || "Not reachable"}</span>
-                    </span>
-                  )}
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
-
-        {blocked ? (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs">
-            <p className="font-medium text-red-400 mb-1">
-              Cannot run: &ldquo;{blocked.label}&rdquo; cannot complete its part.
-            </p>
-            <p className="text-muted-foreground leading-relaxed">
-              {blocked.reason}
-            </p>
-          </div>
-        ) : (
-          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-400">
-            All models have enough capacity to finish this task.
+        {!highImpact && limits.length > 0 && (
+          <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3 text-xs">
+            <div className="flex items-center justify-between"><span className="font-medium">Model readiness</span><span className={allCanFinish ? "text-emerald-400" : "text-red-400"}>{allCanFinish ? "Ready" : "Blocked"}</span></div>
+            {blocked && <div className="text-red-300 mt-1">{blocked.label}: {blocked.reason || "Not reachable"}</div>}
           </div>
         )}
 
-        <DialogFooter className="flex-col gap-2 sm:flex-col">
+        <DialogFooter className="gap-2 sm:gap-2">
           {highImpact ? (
-            <div className="flex gap-2 w-full">
-              <Button variant="ghost" onClick={onCancel} className="flex-1">Cancel</Button>
-              <Button
-                onClick={onApproveHighImpact}
-                className="flex-1 bg-red-600 text-white hover:bg-red-700"
-              >
-                Approve and execute
-              </Button>
-            </div>
-          ) : allCanFinish ? (
-            <div className="flex gap-2 w-full">
-              <Button variant="ghost" onClick={onCancel} className="flex-1">
-                Cancel
-              </Button>
-              <Button
-                onClick={onContinue}
-                className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
-              >
-                Continue with {limits.length} model{limits.length > 1 ? "s" : ""}
-              </Button>
-            </div>
+            <><Button variant="ghost" disabled={submitting} onClick={() => submit(onCancel)}>Cancel</Button><Button disabled={submitting} onClick={() => submit(onApproveHighImpact || onCancel)} className="bg-red-600 text-white hover:bg-red-700">{submitting ? "Submitting…" : "Approve Action"}</Button></>
           ) : (
-            <div className="space-y-2 w-full">
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={onSwitchToGlobal}
-                  className="w-full"
-                >
-                  <Globe className="h-3.5 w-3.5 mr-1.5" />
-                  Switch to Single
-                </Button>
-                <Button variant="secondary" onClick={onOpenSettings} className="w-full">
-                  <Settings className="h-3.5 w-3.5 mr-1.5" />
-                  Change model
-                </Button>
-              </div>
-              <Button
-                variant="secondary"
-                onClick={onHostHandleDirectly}
-                className="w-full"
-              >
-                <Bot className="h-3.5 w-3.5 mr-1.5" />
-                Let Host handle directly
-              </Button>
-              <Button variant="ghost" onClick={onCancel} className="w-full">
-                Cancel
-              </Button>
+            <div className="flex flex-wrap justify-end gap-2 w-full">
+              <Button type="button" variant="secondary" disabled={submitting} onClick={() => specialistSelectRef.current?.focus()}><Network className="h-3.5 w-3.5 mr-1.5" />Change Specialist</Button>
+              <Button variant="secondary" disabled={submitting} onClick={() => submit(onHostHandleDirectly)}><Bot className="h-3.5 w-3.5 mr-1.5" />Let Host Answer</Button>
+              <Button variant="ghost" disabled={submitting} onClick={() => submit(onCancel)}>Cancel</Button>
+              <Button disabled={submitting || !allCanFinish} onClick={() => submit(onContinue)} className="bg-primary text-primary-foreground hover:bg-primary/90">{submitting ? "Submitting…" : "Continue"}</Button>
             </div>
-          )
-          }
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+function InfoList({ title, items, ordered = false }: { title: string; items: string[]; ordered?: boolean }) {
+  const Tag = ordered ? "ol" : "ul";
+  return <div className="text-xs"><div className="font-medium mb-1">{title}</div><Tag className="list-disc pl-4 space-y-0.5 text-muted-foreground">{items.map((item) => <li key={item}>{item}</li>)}</Tag></div>;
 }

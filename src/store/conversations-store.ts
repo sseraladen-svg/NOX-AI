@@ -10,6 +10,7 @@ import type {
   OrchestrationState,
   TokenUsage,
   CostBreakdown,
+  IntentClassification,
 } from "@/lib/multi-model-types";
 
 export interface MessageUsage {
@@ -30,6 +31,10 @@ export interface ConversationMessage {
     state?: OrchestrationState;
     stage?: OrchestrationStage;
     workspace?: AgentWorkspace;
+    classification?: IntentClassification;
+    approvalId?: string;
+    highImpactActions?: string[];
+    request?: string;
   };
   mode?: string;
   multiAgent: boolean;

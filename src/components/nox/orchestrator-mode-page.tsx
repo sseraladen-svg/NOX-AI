@@ -203,9 +203,7 @@ export function OrchestratorModePage() {
         limits={chat.confirmLimits}
         mode={mm.mode}
         onContinue={chat.onConfirmContinue}
-        onCancel={() => {
-          chat.setConfirmOpen(false);
-        }}
+        onCancel={chat.onConfirmCancel}
         onSwitchToSingle={chat.onConfirmSwitchToSingle}
         classification={chat.confirmClassification}
         request={chat.pendingText}

@@ -95,6 +95,21 @@ export function useChat() {
     });
   }, [convs.activeMessages, sending]);
 
+  React.useEffect(() => {
+    if (confirmOpen || highImpactOpen) return;
+    const pending = [...convs.activeMessages].reverse().find(
+      (message) => message.orchestration?.state === "waiting_confirmation"
+    );
+    if (!pending?.orchestration?.classification) return;
+    setConfirmClassification(pending.orchestration.classification);
+    setPendingClassification(pending.orchestration.classification);
+    setPendingText(pending.orchestration.request || null);
+    setHighImpactApprovalId(pending.orchestration.approvalId || null);
+    setHighImpactActions(pending.orchestration.highImpactActions || []);
+    if (pending.orchestration.approvalId) setHighImpactOpen(true);
+    else setConfirmOpen(true);
+  }, [convs.activeMessages, confirmOpen, highImpactOpen]);
+
   const ensureConversation = async (
     mode: Mode | string,
     title?: string
@@ -427,10 +442,31 @@ export function useChat() {
           }));
           setConfirmLimits(confirmationData.limits || []);
           setConfirmClassification(confirmationData.classification || undefined);
-          setConfirmOpen(true);
           setPendingText(text);
           setPendingFeature(feature);
           setPendingClassification(confirmationData.classification || undefined);
+          if (confirmationData.destructiveConfirmationRequired) {
+            setHighImpactActions(confirmationData.highImpactActions || []);
+            setHighImpactApprovalId(confirmationData.approvalId || null);
+            setHighImpactOpen(true);
+          } else {
+            setConfirmOpen(true);
+          }
+          await persist(conversationId, {
+            role: "assistant",
+            content: "",
+            mode: mm.mode,
+            multiAgent: true,
+            orchestration: {
+              state: "waiting_confirmation",
+              stage: "confirmation",
+              classification: confirmationData.classification,
+              approvalId: confirmationData.approvalId,
+              highImpactActions: confirmationData.highImpactActions,
+              request: text,
+            },
+            error: false,
+          });
           setSending(false);
           return;
         }
@@ -662,6 +698,21 @@ export function useChat() {
         setPendingText(text);
         setPendingFeature(feature);
         setPendingClassification(r.classification || undefined);
+        await persist(conversationId, {
+          role: "assistant",
+          content: "",
+          mode: mm.mode,
+          multiAgent: true,
+          orchestration: {
+            state: "waiting_confirmation",
+            stage: "confirmation",
+            classification: r.classification,
+            approvalId: r.approvalId,
+            highImpactActions: r.highImpactActions,
+            request: text,
+          },
+          error: false,
+        });
         setSending(false);
         return;
       }
@@ -781,6 +832,32 @@ export function useChat() {
     }
   };
 
+  const onConfirmCancel = () => {
+    const conversationId = useConversations.getState().activeId;
+    if (conversationId) {
+      const cancelled = {
+        role: "assistant",
+        content: "",
+        mode: mm.mode,
+        multiAgent: true,
+        orchestration: { state: "cancelled", stage: "confirmation", request: pendingText || undefined },
+        error: false,
+      } as const;
+      convs.appendLocal({ ...cancelled, id: crypto.randomUUID(), createdAt: new Date().toISOString() });
+      void persist(conversationId, cancelled);
+    }
+    setConfirmOpen(false);
+    setHighImpactOpen(false);
+    setPendingText(null);
+    setPendingFeature(undefined);
+    setPendingClassification(undefined);
+    setConfirmClassification(undefined);
+    setConfirmLimits([]);
+    setHighImpactActions([]);
+    setHighImpactApprovalId(null);
+    cancelCurrentRequest();
+  };
+
   const onApproveHighImpact = () => {
     setHighImpactOpen(false);
     if (pendingText !== null && highImpactApprovalId) {
@@ -797,12 +874,7 @@ export function useChat() {
   };
 
   const onCancelHighImpact = () => {
-    setHighImpactOpen(false);
-    setPendingText(null);
-    setPendingFeature(undefined);
-    setPendingClassification(undefined);
-    setHighImpactActions([]);
-    setHighImpactApprovalId(null);
+    onConfirmCancel();
   };
 
   return {
@@ -832,6 +904,7 @@ export function useChat() {
     onChangeSpecialist,
     onConfirmSwitchToSingle,
     onConfirmHostDirectly,
+    onConfirmCancel,
     onApproveHighImpact,
     onCancelHighImpact,
   };

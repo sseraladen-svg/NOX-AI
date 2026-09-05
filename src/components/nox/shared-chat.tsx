@@ -55,6 +55,7 @@ import { cn } from "@/lib/utils";
 // ─── MessageBubble ──────────────────────────────────────────────────────────
 
 export function MessageBubble({ msg }: { msg: ConversationMessage }) {
+  if (!msg.content && msg.orchestration?.state === "waiting_confirmation") return null;
   const isUser = msg.role === "user";
   return (
     <motion.div

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { addMessage, type DispatchStep, type TokenUsage, type CostBreakdown, type AgentWorkspace, type OrchestrationState, type OrchestrationStage } from "@/lib/multi-model-service";
+import type { IntentClassification } from "@/lib/multi-model-types";
 
 export const runtime = "nodejs";
 
@@ -33,6 +34,10 @@ export async function POST(req: NextRequest) {
         state?: OrchestrationState;
         stage?: OrchestrationStage;
         workspace?: AgentWorkspace;
+        classification?: IntentClassification;
+        approvalId?: string;
+        highImpactActions?: string[];
+        request?: string;
       };
       mode?: string;
       multiAgent?: boolean;

@@ -3810,6 +3810,10 @@ export interface ConversationDetail extends ConversationSummary {
       state?: OrchestrationState;
       stage?: OrchestrationStage;
       workspace?: AgentWorkspace;
+      classification?: IntentClassification;
+      approvalId?: string;
+      highImpactActions?: string[];
+      request?: string;
     };
     mode?: string;
     multiAgent: boolean;
@@ -3934,6 +3938,10 @@ export async function addMessage(
       state?: OrchestrationState;
       stage?: OrchestrationStage;
       workspace?: AgentWorkspace;
+      classification?: IntentClassification;
+      approvalId?: string;
+      highImpactActions?: string[];
+      request?: string;
     };
     mode?: string;
     multiAgent?: boolean;
