@@ -9,7 +9,7 @@ import {
 import { useMultiModel, type LimitRow } from "@/store/multi-model-store";
 import { authFetch } from "@/lib/auth-fetch";
 import { generateFromBrowser } from "@/lib/local-ollama";
-import type { DispatchStep, Mode, FeatureId, TokenUsage, CostBreakdown, IntentClassification } from "@/lib/multi-model-types";
+import { SPECIALISTS, type DispatchStep, type Mode, type FeatureId, type TokenUsage, type CostBreakdown, type IntentClassification, type SpecialistId } from "@/lib/multi-model-types";
 import { toast } from "sonner";
 
 // Sum token usage + cost across all dispatch steps for one message.
@@ -669,6 +669,17 @@ export function useChat() {
     }
   };
 
+  const onChangeSpecialist = (specialist: SpecialistId) => {
+    const description = SPECIALISTS.find((item) => item.id === specialist)?.description;
+    const next = {
+      ...(confirmClassification || pendingClassification),
+      specialist,
+      specialistDescription: description,
+    } as IntentClassification;
+    setConfirmClassification(next);
+    setPendingClassification(next);
+  };
+
   const onConfirmSwitchToSingle = async () => {
     mm.setMode("SINGLE");
     const ok = await mm.save();
@@ -717,6 +728,7 @@ export function useChat() {
     // actions
     sendMessage,
     onConfirmContinue,
+    onChangeSpecialist,
     onConfirmSwitchToSingle,
     onConfirmHostDirectly,
   };

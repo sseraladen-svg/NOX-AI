@@ -50,7 +50,7 @@ const MODE_CARDS: {
     label: "Orchestrator",
     tagline: "Host routes to specialists",
     description:
-      "A Host model reads your prompt, decides what kind of task it is, routes it to the right specialist (planning, coding, vision, automation, robotics), then synthesizes the final reply.",
+      "A Host model reads your prompt, decides what kind of task it is, routes it to the right specialist (planning, coding, vision, automation, engineering), then synthesizes the final reply.",
     icon: Network,
     accent: "from-foreground/70 to-foreground/40",
     features: [

@@ -63,7 +63,7 @@ const SPECIALIST_ICONS: Record<SpecialistId, React.ComponentType<{ className?: s
   coding: Code2,
   vision: Eye,
   automation: Settings2,
-  robotics: Cpu,
+  engineering: Cpu,
 };
 
 const MODES: { id: Mode; label: string; icon: React.ComponentType<{ className?: string }>; desc: string }[] = [

@@ -37,6 +37,7 @@ import {
 } from "./shared-chat";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import type { DispatchStep } from "@/lib/multi-model-types";
 
 const SPECIALIST_ICONS: Record<
   SpecialistId,
@@ -46,14 +47,14 @@ const SPECIALIST_ICONS: Record<
   coding: Code2,
   vision: Eye,
   automation: GearIcon,
-  robotics: Cpu,
+  engineering: Cpu,
 };
 
 const EXAMPLES = [
   "Plan a login system with OAuth",
   "Build a REST API for a blog",
   "Automate a daily report workflow",
-  "Design a robotics pick-and-place pipeline",
+  "Refactor a full-stack authentication flow",
 ];
 
 export function OrchestratorModePage() {
@@ -133,6 +134,11 @@ export function OrchestratorModePage() {
 
       {/* Body: roster sidebar + chat */}
       <div className="flex-1 mx-auto w-full max-w-7xl px-3 sm:px-4 py-4 flex gap-4 min-h-0">
+        <ExecutionRail
+          sending={chat.sending}
+          waitingConfirmation={chat.confirmOpen}
+          steps={[...chat.convs.activeMessages].reverse().find((m) => m.role === "assistant")?.trace || []}
+        />
         <ConversationSidebar breakpoint="xl" />
 
         {/* Roster sidebar (desktop) */}
@@ -203,13 +209,53 @@ export function OrchestratorModePage() {
         }}
         onSwitchToSingle={chat.onConfirmSwitchToSingle}
         classification={chat.confirmClassification}
+        request={chat.pendingText}
         onHostHandleDirectly={chat.onConfirmHostDirectly}
+        onChangeSpecialist={chat.onChangeSpecialist}
         onOpenSettings={() => {
           chat.setConfirmOpen(false);
           chat.setAdvancedOpen(true);
           chat.setPendingText(null);
         }}
       />
+    </div>
+  );
+}
+
+function ExecutionRail({
+  sending,
+  waitingConfirmation,
+  steps,
+}: {
+  sending: boolean;
+  waitingConfirmation: boolean;
+  steps: DispatchStep[];
+}) {
+  const completedRoles = new Set(steps.map((step) => step.role));
+  const state = waitingConfirmation
+    ? "Waiting for confirmation"
+    : sending
+      ? "Processing"
+      : steps.length > 0
+        ? "Completed"
+        : "Idle";
+  const nodes = ["Host", "Classification", "Specialist", "Execution", "Host synthesis"];
+  return (
+    <div className="hidden 2xl:flex w-52 shrink-0 flex-col gap-2 rounded-xl border border-border bg-card/30 p-3">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Orchestration</div>
+      <div className="text-xs font-medium">{state}</div>
+      <div className="space-y-1.5">
+        {nodes.map((node) => {
+          const role = node === "Host synthesis" ? "host" : node.toLowerCase();
+          const complete = node === "Classification" ? steps.some((step) => step.intent === "classify") : completedRoles.has(role);
+          return (
+            <div key={node} className="flex items-center gap-2 text-[11px]">
+              <span className={cn("h-2 w-2 rounded-full", complete ? "bg-emerald-500" : "bg-muted-foreground/30")} />
+              <span className={complete ? "text-foreground" : "text-muted-foreground"}>{node}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -44,7 +44,7 @@ const SPECIALIST_ICONS: Record<
   coding: Code2,
   vision: Eye,
   automation: GearIcon,
-  robotics: Cpu,
+  engineering: Cpu,
 };
 
 const EXAMPLES = [

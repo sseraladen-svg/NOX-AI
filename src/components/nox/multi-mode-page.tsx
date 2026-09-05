@@ -343,7 +343,9 @@ export function MultiModePage() {
         }}
         onSwitchToSingle={chat.onConfirmSwitchToSingle}
         classification={chat.confirmClassification}
+        request={chat.pendingText}
         onHostHandleDirectly={chat.onConfirmHostDirectly}
+        onChangeSpecialist={chat.onChangeSpecialist}
         onOpenSettings={() => {
           chat.setConfirmOpen(false);
           chat.setAdvancedOpen(true);

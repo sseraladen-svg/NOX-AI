@@ -1110,8 +1110,8 @@ function resolvePlan(
     specialist = "vision";
   else if (/(automate|workflow|schedule|pipeline|chain)/.test(text))
     specialist = "automation";
-  else if (/(robot|move|arm|sensor|actuator)/.test(text))
-    specialist = "robotics";
+  else if (/(engineer|full[- ]stack|frontend|backend|database|refactor|deploy|test|debug)/.test(text))
+    specialist = "engineering";
 
   const assignments: {
     id: string;
@@ -2310,7 +2310,7 @@ function truncateForContext(
 // Instead of keyword regex matching, the Host model itself classifies the
 // user's intent. A lightweight call with a structured system prompt asks the
 // Host to output ONLY a JSON object:
-//   { "specialist": "coding"|"planning"|"vision"|"automation"|"robotics"|"none",
+//   { "specialist": "coding"|"planning"|"vision"|"automation"|"engineering"|"none",
 //     "confidence": 0.0-1.0,
 //     "reasoning": "one sentence" }
 //
@@ -2329,7 +2329,7 @@ Available specialists:
 - "coding": Code generation, bug fixing, code review, implementation, debugging
 - "vision": Image analysis, OCR, visual understanding, photo description
 - "automation": Workflow automation, API chaining, scheduling, pipelines
-- "robotics": Robotics, motion planning, sensor fusion, physical control
+- "engineering": Full-stack software engineering, architecture, implementation, testing, debugging
 - "none": General questions, conversation, explanations that don't need a specialist
 
 Respond with ONLY a JSON object. No markdown, no code blocks, no extra text:
@@ -2351,7 +2351,7 @@ function parseClassificationResponse(output: string): IntentClassification | nul
     };
 
     // Validate specialist value
-    const validSpecialists = ["planning", "coding", "vision", "automation", "robotics", "none"];
+    const validSpecialists = ["planning", "coding", "vision", "automation", "engineering", "none"];
     if (!parsed.specialist || !validSpecialists.includes(parsed.specialist)) {
       return null;
     }
@@ -2528,6 +2528,7 @@ export async function dispatch(
     // Step 1: Classify the intent (or use cached classification from the
     // confirmation round-trip to avoid paying for the call twice).
     let classification: IntentClassification | null = null;
+    let classificationMethod: "model" | "fallback" = "model";
     let classificationCallResult: ClassificationCallResult | null = null;
 
     if (opts.cachedClassification) {
@@ -2567,18 +2568,19 @@ export async function dispatch(
       // If classification call failed (timeout, error, invalid JSON),
       // fall back to keyword-based resolvePlan().
       if (!classification) {
+        classificationMethod = "fallback";
         // Fallback: use old keyword matching
         const fallbackPlan = resolvePlan(doc, messages, opts.feature);
         if (fallbackPlan.multiAgent && fallbackPlan.assignments[1]) {
           classification = {
             specialist: fallbackPlan.assignments[1].id as SpecialistId,
-            confidence: 0.5,
+            confidence: 0.6,
             reasoning: `Classification call failed (${classificationCallResult.lastError || "invalid response"}). Fell back to keyword matching.`,
           };
         } else {
           classification = {
             specialist: "none",
-            confidence: 0.5,
+            confidence: 0.6,
             reasoning: "Classification call failed. Host will answer directly.",
           };
         }
@@ -2680,6 +2682,27 @@ export async function dispatch(
 
     // Step 3: Specialist is needed "" build the plan from classification
     const specialistId = classification.specialist as SpecialistId;
+    const specialistDescription =
+      SPECIALISTS.find((item) => item.id === specialistId)?.description ||
+      "Specialized task execution";
+    classification = {
+      ...classification,
+      specialistDescription,
+      plan: [
+        "Inspect the request and relevant context",
+        "Perform the specialist analysis",
+        "Return the specialist result to Host",
+        "Synthesize the final response",
+      ],
+      capabilities: [
+        "Read conversation context",
+        "Use the configured specialist model",
+        "Report execution details",
+      ],
+      externalActions: [],
+      destructiveActions: [],
+      expectedOutput: ["Specialist result", "Host-synthesized response"],
+    };
     const specialistAssignment =
       doc.specialistConfigs?.[specialistId] || emptyAssignment();
     const specialistTimeout =
@@ -2705,6 +2728,8 @@ export async function dispatch(
         confirmationRequired: true,
         limits,
         classification: classification || undefined,
+        classificationMethod,
+        orchestrationState: "waiting_confirmation",
       };
     }
 
@@ -2729,6 +2754,8 @@ export async function dispatch(
         confirmationRequired: false,
         limits,
         classification: classification || undefined,
+        classificationMethod,
+        orchestrationState: "error",
         error: `Cannot run: "${blocked.label}" cannot complete its part. ${
           blocked.reason || ""
         }`,
@@ -2877,6 +2904,8 @@ export async function dispatch(
       confirmationRequired: false,
       limits,
       classification: classification || undefined,
+      classificationMethod,
+      orchestrationState: "completed",
     };
   }
 
@@ -3162,13 +3191,13 @@ export async function resumeDispatch(
           if (fallbackPlan.multiAgent && fallbackPlan.assignments[1]) {
             return {
               specialist: fallbackPlan.assignments[1].id as SpecialistId,
-              confidence: 0.5,
+              confidence: 0.6,
               reasoning: "Classification call failed. Fell back to keyword matching.",
             };
           }
           return {
             specialist: "none" as const,
-            confidence: 0.5,
+            confidence: 0.6,
             reasoning: "Classification call failed. Host will answer directly.",
           };
         })();

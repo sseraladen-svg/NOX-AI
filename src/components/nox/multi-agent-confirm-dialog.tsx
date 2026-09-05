@@ -14,17 +14,21 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, CheckCircle2, XCircle, Globe, Settings, Bot } from "lucide-react";
 import type { LimitRow } from "@/store/multi-model-store";
+import type { IntentClassification } from "@/lib/multi-model-types";
+import { SPECIALISTS, type SpecialistId } from "@/lib/multi-model-types";
 
 interface Props {
   open: boolean;
   limits: LimitRow[];
   mode: string | null;
-  classification?: { specialist: string; confidence: number; reasoning: string };
+  classification?: IntentClassification;
+  request?: string | null;
   onContinue: () => void;
   onCancel: () => void;
   onSwitchToGlobal: () => void;
   onOpenSettings: () => void;
   onHostHandleDirectly: () => void;
+  onChangeSpecialist?: (specialist: SpecialistId) => void;
 }
 
 export function MultiAgentConfirmDialog({
@@ -32,11 +36,13 @@ export function MultiAgentConfirmDialog({
   limits,
   mode,
   classification,
+  request,
   onContinue,
   onCancel,
   onSwitchToGlobal,
   onOpenSettings,
   onHostHandleDirectly,
+  onChangeSpecialist,
 }: Props) {
   const allCanFinish = limits.every((l) => l.canFinish);
   const blocked = limits.find((l) => !l.canFinish);
@@ -55,6 +61,15 @@ export function MultiAgentConfirmDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {request && (
+          <div className="rounded-lg border border-border bg-muted/30 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+              Request
+            </div>
+            <p className="text-sm leading-relaxed line-clamp-4">{request}</p>
+          </div>
+        )}
+
         {/* Host classification reasoning — shows WHY it routed here */}
         {classification && (
           <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-1.5">
@@ -72,9 +87,39 @@ export function MultiAgentConfirmDialog({
             <div className="text-sm font-medium capitalize">
               Specialist: {classification.specialist}
             </div>
+            {onChangeSpecialist && (
+              <label className="block pt-1 text-xs">
+                <span className="text-muted-foreground">Change specialist</span>
+                <select
+                  value={classification.specialist === "none" ? "" : classification.specialist}
+                  onChange={(event) => onChangeSpecialist(event.target.value as SpecialistId)}
+                  className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+                >
+                  {SPECIALISTS.map((item) => (
+                    <option key={item.id} value={item.id}>{item.label}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <div className="text-xs text-muted-foreground leading-relaxed">
               {classification.reasoning}
             </div>
+            {"plan" in classification && Array.isArray(classification.plan) && (
+              <div className="pt-2 text-xs">
+                <div className="font-medium text-foreground mb-1">Proposed execution</div>
+                <ol className="list-decimal pl-4 space-y-0.5 text-muted-foreground">
+                  {classification.plan.map((step: string) => <li key={step}>{step}</li>)}
+                </ol>
+              </div>
+            )}
+            {"capabilities" in classification && Array.isArray(classification.capabilities) && (
+              <div className="pt-2 text-xs">
+                <div className="font-medium text-foreground mb-1">Capabilities</div>
+                <ul className="list-disc pl-4 space-y-0.5 text-muted-foreground">
+                  {classification.capabilities.map((item: string) => <li key={item}>{item}</li>)}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 

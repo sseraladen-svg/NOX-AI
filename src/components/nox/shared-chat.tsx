@@ -46,6 +46,7 @@ import { useConversations } from "@/store/conversations-store";
 import { Markdown } from "./markdown";
 import { useMultiModel } from "@/store/multi-model-store";
 import type { Mode } from "@/lib/multi-model-types";
+import type { IntentClassification, SpecialistId } from "@/lib/multi-model-types";
 import { AdvancedCustomization } from "./advanced-customization";
 import { MultiAgentConfirmDialog } from "./multi-agent-confirm-dialog";
 import type { LimitRow } from "@/store/multi-model-store";
@@ -700,21 +701,25 @@ export function ConfirmWrapper({
   limits,
   mode,
   classification,
+  request,
   onContinue,
   onCancel,
   onSwitchToSingle,
   onOpenSettings,
   onHostHandleDirectly,
+  onChangeSpecialist,
 }: {
   open: boolean;
   limits: LimitRow[];
   mode: string;
-  classification?: { specialist: string; confidence: number; reasoning: string };
+  classification?: IntentClassification;
+  request?: string | null;
   onContinue: () => void;
   onCancel: () => void;
   onSwitchToSingle: () => void;
   onOpenSettings: () => void;
   onHostHandleDirectly: () => void;
+  onChangeSpecialist?: (specialist: SpecialistId) => void;
 }) {
   return (
     <MultiAgentConfirmDialog
@@ -722,11 +727,13 @@ export function ConfirmWrapper({
       limits={limits}
       mode={mode}
       classification={classification}
+      request={request}
       onContinue={onContinue}
       onCancel={onCancel}
       onSwitchToGlobal={onSwitchToSingle}
       onOpenSettings={onOpenSettings}
       onHostHandleDirectly={onHostHandleDirectly}
+      onChangeSpecialist={onChangeSpecialist}
     />
   );
 }

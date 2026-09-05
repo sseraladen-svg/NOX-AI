@@ -22,7 +22,7 @@ export type SpecialistId =
   | "coding"
   | "vision"
   | "automation"
-  | "robotics";
+  | "engineering";
 
 export interface ModelAssignment {
   connectionType: ConnectionType;
@@ -146,7 +146,28 @@ export interface IntentClassification {
   specialist: SpecialistId | "none";
   confidence: number;   // 0.0 - 1.0
   reasoning: string;    // one sentence explaining the routing decision
+  specialistDescription?: string;
+  plan?: string[];
+  capabilities?: string[];
+  externalActions?: string[];
+  destructiveActions?: string[];
+  expectedOutput?: string[];
 }
+
+export type OrchestrationState =
+  | "idle"
+  | "analyzing"
+  | "classifying"
+  | "waiting_confirmation"
+  | "routing"
+  | "processing"
+  | "verifying"
+  | "synthesizing"
+  | "completed"
+  | "error"
+  | "retrying"
+  | "timeout"
+  | "cancelled";
 
 export interface DispatchResult {
   ok: boolean;
@@ -159,6 +180,8 @@ export interface DispatchResult {
   // When the Host classified the intent, this is included so the
   // confirmation dialog can show WHY it routed to a specialist.
   classification?: IntentClassification;
+  classificationMethod?: "model" | "fallback";
+  orchestrationState?: OrchestrationState;
   error?: string;
   pendingClientExec?: {
     stepId: string;
@@ -222,9 +245,9 @@ export const SPECIALISTS: {
     description: "Chains tools & APIs.",
   },
   {
-    id: "robotics",
-    label: "Robotics",
-    description: "Plans physical actions.",
+    id: "engineering",
+    label: "Engineering",
+    description: "Full-Stack Software Engineering Agent.",
   },
 ];
 
