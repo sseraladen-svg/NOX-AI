@@ -947,8 +947,6 @@ export function VisionFeatureUI({
 
   const handleAnalyze = () => {
     onSend(imageData || undefined);
-    // Clear the image after sending so the user can upload a new one.
-    clearImage();
   };
 
   return (
