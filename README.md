@@ -1,8 +1,10 @@
-﻿# 🌙 NOX AI - Multi-Model Intelligence Platform
+﻿# NOX AI
+
+A production-ready multi-model AI platform built with Next.js, TypeScript, Prisma, and Tailwind CSS.
+
+NOX AI helps you route prompts across multiple providers and model types through a clean, structured interface. It supports single-model use, feature-specific multi-model routing, and orchestrated specialist workflows with auth, conversation persistence, cost tracking, and safety checks built in.
 
 <div align="center">
-
-**A Production-Capable Next.js + Prisma Application for Multi-Model Chat**
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg)](https://www.typescriptlang.org)
@@ -10,261 +12,260 @@
 [![Tailwind](https://img.shields.io/badge/Tailwind-4-38B2AC.svg)](https://tailwindcss.com)
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 
-[⚡ Features](#-key-features) • [🚀 Installation](#-local-development) • [🎯 Tech Stack](#-tech-stack) • [📖 Environment](#-environment-variables) • [🔧 Deployment](#-vercel-deployment)
-
 </div>
 
 ---
 
-## ✨ Key Features
+## Overview
 
-- 🎯 **Multi-Model Routing** - Single, Multi, and Orchestrator model routing
-- 🧠 **Intent Classification** - Host intent classification + specialist dispatch trace
-- 🔒 **Security** - Encrypted API keys and HMAC session security
-- 💾 **Persistence** - PostgreSQL persistence via Prisma
-- 📊 **Analytics** - Token usage and cost tracking dashboard
-- 🎨 **Rich UI** - Markdown rendering with copyable code blocks
-- 🌐 **Multi-Provider** - OpenAI, Anthropic, Gemini, Mistral, Groq, Ollama, llama.cpp
-- 🖼️ **Multimedia** - Image upload, voice I/O, automation, and robotics-focused UI
+NOX AI is designed for users who want more control over their AI workflows than a single-model chatbot provides. The platform lets you decide how work should be routed:
+
+- Single mode: one model handles all tasks
+- Multi mode: each feature uses the best-fit model/provider
+- Orchestrator mode: a host model assigns work to specialists and synthesizes the final answer
+
+The app includes user authentication, saved conversations, per-role model configuration, provider testing, rate limiting, cost tracking, and a usage dashboard.
+
+## Demo Video
+
+A local demo video is included in the project and is rendered directly on the landing page using a native HTML5 video player, without relying on an external URL.
+
+Source:
+
+```text
+public/videos/nox-demo.mp4
+```
 
 ---
 
-## 🚀 Tech Stack
+## Key Features
+
+- Multi-model routing with three operating modes:
+  - Single
+  - Multi
+  - Orchestrator
+- Feature-specific experiences for:
+  - Chat
+  - Voice
+  - Vision
+  - Coding
+  - Automation
+  - Robotics
+- Multi-provider support:
+  - OpenAI
+  - Anthropic
+  - Gemini
+  - Mistral
+  - Groq
+  - Ollama
+  - local CLI runtimes
+- Secure local auth with signup/login/logout
+- User-scoped conversations and config persistence
+- Encrypted storage for API keys
+- Model connection testing and validation
+- Pre-flight confirmation and safety checks
+- Honest reachability checks and retry/timeout controls
+- Usage tracking for tokens and estimated cost
+- Usage dashboard with summary and recent activity
+- Rate limiting on sensitive routes
+- Rich markdown rendering with copyable code blocks
+
+---
+
+## Tech Stack
 
 ### Frontend
-- **Next.js 16** (App Router) - React framework
-- **TypeScript 5** - Type-safe development
-- **Tailwind CSS 4** - Utility-first styling
-- **shadcn/ui** - Component library
-- **Framer Motion** - Animations
-- **Zustand** - State management
-- **TanStack Query** - Data fetching
+- Next.js 16
+- React 19
+- TypeScript
+- Tailwind CSS
+- shadcn/ui
+- Framer Motion
+- Zustand
+- TanStack Query
 
 ### Backend
-- **Prisma ORM** - Database toolkit
-- **PostgreSQL** - Database
-- **AES-GCM** - Key encryption
-- **scrypt** - Password hashing
-- **HMAC** - Session tokens
+- Prisma ORM
+- PostgreSQL-compatible database
+- Next.js API routes
+- Server-side encryption
+- Secure session handling
 
 ---
 
-## 🛠️ Requirements
+## Application Modes
 
-- **Node.js 20+** or compatible
-- **PostgreSQL** database for `DATABASE_URL`
-- **npm** package manager
-- **Vercel** recommended for deployment
+### Single Mode
+Use one model for the entire workflow. Best for streamlined chat, direct Q&A, and simple prompts.
+
+### Multi Mode
+Route tasks to specialized models depending on the active feature. This lets you assign different models for coding, vision, automation, and more.
+
+### Orchestrator Mode
+A host model decides how to route a request, delegates to specialists, and then synthesizes the answer into a final response.
 
 ---
 
-## 🚀 Local Development
+## Security Features
 
-### Step 1: Install Dependencies
+- Encrypted API key storage
+- Masked keys in the UI
+- User-scoped storage access
+- Secure cookie/session cookies
+- Secret-based encryption and signing
+- Route-level protections and rate limiting
+- Validation before saving broken configuration
+
+---
+
+## Requirements
+
+- Node.js 20+
+- npm
+- PostgreSQL-compatible database
+- Access to one or more AI providers or local model runtimes
+
+---
+
+## Local Development
+
+### 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-### Step 2: Setup Environment
+### 2. Create the environment file
 
 ```bash
 cp .env.example .env
 ```
 
-### Step 3: Configure Environment
+### 3. Configure environment variables
 
-Update `.env` with your PostgreSQL URL and secrets:
+Update `.env` with your database and secrets:
 
 ```env
-DATABASE_URL=postgresql://user:password@localhost:5432/nox_ai
-NOX_AI_SECRET=your-random-secret-key
-AUTH_SECRET=your-auth-secret-key
+DATABASE_URL="postgresql://username:password@localhost:5432/nox_ai"
+NOX_AI_SECRET="your-random-secret"
+AUTH_SECRET="your-auth-secret"
 ```
 
-### Step 4: Setup Database
+### 4. Set up Prisma
 
 ```bash
 npm run db:push
 ```
 
-### Step 5: Start Development Server
+### 5. Start the app
 
 ```bash
 npm run dev
 ```
 
-### Step 6: Access Application
+Then open:
 
-Open `http://localhost:3000` in your browser
-
----
-
-## 🏗️ Production Build
-
-```bash
-npm run vercel-build
+```text
+http://localhost:3000
 ```
 
 ---
 
-## 🔑 Environment Variables
+## Environment Variables
 
-| Variable | Description | Required |
-|----------|-------------|-----------|
-| `DATABASE_URL` | PostgreSQL connection string | ✅ Yes |
-| `POSTGRES_URL` | Fallback database URL | ❌ No |
-| `NOX_AI_SECRET` | Secret for API key encryption and session signing | ✅ Yes |
-| `AUTH_SECRET` | Additional session/crypto secret | ✅ Yes |
-
----
-
-## 🌐 Vercel Deployment
-
-### Step 1: Push to GitHub
-
-```bash
-git init
-git add .
-git commit -m "Initial NOX AI production setup"
-git branch -M main
-git remote add origin <your-repo-url>
-git push -u origin main
-```
-
-### Step 2: Import to Vercel
-
-1. Import the repository into Vercel
-2. Set environment variables in Vercel:
-   - `DATABASE_URL`
-   - `NOX_AI_SECRET`
-   - `AUTH_SECRET`
-
-### Step 3: Deploy
-
-```bash
-npm run vercel-build
+```env
+DATABASE_URL=your-postgresql-connection-string
+NOX_AI_SECRET=secret-for-encryption-and-session-signing
+AUTH_SECRET=extra-authentication-secret
 ```
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
-```
-NOX/
+```text
+NOX-AI/
 ├── src/
-│   ├── app/              # Next.js routes and pages
-│   ├── components/       # UI components
-│   ├── hooks/            # Reusable hooks
-│   ├── lib/              # Auth, DB, crypto, and service logic
-│   └── store/            # Zustand stores
+│   ├── app/                 # App Router pages and API routes
+│   ├── components/          # Reusable UI and NOX experience modules
+│   ├── hooks/               # Shared chat and state logic
+│   ├── lib/                 # Auth, crypto, config, service logic
+│   ├── store/               # Zustand stores
+│   └── ...
 ├── prisma/
-│   └── schema.prisma     # Database schema
-├── public/               # Static assets
-├── tests/                # Test files
-├── .env.example          # Environment template
-├── next.config.ts        # Next.js configuration
-├── tailwind.config.ts    # Tailwind configuration
-├── tsconfig.json         # TypeScript configuration
-└── package.json          # Dependencies
+│   └── schema.prisma
+├── public/
+│   └── videos/
+│       └── nox-demo.mp4
+├── tests/
+├── .env.example
+├── package.json
+├── next.config.ts
+├── tailwind.config.ts
+├── tsconfig.json
+├── README.md
+└── ...
 ```
 
 ---
 
-## 🔐 Security Features
+## Cost Tracking
 
-- 🔒 **Encrypted API Keys** - AES-GCM encryption for stored API keys
-- 🛡️ **HMAC Session Tokens** - Secure session management
-- 🔑 **Scrypt Password Hashing** - Secure password storage
-- 🚫 **Environment Variables** - Secrets never committed to git
-- ✅ **Input Validation** - Comprehensive input sanitization
+NOX AI includes token and cost tracking for model usage.
 
----
+It captures:
+- prompt tokens
+- completion tokens
+- total tokens
+- provider/model metadata
+- latency and retries
+- error status
+- estimated cost
 
-## 🎯 Supported Providers
-
-NOX AI supports multiple AI providers:
-
-- 🔵 **OpenAI** - GPT-4, GPT-3.5
-- 🟣 **Anthropic** - Claude 3.5 Sonnet, Claude 3 Opus
-- 🟢 **Google Gemini** - Gemini Pro, Gemini Ultra
-- 🔴 **Mistral** - Mistral Large, Mistral 7B
-- 🟡 **Groq** - Lightning-fast inference
-- 🦙 **Ollama** - Local model support
-- 🦊 **llama.cpp** - Local inference
+This data is persisted to the database and exposed through usage APIs and a dashboard UI.
 
 ---
 
-## 📊 Usage Tracking
+## Rate Limiting
 
-NOX AI includes comprehensive usage tracking:
+Sensitive routes are protected with rate limits for:
+- login
+- signup
+- model dispatch
+- model testing
 
-- 📈 **Token Usage** - Track token consumption per model
-- 💰 **Cost Analysis** - Monitor API costs across providers
-- 📊 **Dashboard** - Visual analytics for usage patterns
-- 📋 **Export** - Export usage data for analysis
-
----
-
-## 🤖 Automation & Robotics
-
-Built-in features for automation and robotics workflows:
-
-- 🤖 **Automation Scripts** - Execute automated tasks
-- 🦾 **Robotics Control** - Interface with robotics systems
-- 📡 **API Integration** - Connect with external services
-- ⚡ **Real-time Processing** - Low-latency response handling
+This reduces brute-force attacks and API abuse.
 
 ---
 
-## 🧪 Testing
+## Deployment
+
+The project is built to run well in modern hosting environments such as Vercel.
 
 ```bash
-npm run test
+npm run vercel-build
 ```
 
 ---
 
-## 📝 Notes
+## Contributing
 
-- ⚠️ This repo is configured for PostgreSQL. Do not use SQLite in production.
-- 🔒 Keep `.env` local and do not commit secrets.
-- ✅ `.env.example` is safe to commit.
-- 🔄 Regular database backups recommended.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome.
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+2. Create your feature branch
+3. Commit your changes
+4. Push to your fork
+5. Open a pull request
 
 ---
 
-## 📄 License
+## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- [Next.js](https://nextjs.org) for the amazing React framework
-- [Prisma](https://www.prisma.io) for the excellent ORM
-- [Tailwind CSS](https://tailwindcss.com) for the utility-first CSS framework
-- [shadcn/ui](https://ui.shadcn.com) for the beautiful components
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ---
 
-<div align="center">
+## Summary
 
-**Built with 🌙 by the NOX AI Team**
-
-[⬆ Back to Top](#-nox-ai---multi-model-intelligence-platform)
-
-</div>
+NOX AI is a complete multi-model AI platform combining modern UI, secure auth, model configuration, orchestration logic, cost tracking, and production-oriented hardening. It is ready for further extension, personal use, or deployment.

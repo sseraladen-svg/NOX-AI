@@ -122,6 +122,38 @@ export function ModePicker() {
           </p>
         </motion.div>
 
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, delay: 0.08 }}
+          className="mb-10 sm:mb-12"
+        >
+          <div className="rounded-3xl border border-border bg-card/40 p-3 shadow-[0_0_40px_rgba(168,85,247,0.12)] backdrop-blur-sm">
+            <div className="mb-3 flex items-center justify-between gap-3 px-2 pt-1">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                  Demo preview
+                </p>
+                <h2 className="text-lg font-medium text-foreground">
+                  NOX AI in action
+                </h2>
+              </div>
+              <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-primary">
+                Local video
+              </span>
+            </div>
+            <video
+              className="w-full rounded-2xl border border-border bg-black object-cover"
+              controls
+              playsInline
+              preload="metadata"
+            >
+              <source src="/videos/nox-demo.mp4" type="video/mp4" />
+              Your browser does not support the video tag.
+            </video>
+          </div>
+        </motion.div>
+
         {/* Mode cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
           {MODE_CARDS.map((card, i) => {
