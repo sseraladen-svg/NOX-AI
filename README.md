@@ -1,5 +1,10 @@
 ﻿# NOX AI
 
+<video controls playsinline width="100%" style="max-width: 100%; border-radius: 16px; margin: 16px 0 20px;">
+  <source src="https://raw.githubusercontent.com/sseraladen-svg/NOX-AI/main/public/videos/nox-demo.mp4" type="video/mp4" />
+  Your browser does not support the video tag.
+</video>
+
 A production-ready multi-model AI platform built with Next.js, TypeScript, Prisma, and Tailwind CSS.
 
 NOX AI helps you route prompts across multiple providers and model types through a clean, structured interface. It supports single-model use, feature-specific multi-model routing, and orchestrated specialist workflows with auth, conversation persistence, cost tracking, and safety checks built in.
