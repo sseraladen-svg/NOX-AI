@@ -128,29 +128,103 @@ export function ModePicker() {
           transition={{ duration: 0.45, delay: 0.08 }}
           className="mb-10 sm:mb-12"
         >
-          <div className="rounded-3xl border border-border bg-card/40 p-3 shadow-[0_0_40px_rgba(168,85,247,0.12)] backdrop-blur-sm">
-            <div className="mb-3 flex items-center justify-between gap-3 px-2 pt-1">
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-                  Demo preview
-                </p>
-                <h2 className="text-lg font-medium text-foreground">
-                  NOX AI in action
-                </h2>
-              </div>
-              <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-primary">
-                Local video
-              </span>
-            </div>
-            <video
-              className="w-full rounded-2xl border border-border bg-black object-cover"
-              controls
-              playsInline
-              preload="metadata"
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* About Demo Button */}
+            <motion.button
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.1 }}
+              className="group relative rounded-2xl border border-border bg-card/40 hover:bg-card/70 hover:border-primary/30 transition overflow-hidden p-3 shadow-[0_0_40px_rgba(168,85,247,0.12)] backdrop-blur-sm"
             >
-              <source src="/videos/nox-demo.mp4" type="video/mp4" />
-              Your browser does not support the video tag.
-            </video>
+              <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                    Demo preview
+                  </p>
+                  <h2 className="text-base font-medium text-foreground">
+                    About Demo
+                  </h2>
+                </div>
+                <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-primary">
+                  Watch
+                </span>
+              </div>
+              <div className="relative rounded-xl overflow-hidden border border-border bg-black">
+                <video
+                  className="w-full h-48 object-cover"
+                  controls
+                  playsInline
+                  preload="metadata"
+                >
+                  <source src="/videos/nox-demo.mp4" type="video/mp4" />
+                  <track
+                    src="/videos/nox-demo.vtt"
+                    kind="subtitles"
+                    srcLang="en"
+                    label="English"
+                    default
+                  />
+                  Your browser does not support the video tag.
+                </video>
+              </div>
+              <div className="mt-2 text-center">
+                <span className="text-xs text-muted-foreground">
+                  Click to learn about NOX AI features
+                </span>
+              </div>
+            </motion.button>
+
+            {/* Use Button */}
+            <motion.button
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.15 }}
+              onClick={() => {
+                // Enter default mode (SINGLE) if no mode is selected
+                const defaultMode = mm.mode || "SINGLE";
+                mm.setMode(defaultMode);
+                mm.save();
+                router.push(`/${defaultMode.toLowerCase()}`);
+              }}
+              className="group relative rounded-2xl border border-border bg-card/40 hover:bg-card/70 hover:border-primary/30 transition overflow-hidden p-3 shadow-[0_0_40px_rgba(168,85,247,0.12)] backdrop-blur-sm"
+            >
+              <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                    Get started
+                  </p>
+                  <h2 className="text-base font-medium text-foreground">
+                    Use NOX AI
+                  </h2>
+                </div>
+                <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-primary">
+                  Start
+                </span>
+              </div>
+              <div className="relative rounded-xl overflow-hidden border border-border bg-black">
+                <video
+                  className="w-full h-48 object-cover"
+                  controls
+                  playsInline
+                  preload="metadata"
+                >
+                  <source src="/videos/nox-demo.mp4" type="video/mp4" />
+                  <track
+                    src="/videos/nox-demo.vtt"
+                    kind="subtitles"
+                    srcLang="en"
+                    label="English"
+                    default
+                  />
+                  Your browser does not support the video tag.
+                </video>
+              </div>
+              <div className="mt-2 text-center">
+                <span className="text-xs text-muted-foreground">
+                  Click to start using NOX AI
+                </span>
+              </div>
+            </motion.button>
           </div>
         </motion.div>
 
