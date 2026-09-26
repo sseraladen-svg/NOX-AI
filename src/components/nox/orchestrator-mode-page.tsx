@@ -177,7 +177,7 @@ export function OrchestratorModePage() {
               onPick: (t) => chat.setInput(t),
               mode: "ORCHESTRATOR",
               subtitle:
-                "Orchestrator Mode — Host reads your prompt, routes to a specialist, synthesizes the reply.",
+                "Click Configure to set connections for the Host and each of the 5 specialists — API key or local CLI, independently.",
             }}
           />
           <ChatInput

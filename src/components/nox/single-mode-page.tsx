@@ -126,7 +126,7 @@ export function SingleModePage() {
               examples: EXAMPLES,
               onPick: (t) => chat.setInput(t),
               mode: "SINGLE",
-              subtitle: "One model handles everything. Configure it above.",
+              subtitle: "Click Configure to connect one provider — API key or local CLI — before starting.",
             }}
           />
           <ChatInput

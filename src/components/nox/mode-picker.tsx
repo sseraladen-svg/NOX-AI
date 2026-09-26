@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Globe, Layers, Network, ChevronRight, Sparkles, TrendingUp, Play, X, Subtitles } from "lucide-react";
+import { Globe, Layers, Network, ChevronRight, Sparkles, TrendingUp, Play, X, Subtitles, Settings2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMultiModel } from "@/store/multi-model-store";
 import { UserMenu } from "./shared-chat";
@@ -16,6 +16,7 @@ const MODE_CARDS: {
   icon: React.ComponentType<{ className?: string }>;
   accent: string;
   features: string[];
+  configInstruction: string;
 }[] = [
   {
     id: "SINGLE",
@@ -30,6 +31,7 @@ const MODE_CARDS: {
       "All features share the model",
       "Single-step dispatch trace",
     ],
+    configInstruction: "Click Configure to connect one provider — API key or local CLI — before starting.",
   },
   {
     id: "MULTI",
@@ -44,6 +46,7 @@ const MODE_CARDS: {
       "Per-feature provider + connection",
       "Intent-based routing",
     ],
+    configInstruction: "Click Configure to set a connection for each of the 6 features — API key or local CLI, independently.",
   },
   {
     id: "ORCHESTRATOR",
@@ -58,6 +61,7 @@ const MODE_CARDS: {
       "Multi-agent confirmation flow",
       "3-step pipeline: analyze → specialist → synthesize",
     ],
+    configInstruction: "Click Configure to set connections for the Host and each of the 5 specialists — API key or local CLI, independently.",
   },
 ];
 
@@ -215,7 +219,7 @@ export function ModePicker() {
                   {card.description}
                 </p>
 
-                <ul className="space-y-1.5 mb-5">
+                <ul className="space-y-1.5 mb-3">
                   {card.features.map((f) => (
                     <li
                       key={f}
@@ -226,6 +230,17 @@ export function ModePicker() {
                     </li>
                   ))}
                 </ul>
+
+                <div className="mb-4 p-4 rounded-xl bg-gradient-to-r from-primary/10 to-primary/5 border-2 border-primary/30 shadow-lg">
+                  <div className="flex items-start gap-2">
+                    <div className="h-5 w-5 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Settings2 className="h-3 w-3 text-primary" />
+                    </div>
+                    <p className="text-xs font-semibold text-primary leading-relaxed">
+                      {card.configInstruction}
+                    </p>
+                  </div>
+                </div>
 
                 <div className="flex items-center gap-1 text-sm font-medium text-primary group-hover:gap-2 transition-all">
                   Enter {card.label} mode
@@ -288,9 +303,9 @@ export function ModePicker() {
                   playsInline
                   autoPlay
                 >
-                  <source src="/videos/nox-demo.mp4" type="video/mp4" />
+                  <source src="https://raw.githubusercontent.com/sseraladen-svg/NOX-AI/main/public/videos/nox-demo.mp4" type="video/mp4" />
                   <track
-                    src="/videos/nox-demo.vtt"
+                    src="https://raw.githubusercontent.com/sseraladen-svg/NOX-AI/main/public/videos/nox-demo.vtt"
                     kind="subtitles"
                     srcLang="en"
                     label="English"

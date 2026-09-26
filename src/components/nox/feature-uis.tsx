@@ -206,8 +206,11 @@ export function ChatFeatureUI({
               <Bot className="h-7 w-7 text-background" />
             </motion.div>
             <h2 className="text-2xl font-semibold mb-1">Chat</h2>
-            <p className="text-sm text-muted-foreground mb-6">
+            <p className="text-sm text-muted-foreground mb-2">
               General conversation & Q&A
+            </p>
+            <p className="text-xs text-primary/80 mb-6">
+              Click Configure to set a connection for each of the 6 features — API key or local CLI, independently.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-xl">
               {examples.map((ex) => (
@@ -499,6 +502,9 @@ export function CodingFeatureUI({
               <Code2 className="h-8 w-8 mb-2 opacity-50" />
               <p>Your conversation will appear here.</p>
               <p className="text-xs mt-1">Code output shows on the right →</p>
+              <p className="text-xs text-primary/80 mt-2">
+                Click Configure to set a connection for each of the 6 features — API key or local CLI, independently.
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -829,6 +835,9 @@ export function VoiceFeatureUI({
                 ? "Tap the microphone to speak, or type below. AI responses include a Play button for text-to-speech."
                 : "Type below to send a message. AI responses include a Play button for text-to-speech."}
             </p>
+            <p className="text-xs text-primary/80 mt-2">
+              Click Configure to set a connection for each of the 6 features — API key or local CLI, independently.
+            </p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -1069,6 +1078,9 @@ export function VisionFeatureUI({
                 Upload an image, ask a question, and the vision model will
                 describe what it sees.
               </p>
+              <p className="text-xs text-primary/80 mt-2">
+                Click Configure to set a connection for each of the 6 features — API key or local CLI, independently.
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -1305,8 +1317,11 @@ export function AutomationFeatureUI({
           className="flex-1 overflow-y-auto nox-scroll rounded-xl border border-border bg-card/20 p-3 min-h-0"
         >
           {messages.length === 0 && !loadingMessages ? (
-            <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-              Conversation appears here.
+            <div className="h-full flex flex-col items-center justify-center text-center text-xs text-muted-foreground">
+              <p>Conversation appears here.</p>
+              <p className="text-primary/80 mt-2">
+                Click Configure to set a connection for each of the 6 features — API key or local CLI, independently.
+              </p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -1532,6 +1547,9 @@ export function RoboticsFeatureUI({
               <p className="text-xs mt-1 max-w-xs">
                 Describe a robotics task and the AI will generate a motion plan
                 with waypoints. Then click Execute Plan to animate the arm.
+              </p>
+              <p className="text-xs text-primary/80 mt-2">
+                Click Configure to set a connection for each of the 6 features — API key or local CLI, independently.
               </p>
             </div>
           ) : (
