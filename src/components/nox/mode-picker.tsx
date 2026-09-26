@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { motion } from "framer-motion";
-import { Globe, Layers, Network, ChevronRight, Sparkles, TrendingUp } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Globe, Layers, Network, ChevronRight, Sparkles, TrendingUp, Play, X, Subtitles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMultiModel } from "@/store/multi-model-store";
 import { UserMenu } from "./shared-chat";
@@ -64,12 +64,42 @@ const MODE_CARDS: {
 export function ModePicker() {
   const router = useRouter();
   const mm = useMultiModel();
+  const [showDemo, setShowDemo] = React.useState(false);
+  const [subtitlesEnabled, setSubtitlesEnabled] = React.useState(true);
+  const videoRef = React.useRef<HTMLVideoElement>(null);
 
   const enterMode = async (mode: Mode) => {
     mm.setMode(mode);
     await mm.save();
     router.push(`/${mode.toLowerCase()}`);
   };
+
+  const toggleSubtitles = () => {
+    const newState = !subtitlesEnabled;
+    setSubtitlesEnabled(newState);
+    if (videoRef.current) {
+      const tracks = videoRef.current.textTracks;
+      for (let i = 0; i < tracks.length; i++) {
+        tracks[i].mode = newState ? 'showing' : 'hidden';
+      }
+    }
+  };
+
+  const handleOpenDemo = () => {
+    setShowDemo(true);
+    // Reset subtitles to enabled when opening
+    setSubtitlesEnabled(true);
+  };
+
+  // Handle subtitle state when video loads
+  React.useEffect(() => {
+    if (videoRef.current && showDemo) {
+      const tracks = videoRef.current.textTracks;
+      for (let i = 0; i < tracks.length; i++) {
+        tracks[i].mode = subtitlesEnabled ? 'showing' : 'hidden';
+      }
+    }
+  }, [showDemo, subtitlesEnabled]);
 
   return (
     <div className="min-h-screen bg-background nox-aurora">
@@ -126,106 +156,23 @@ export function ModePicker() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.08 }}
-          className="mb-10 sm:mb-12"
+          className="mb-6 sm:mb-8"
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* About Demo Button */}
-            <motion.button
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: 0.1 }}
-              className="group relative rounded-2xl border border-border bg-card/40 hover:bg-card/70 hover:border-primary/30 transition overflow-hidden p-3 shadow-[0_0_40px_rgba(168,85,247,0.12)] backdrop-blur-sm"
-            >
-              <div className="mb-2 flex items-center justify-between gap-2 px-1">
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-                    Demo preview
-                  </p>
-                  <h2 className="text-base font-medium text-foreground">
-                    About Demo
-                  </h2>
-                </div>
-                <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-primary">
-                  Watch
-                </span>
-              </div>
-              <div className="relative rounded-xl overflow-hidden border border-border bg-black">
-                <video
-                  className="w-full h-48 object-cover"
-                  controls
-                  playsInline
-                  preload="metadata"
-                >
-                  <source src="/videos/nox-demo.mp4" type="video/mp4" />
-                  <track
-                    src="/videos/nox-demo.vtt"
-                    kind="subtitles"
-                    srcLang="en"
-                    label="English"
-                    default
-                  />
-                  Your browser does not support the video tag.
-                </video>
-              </div>
-              <div className="mt-2 text-center">
-                <span className="text-xs text-muted-foreground">
-                  Click to learn about NOX AI features
-                </span>
-              </div>
-            </motion.button>
-
-            {/* Use Button */}
-            <motion.button
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: 0.15 }}
-              onClick={() => {
-                // Enter default mode (SINGLE) if no mode is selected
-                const defaultMode = mm.mode || "SINGLE";
-                mm.setMode(defaultMode);
-                mm.save();
-                router.push(`/${defaultMode.toLowerCase()}`);
-              }}
-              className="group relative rounded-2xl border border-border bg-card/40 hover:bg-card/70 hover:border-primary/30 transition overflow-hidden p-3 shadow-[0_0_40px_rgba(168,85,247,0.12)] backdrop-blur-sm"
-            >
-              <div className="mb-2 flex items-center justify-between gap-2 px-1">
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-                    Get started
-                  </p>
-                  <h2 className="text-base font-medium text-foreground">
-                    Use NOX AI
-                  </h2>
-                </div>
-                <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-primary">
-                  Start
-                </span>
-              </div>
-              <div className="relative rounded-xl overflow-hidden border border-border bg-black">
-                <video
-                  className="w-full h-48 object-cover"
-                  controls
-                  playsInline
-                  preload="metadata"
-                >
-                  <source src="/videos/nox-demo.mp4" type="video/mp4" />
-                  <track
-                    src="/videos/nox-demo.vtt"
-                    kind="subtitles"
-                    srcLang="en"
-                    label="English"
-                    default
-                  />
-                  Your browser does not support the video tag.
-                </video>
-              </div>
-              <div className="mt-2 text-center">
-                <span className="text-xs text-muted-foreground">
-                  Click to start using NOX AI
-                </span>
-              </div>
-            </motion.button>
-          </div>
+          <motion.button
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.1 }}
+            onClick={handleOpenDemo}
+            className="group relative rounded-xl border border-primary/40 bg-primary/10 hover:bg-primary/20 transition overflow-hidden px-6 py-3 flex items-center gap-3 shadow-[0_0_30px_rgba(168,85,247,0.15)]"
+          >
+            <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
+              <Play className="h-5 w-5 text-background fill-background" />
+            </div>
+            <div className="text-left">
+              <p className="text-sm font-semibold text-foreground">Demo</p>
+              <p className="text-xs text-muted-foreground">About the product</p>
+            </div>
+          </motion.button>
         </motion.div>
 
         {/* Mode cards */}
@@ -300,6 +247,84 @@ export function ModePicker() {
           overrides, encrypted API keys, and the multi-agent confirmation flow.
         </motion.p>
       </main>
+
+      {/* Demo Video Modal */}
+      <AnimatePresence>
+        {showDemo && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+            onClick={() => setShowDemo(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-4xl bg-card rounded-2xl border border-border overflow-hidden shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b border-border">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">NOX AI Demo</h3>
+                  <p className="text-xs text-muted-foreground">About the product</p>
+                </div>
+                <button
+                  onClick={() => setShowDemo(false)}
+                  className="h-8 w-8 rounded-lg bg-muted hover:bg-muted/80 flex items-center justify-center transition"
+                >
+                  <X className="h-4 w-4 text-foreground" />
+                </button>
+              </div>
+
+              {/* Video Container */}
+              <div className="relative bg-black">
+                <video
+                  ref={videoRef}
+                  className="w-full aspect-video"
+                  controls
+                  playsInline
+                  autoPlay
+                >
+                  <source src="/videos/nox-demo.mp4" type="video/mp4" />
+                  <track
+                    src="/videos/nox-demo.vtt"
+                    kind="subtitles"
+                    srcLang="en"
+                    label="English"
+                    default
+                  />
+                  Your browser does not support the video tag.
+                </video>
+
+                {/* Subtitle Toggle Button */}
+                <button
+                  onClick={toggleSubtitles}
+                  className="absolute bottom-16 right-4 h-10 w-10 rounded-lg bg-black/60 hover:bg-black/80 backdrop-blur-sm flex items-center justify-center transition border border-white/20"
+                  title={subtitlesEnabled ? "Disable subtitles" : "Enable subtitles"}
+                >
+                  <Subtitles className={`h-5 w-5 ${subtitlesEnabled ? "text-white" : "text-white/50"}`} />
+                </button>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 border-t border-border flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  Learn about NOX AI's multi-model platform features
+                </p>
+                <button
+                  onClick={() => setShowDemo(false)}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-primary hover:bg-primary/90 text-background transition"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
