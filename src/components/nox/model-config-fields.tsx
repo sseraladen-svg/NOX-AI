@@ -147,6 +147,22 @@ export function ModelConfigFields({
     });
   }
 
+  // Initialize with Google Gemini if no provider is set
+  React.useEffect(() => {
+    if (!assignment.provider && !assignment.connectionType) {
+      const geminiProvider = providers.find((p) => p.id === "gemini");
+      if (geminiProvider) {
+        updateActiveState({
+          ...assignment,
+          connectionType: "API",
+          provider: "gemini",
+          modelName: geminiProvider.defaultModel,
+          endpoint: "",
+        });
+      }
+    }
+  }, []);
+
   const currentProvider = providers.find((p) => p.id === assignment.provider);
   const currentModelName = assignment.connectionType === "API" ? assignment.apiModelName || assignment.modelName : assignment.localModelName || assignment.modelName;
   const knownModel = currentProvider?.models.includes(currentModelName) ?? false;

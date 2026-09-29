@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Globe, Layers, Network, ChevronRight, Sparkles, TrendingUp, Play, X, Subtitles } from "lucide-react";
+import { Globe, Layers, Network, ChevronRight, Sparkles, TrendingUp, Play, X, Subtitles, BookOpen, Settings2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMultiModel } from "@/store/multi-model-store";
 import { UserMenu } from "./shared-chat";
@@ -66,6 +66,8 @@ export function ModePicker() {
   const mm = useMultiModel();
   const [showDemo, setShowDemo] = React.useState(false);
   const [subtitlesEnabled, setSubtitlesEnabled] = React.useState(true);
+  const [showGuide, setShowGuide] = React.useState(false);
+  const [guideType, setGuideType] = React.useState<"api" | "cli" | null>(null);
   const videoRef = React.useRef<HTMLVideoElement>(null);
 
   const enterMode = async (mode: Mode) => {
@@ -156,7 +158,7 @@ export function ModePicker() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.08 }}
-          className="mb-6 sm:mb-8"
+          className="mb-6 sm:mb-8 flex flex-col sm:flex-row gap-3 justify-center"
         >
           <motion.button
             initial={{ opacity: 0, y: 16 }}
@@ -171,6 +173,22 @@ export function ModePicker() {
             <div className="text-left">
               <p className="text-sm font-semibold text-foreground">Demo</p>
               <p className="text-xs text-muted-foreground">About the product</p>
+            </div>
+          </motion.button>
+
+          <motion.button
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.15 }}
+            onClick={() => setShowGuide(true)}
+            className="group relative rounded-xl border border-primary/40 bg-primary/10 hover:bg-primary/20 transition overflow-hidden px-6 py-3 flex items-center gap-3 shadow-[0_0_30px_rgba(168,85,247,0.15)]"
+          >
+            <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
+              <BookOpen className="h-5 w-5 text-background" />
+            </div>
+            <div className="text-left">
+              <p className="text-sm font-semibold text-foreground">API & CLI Setup Guide</p>
+              <p className="text-xs text-muted-foreground">Connection instructions</p>
             </div>
           </motion.button>
         </motion.div>
@@ -316,6 +334,282 @@ export function ModePicker() {
                 </p>
                 <button
                   onClick={() => setShowDemo(false)}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-primary hover:bg-primary/90 text-background transition"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Setup Guide Modal */}
+      <AnimatePresence>
+        {showGuide && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+            onClick={() => setShowGuide(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-4xl max-h-[90vh] bg-card rounded-2xl border border-border overflow-hidden shadow-2xl flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b border-border shrink-0">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">API & CLI Setup Guide</h3>
+                  <p className="text-xs text-muted-foreground">Choose your connection type</p>
+                </div>
+                <button
+                  onClick={() => setShowGuide(false)}
+                  className="h-8 w-8 rounded-lg bg-muted hover:bg-muted/80 flex items-center justify-center transition"
+                >
+                  <X className="h-4 w-4 text-foreground" />
+                </button>
+              </div>
+
+              {/* Content */}
+              {!guideType ? (
+                <div className="flex-1 overflow-y-auto p-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <button
+                      onClick={() => setGuideType("api")}
+                      className="group relative rounded-xl border border-primary/40 bg-primary/10 hover:bg-primary/20 transition overflow-hidden p-6 text-left"
+                    >
+                      <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center mb-4">
+                        <Settings2 className="h-6 w-6 text-background" />
+                      </div>
+                      <h4 className="text-lg font-semibold text-foreground mb-2">API Connection Guide</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Connect NOX AI to an AI provider using an API key. Follow step-by-step instructions for secure setup.
+                      </p>
+                    </button>
+
+                    <button
+                      onClick={() => setGuideType("cli")}
+                      className="group relative rounded-xl border border-primary/40 bg-primary/10 hover:bg-primary/20 transition overflow-hidden p-6 text-left"
+                    >
+                      <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center mb-4">
+                        <Settings2 className="h-6 w-6 text-background" />
+                      </div>
+                      <h4 className="text-lg font-semibold text-foreground mb-2">CLI Connection Guide</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Connect NOX AI to a local AI runtime such as Ollama. Follow PowerShell setup instructions.
+                      </p>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto p-6">
+                  <button
+                    onClick={() => setGuideType(null)}
+                    className="mb-4 text-sm text-primary hover:underline flex items-center gap-1"
+                  >
+                    ← Back to guide selection
+                  </button>
+
+                  {guideType === "api" ? (
+                    <div className="space-y-6">
+                      <h2 className="text-2xl font-bold text-foreground">API Connection Guide</h2>
+                      <p className="text-muted-foreground">Use this guide to connect NOX AI to an AI provider using an API key.</p>
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-foreground">1. Select Your Provider</h3>
+                        <p className="text-muted-foreground">In NOX AI, select:</p>
+                        <p className="font-mono text-sm bg-muted p-2 rounded">Connection → API → Provider</p>
+                        <p className="text-muted-foreground">Choose the AI provider you want to use.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-foreground">2. Enter Your API Key</h3>
+                        <p className="text-muted-foreground">Enter the API key provided by your provider.</p>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>API Key: ************************</code></pre>
+                        <p className="text-muted-foreground">Make sure the key is valid and has access to the provider's API.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-foreground">3. Check Available Models</h3>
+                        <p className="text-muted-foreground">After entering the API key, click:</p>
+                        <p className="font-mono text-sm bg-muted p-2 rounded">Check Available Models</p>
+                        <p className="text-muted-foreground">NOX AI will verify the API key and retrieve the models available from the provider.</p>
+                        <p className="text-muted-foreground">Select the model you want to use.</p>
+
+                        <h4 className="text-md font-semibold text-foreground mt-4">Model Not Listed?</h4>
+                        <p className="text-muted-foreground">If your required model does not appear in the available-model list:</p>
+                        <ol className="list-decimal list-inside text-muted-foreground space-y-1">
+                          <li>Select <strong>Custom Model</strong>.</li>
+                          <li>Enter the <strong>exact model name/model ID provided by the AI provider</strong>.</li>
+                          <li>Do not use an approximate name or display name.</li>
+                        </ol>
+                        <p className="text-muted-foreground mt-2">Example:</p>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>Custom Model:
+exact-provider-model-name</code></pre>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-foreground">4. Test the Connection</h3>
+                        <p className="text-muted-foreground">After selecting or entering the model, click:</p>
+                        <p className="font-mono text-sm bg-muted p-2 rounded">Test Connection</p>
+                        <p className="text-muted-foreground">NOX AI will verify the provider, API key, and selected model.</p>
+                        <p className="text-muted-foreground">Wait until the connection is successfully verified.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-foreground">5. Save Configuration</h3>
+                        <p className="text-muted-foreground">Only save the configuration after the test succeeds.</p>
+                        <p className="font-mono text-sm bg-muted p-2 rounded">Test Successful → Verified → Save Configuration</p>
+                        <p className="text-muted-foreground">Once saved, the configuration is ready to use throughout NOX AI.</p>
+                      </div>
+
+                      <div className="bg-primary/10 border border-primary/30 rounded-lg p-4">
+                        <h4 className="font-semibold text-primary mb-2">Important</h4>
+                        <p className="text-muted-foreground"><strong>Always test and verify the API connection before saving it.</strong></p>
+                        <p className="text-muted-foreground">If verification fails, do not save the configuration. Check the API key, provider, and exact model name and test again.</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      <h2 className="text-2xl font-bold text-foreground">CLI Connection Guide</h2>
+                      <p className="text-muted-foreground">Use this guide to connect NOX AI to a local AI runtime such as Ollama.</p>
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-foreground">1. Install and Check Ollama</h3>
+                        <p className="text-muted-foreground">Make sure Ollama is installed.</p>
+                        <p className="text-muted-foreground">Open PowerShell:</p>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>ollama --version</code></pre>
+                        <p className="text-muted-foreground">Pull the model you want to use:</p>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>ollama pull llama3.1:8b</code></pre>
+                        <p className="text-muted-foreground">Check your installed models:</p>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>ollama list</code></pre>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-foreground">2. Set the NOX AI Origin</h3>
+                        <p className="text-muted-foreground">NOX AI needs permission to communicate with Ollama running on your computer.</p>
+                        <p className="text-muted-foreground">Run:</p>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>[Environment]::SetEnvironmentVariable(
+  "OLLAMA_ORIGINS",
+  "https://nox-ai-ten.vercel.app",
+  "User"
+)</code></pre>
+                        <p className="text-muted-foreground">Verify the setting:</p>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>[Environment]::GetEnvironmentVariable("OLLAMA_ORIGINS","User")</code></pre>
+                        <p className="text-muted-foreground">It should show:</p>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>https://nox-ai-ten.vercel.app</code></pre>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-foreground">3. Completely Restart Ollama</h3>
+                        <p className="text-muted-foreground">This step is required after setting or changing the origin.</p>
+                        <ol className="list-decimal list-inside text-muted-foreground space-y-1">
+                          <li>Completely close Ollama.</li>
+                          <li>Make sure Ollama is no longer running.</li>
+                          <li>Open PowerShell.</li>
+                          <li>Start Ollama:</li>
+                        </ol>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>ollama serve</code></pre>
+                        <p className="text-muted-foreground">Keep this terminal running.</p>
+                        <p className="text-muted-foreground"><strong>Do not skip the restart.</strong> Ollama must restart to load the new <code>OLLAMA_ORIGINS</code> setting.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-foreground">4. Verify Ollama</h3>
+                        <p className="text-muted-foreground">Open another PowerShell window.</p>
+                        <p className="text-muted-foreground">Check the Ollama port:</p>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>Test-NetConnection 127.0.0.1 -Port 11434</code></pre>
+                        <p className="text-muted-foreground">Expected:</p>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>TcpTestSucceeded : True</code></pre>
+                        <p className="text-muted-foreground">Check the Ollama API:</p>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>Invoke-RestMethod http://127.0.0.1:11434/api/tags</code></pre>
+                        <p className="text-muted-foreground">Check installed models:</p>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>ollama list</code></pre>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-foreground">5. Connect Ollama to NOX AI</h3>
+                        <p className="text-muted-foreground">In NOX AI, select:</p>
+                        <p className="font-mono text-sm bg-muted p-2 rounded">Connection → CLI → Ollama</p>
+                        <p className="text-muted-foreground">Select the model you want to use.</p>
+                        <p className="text-muted-foreground">Example:</p>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>Provider: Ollama
+Model: llama3.1:8b</code></pre>
+
+                        <h4 className="text-md font-semibold text-foreground mt-4">Model Not Listed?</h4>
+                        <p className="text-muted-foreground">If the model does not appear in NOX AI:</p>
+                        <ol className="list-decimal list-inside text-muted-foreground space-y-1">
+                          <li>Select Custom Model.</li>
+                          <li>Enter the exact model name shown by Ollama.</li>
+                          <li>The name must match exactly.</li>
+                        </ol>
+                        <p className="text-muted-foreground mt-2">Example:</p>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>Custom Model:
+llama3.1:8b</code></pre>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-foreground">6. Test the Connection</h3>
+                        <p className="text-muted-foreground">Click:</p>
+                        <p className="font-mono text-sm bg-muted p-2 rounded">Test Connection</p>
+                        <p className="text-muted-foreground">NOX AI will verify:</p>
+                        <ul className="list-disc list-inside text-muted-foreground space-y-1">
+                          <li>Ollama is reachable.</li>
+                          <li>The local endpoint is responding.</li>
+                          <li>The selected model exists.</li>
+                          <li>The model can respond.</li>
+                        </ul>
+                        <p className="text-muted-foreground">Wait until the connection is successfully verified.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-foreground">7. Save Configuration</h3>
+                        <p className="text-muted-foreground">Only save after successful verification.</p>
+                        <p className="font-mono text-sm bg-muted p-2 rounded">Test Successful → Verified → Save Configuration</p>
+                        <p className="text-muted-foreground">The CLI configuration is then ready to use.</p>
+                      </div>
+
+                      <div className="bg-primary/10 border border-primary/30 rounded-lg p-4">
+                        <h4 className="font-semibold text-primary mb-2">Important</h4>
+                        <p className="text-muted-foreground">Set the origin → Completely restart Ollama → Connect → Test → Verify → Save.</p>
+                        <p className="text-muted-foreground">No Cloudflare Tunnel is required.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-foreground">Connection Flow</h3>
+                        <pre className="bg-muted p-3 rounded text-sm overflow-x-auto"><code>Set OLLAMA_ORIGINS
+        ↓
+Restart Ollama
+        ↓
+Start Ollama
+        ↓
+Connect NOX AI
+        ↓
+Select Model
+        ↓
+Test Connection
+        ↓
+Verify
+        ↓
+Save Configuration</code></pre>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="p-4 border-t border-border flex items-center justify-between shrink-0">
+                <p className="text-xs text-muted-foreground">
+                  Follow the steps carefully to ensure successful connection
+                </p>
+                <button
+                  onClick={() => setShowGuide(false)}
                   className="px-4 py-2 text-sm font-medium rounded-lg bg-primary hover:bg-primary/90 text-background transition"
                 >
                   Close
