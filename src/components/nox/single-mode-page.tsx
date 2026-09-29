@@ -126,7 +126,6 @@ export function SingleModePage() {
               examples: EXAMPLES,
               onPick: (t) => chat.setInput(t),
               mode: "SINGLE",
-              subtitle: "Click Configure to connect one provider — API key or local CLI — before starting.",
             }}
           />
           <ChatInput
@@ -227,6 +226,7 @@ function ModelStrip({
         <button onClick={onConfigure} className="text-primary hover:underline">
           Configure
         </button>
+        <span className="text-[10px] text-primary/80">Click to connect one provider — API key or local CLI — before starting.</span>
       </div>
     </div>
   );

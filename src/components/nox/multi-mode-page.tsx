@@ -412,12 +412,15 @@ function FeatureModelStrip({
       <p className="text-[11px] text-muted-foreground hidden sm:block">
         {feature.description}
       </p>
-      <button
-        onClick={onConfigure}
-        className="ml-auto text-primary hover:underline text-xs"
-      >
-        Configure
-      </button>
+      <div className="ml-auto flex items-center gap-2">
+        <button
+          onClick={onConfigure}
+          className="text-primary hover:underline text-xs"
+        >
+          Configure
+        </button>
+        <span className="text-[10px] text-primary/80 hidden sm:block">Set connection for each of the 6 features — API key or local CLI, independently.</span>
+      </div>
     </div>
   );
 }

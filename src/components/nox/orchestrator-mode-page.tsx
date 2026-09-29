@@ -176,8 +176,6 @@ export function OrchestratorModePage() {
               examples: EXAMPLES,
               onPick: (t) => chat.setInput(t),
               mode: "ORCHESTRATOR",
-              subtitle:
-                "Click Configure to set connections for the Host and each of the 5 specialists — API key or local CLI, independently.",
             }}
           />
           <ChatInput
@@ -360,6 +358,9 @@ function RosterSidebar({
       >
         Configure all roles →
       </button>
+      <p className="text-[10px] text-center text-primary/80 mt-2">
+        Set connections for the Host and each of the 5 specialists — API key or local CLI, independently.
+      </p>
     </>
   );
 }
