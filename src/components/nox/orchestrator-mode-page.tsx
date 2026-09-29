@@ -354,11 +354,11 @@ function RosterSidebar({
 
       <button
         onClick={onConfigure}
-        className="mt-2 w-full text-xs text-primary hover:underline py-2"
+        className="mt-2 w-full text-xs text-primary hover:underline font-semibold py-2"
       >
         Configure all roles →
       </button>
-      <p className="text-[10px] text-center text-primary/80 mt-2">
+      <p className="text-xs font-medium text-center text-primary bg-primary/10 px-3 py-2 rounded-md mt-2">
         Set connections for the Host and each of the 5 specialists — API key or local CLI, independently.
       </p>
     </>

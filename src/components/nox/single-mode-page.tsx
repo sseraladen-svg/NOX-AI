@@ -218,15 +218,19 @@ function ModelStrip({
           )}
         </Badge>
       </div>
-      <div className="ml-auto flex items-center gap-3 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1">
+      <div className="ml-auto flex items-center gap-3">
+        <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
           <Clock className="h-3 w-3" />
           {assignment.connectionType === "API" ? "30s" : "60s"} timeout
         </span>
-        <button onClick={onConfigure} className="text-primary hover:underline">
-          Configure
-        </button>
-        <span className="text-[10px] text-primary/80">Click to connect one provider — API key or local CLI — before starting.</span>
+        <div className="flex items-center gap-2">
+          <button onClick={onConfigure} className="text-primary hover:underline font-semibold text-xs">
+            Configure
+          </button>
+          <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-1 rounded-md">
+            Click to connect one provider — API key or local CLI — before starting.
+          </span>
+        </div>
       </div>
     </div>
   );
