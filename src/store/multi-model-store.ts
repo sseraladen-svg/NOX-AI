@@ -4,6 +4,10 @@ import { create } from "zustand";
 import { authFetch } from "@/lib/auth-fetch";
 import { isMaskedApiKey } from "@/lib/crypto";
 import { testOllamaFromBrowser } from "@/lib/local-ollama";
+import {
+  getMultiModelConfig,
+  saveMultiModelConfig,
+} from "@/lib/local-storage";
 import type {
   Mode,
   FeatureId,
@@ -101,6 +105,23 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
 
   load: async () => {
     try {
+      // Try localStorage first (no login required)
+      const localConfig = getMultiModelConfig();
+      if (localConfig) {
+        set({
+          mode: localConfig.mode,
+          globalConfig: localConfig.globalConfig || null,
+          featureConfigs: localConfig.featureConfigs || {},
+          hostConfig: localConfig.hostConfig || null,
+          specialistConfigs: localConfig.specialistConfigs || {},
+          timeoutOverrides: localConfig.timeoutOverrides || {},
+          loaded: true,
+          dirty: false,
+        });
+        return;
+      }
+
+      // Fallback to API (for logged-in users)
       const res = await authFetch("/api/multi-model/config");
       const json = await res.json();
       if (json.ok) {
@@ -164,9 +185,15 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
   save: async () => {
     set({ saving: true });
     try {
+      const config = get().asDoc();
+
+      // Save to localStorage (no login required)
+      saveMultiModelConfig(config);
+
+      // Also try to save to server if logged in
       const res = await authFetch("/api/multi-model/config", {
         method: "PUT",
-        body: { config: get().asDoc() },
+        body: { config },
       });
       const json = await res.json();
       if (json.ok) {
@@ -210,11 +237,22 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
         });
         return true;
       }
-      set({ saving: false });
-      return false;
+
+      // Even if server save fails, localStorage save succeeded
+      set({
+        dirty: false,
+        saving: false,
+        lastSavedAt: Date.now(),
+      });
+      return true;
     } catch {
-      set({ saving: false });
-      return false;
+      // Even if error, localStorage save succeeded
+      set({
+        dirty: false,
+        saving: false,
+        lastSavedAt: Date.now(),
+      });
+      return true;
     }
   },
 
