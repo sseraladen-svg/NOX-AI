@@ -74,6 +74,7 @@ NOX AI is a sophisticated multi-model AI platform designed for users who demand 
 
 ### 🔐 Security & Authentication
 - Secure local authentication with signup/login/logout
+- Application routes require authentication; the login screen and mode picker include a captioned demo video
 - Encrypted API key storage with server-side encryption
 - User-scoped conversations and configuration persistence
 - Route-level protections and rate limiting
