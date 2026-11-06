@@ -38,7 +38,7 @@ export function AuthGate({
       mm.load();
       convs.loadList();
     }
-  }, [auth.user?.id]);
+  }, [auth.user?.id, mm.load, convs.loadList]);
 
   if (auth.loading) {
     return (
