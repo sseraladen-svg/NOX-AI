@@ -3,12 +3,15 @@
 import * as React from "react";
 import { Subtitles } from "lucide-react";
 import {
+  DialogClose,
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 interface DemoVideoDialogProps {
   open: boolean;
@@ -37,7 +40,7 @@ export function DemoVideoDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl">
+      <DialogContent className="max-w-4xl" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>NOX AI Demo</DialogTitle>
           <DialogDescription>About the product</DialogDescription>
@@ -71,6 +74,13 @@ export function DemoVideoDialog({
             />
           </button>
         </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
+              Close
+            </Button>
+          </DialogClose>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
