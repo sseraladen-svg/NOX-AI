@@ -47,6 +47,10 @@ export function AuthGate({
     );
   }
 
+  if (!auth.user) {
+    return <AuthOverlay />;
+  }
+
   if (requireConfig && !mm.loaded) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background nox-aurora">
