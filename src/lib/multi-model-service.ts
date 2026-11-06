@@ -2548,9 +2548,11 @@ export async function dispatch(
     skipSpecialist?: boolean;
     cachedClassification?: IntentClassification;
     onChunk?: (roleId: string, text: string) => void;
+    config?: MultiModelConfigDoc;
+    skipLimits?: boolean;
   } = {}
 ): Promise<DispatchResult> {
-  const doc = await getConfigInternal(userId);
+  const doc = opts.config || await getConfigInternal(userId);
   const timeoutOverrides = doc.timeoutOverrides || {};
   const steps: DispatchStep[] = [];
 
@@ -2624,7 +2626,7 @@ export async function dispatch(
     //
     // Skip this pre-check if we have a cached classification (the Host was
     // already verified in the first round-trip).
-    if (!opts.cachedClassification) {
+    if (!opts.cachedClassification && !opts.skipLimits) {
       const hostCheck = await checkLimits(
         userId,
         [{ id: "host", label: "Host", assignment: hostAssignment }],
@@ -2838,14 +2840,16 @@ export async function dispatch(
 
     // Step 3a: Pre-flight confirmation (first call, no confirmMultiAgent)
     if (!opts.confirmMultiAgent) {
-      const limits = await checkLimits(
-        userId,
-        [
-          { id: "host", label: "Host", assignment: hostAssignment },
-          { id: specialistId, label: specialistId, assignment: specialistAssignment },
-        ],
-        "medium"
-      );
+      const limits = opts.skipLimits
+        ? []
+        : await checkLimits(
+            userId,
+            [
+              { id: "host", label: "Host", assignment: hostAssignment },
+              { id: specialistId, label: specialistId, assignment: specialistAssignment },
+            ],
+            "medium"
+          );
       return {
         ok: false,
         mode: doc.mode,
@@ -2905,14 +2909,16 @@ export async function dispatch(
 
     // Step 3b: Confirmed "" check limits
     let limits: ModelLimit[] | undefined;
-    limits = await checkLimits(
-      userId,
-      [
-        { id: "host", label: "Host", assignment: hostAssignment },
-        { id: specialistId, label: specialistId, assignment: specialistAssignment },
-      ],
-      "medium"
-    );
+    limits = opts.skipLimits
+      ? []
+      : await checkLimits(
+          userId,
+          [
+            { id: "host", label: "Host", assignment: hostAssignment },
+            { id: specialistId, label: specialistId, assignment: specialistAssignment },
+          ],
+          "medium"
+        );
     const blocked = limits.find((l) => !l.canFinish);
     if (blocked) {
       return {
@@ -3239,7 +3245,9 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
   }
 
   if (plan.multiAgent && !opts.confirmMultiAgent) {
-    const limits = await checkLimits(userId, plan.assignments, "medium");
+    const limits = opts.skipLimits
+      ? []
+      : await checkLimits(userId, plan.assignments, "medium");
     return {
       ok: false,
       mode: doc.mode,
@@ -3253,7 +3261,9 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
 
   let limits: ModelLimit[] | undefined;
   if (plan.multiAgent && opts.confirmMultiAgent) {
-    limits = await checkLimits(userId, plan.assignments, "medium");
+    limits = opts.skipLimits
+      ? []
+      : await checkLimits(userId, plan.assignments, "medium");
     const blocked = limits.find((l) => !l.canFinish);
     if (blocked) {
       return {
@@ -3345,7 +3355,8 @@ export async function resumeDispatch(
   resultText: string,
   resumeContext?: Record<string, unknown>,
   browserTokens?: { input: number; output: number; total: number },
-  browserLatencyMs?: number
+  browserLatencyMs?: number,
+  config?: MultiModelConfigDoc
 ): Promise<DispatchResult> {
   const resumeKey = `${userId}:${_stepId}`;
   const previousUse = consumedResumeSteps.get(resumeKey);
@@ -3353,10 +3364,21 @@ export async function resumeDispatch(
     throw new Error("This dispatch-resume step has already been consumed.");
   }
   consumedResumeSteps.set(resumeKey, Date.now() + 10 * 60 * 1000);
-  const doc = await getConfigInternal(userId);
+  const doc = config || await getConfigInternal(userId);
   const ctx = (resumeContext || {}) as Record<string, any>;
+  const isGuestDispatch = userId.startsWith("guest:");
+  const contextAssignment = (
+    contextKey: string,
+    fallback: ModelAssignment | null | undefined
+  ) =>
+    isGuestDispatch
+      ? fallback || emptyAssignment()
+      : (ctx[contextKey] as ModelAssignment) || fallback || emptyAssignment();
   const output = typeof resultText === "string" ? resultText : "";
   const stage = typeof ctx.stage === "string" ? ctx.stage : "single";
+  if (isGuestDispatch && stage !== "single" && stage !== "direct") {
+    throw new Error("This guest continuation is not available.");
+  }
   const messages = Array.isArray(ctx.messages) ? (ctx.messages as ChatMessage[]) : [];
   const timeoutOverrides = doc.timeoutOverrides || {};
 
@@ -3396,15 +3418,15 @@ export async function resumeDispatch(
 
   switch (stage) {
     case "single": {
-      const assignment = (ctx.assignment as ModelAssignment) || doc.globalConfig || emptyAssignment();
+      const assignment = contextAssignment("assignment", doc.globalConfig);
       return finishFromAssignment(assignment, String(ctx.role || "single"), typeof ctx.intent === "string" ? ctx.intent : undefined, messages[messages.length - 1]?.content || "");
     }
     case "direct": {
-      const assignment = (ctx.assignment as ModelAssignment) || doc.hostConfig || emptyAssignment();
+      const assignment = contextAssignment("assignment", doc.hostConfig);
       return finishFromAssignment(assignment, String(ctx.role || "host"), typeof ctx.intent === "string" ? ctx.intent : undefined, messages[messages.length - 1]?.content || "");
     }
     case "classify": {
-      const hostAssignment = (ctx.hostAssignment as ModelAssignment) || doc.hostConfig || emptyAssignment();
+      const hostAssignment = contextAssignment("hostAssignment", doc.hostConfig);
       const classification =
         parseClassificationResponse(output) ||
         (() => {
@@ -3627,8 +3649,11 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
     }
     case "specialist": {
       const specialistId = String(ctx.specialistId || ctx.role || "specialist");
-      const hostAssignment = (ctx.hostAssignment as ModelAssignment) || doc.hostConfig || emptyAssignment();
-      const specialistAssignment = (ctx.assignment as ModelAssignment) || emptyAssignment();
+      const hostAssignment = contextAssignment("hostAssignment", doc.hostConfig);
+      const specialistAssignment = contextAssignment(
+        "assignment",
+        doc.specialistConfigs?.[specialistId as SpecialistId]
+      );
       const specialistStep: DispatchStep = {
         role: specialistId,
         model: specialistAssignment.modelName,
@@ -3746,7 +3771,7 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
       };
     }
     case "synthesize": {
-      const assignment = (ctx.assignment as ModelAssignment) || doc.hostConfig || emptyAssignment();
+      const assignment = contextAssignment("assignment", doc.hostConfig);
       const specialistStep = (ctx.specialistStep as DispatchStep | undefined) || undefined;
       const workspace = (ctx.workspace as AgentWorkspace | undefined) || buildWorkspace(
         String(ctx.specialistId || "specialist") as SpecialistId,

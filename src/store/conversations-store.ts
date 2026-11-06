@@ -2,6 +2,11 @@
 
 import { create } from "zustand";
 import { authFetch } from "@/lib/auth-fetch";
+import {
+  getGuestConversations,
+  isGuestSession,
+  saveGuestConversations,
+} from "@/lib/local-storage";
 import type {
   AgentWorkspace,
   DispatchStep,
@@ -51,6 +56,10 @@ export interface ConversationItem {
   updatedAt: string;
 }
 
+interface GuestConversation extends ConversationItem {
+  messages: ConversationMessage[];
+}
+
 interface ConversationsStore {
   items: ConversationItem[];
   activeId: string | null;
@@ -76,6 +85,20 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   loadingMessages: false,
 
   loadList: async (scope) => {
+    if (isGuestSession()) {
+      const items = getGuestConversations<GuestConversation>()
+        .filter((item) => !scope || item.mode === scope)
+        .map(({ id, title, mode, createdAt, updatedAt }) => ({
+          id,
+          title,
+          mode,
+          createdAt,
+          updatedAt,
+        }));
+      set({ items, loading: false });
+      return;
+    }
+
     set({ loading: true });
     try {
       const res = await authFetch(
@@ -91,6 +114,28 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   },
 
   create: async (mode = "SINGLE", title) => {
+    if (isGuestSession()) {
+      const now = new Date().toISOString();
+      const item: GuestConversation = {
+        id: crypto.randomUUID(),
+        title: title || "New conversation",
+        mode,
+        createdAt: now,
+        updatedAt: now,
+        messages: [],
+      };
+      saveGuestConversations([
+        item,
+        ...getGuestConversations<GuestConversation>(),
+      ]);
+      set((s) => ({
+        items: [item, ...s.items],
+        activeId: item.id,
+        activeMessages: [],
+      }));
+      return item.id;
+    }
+
     try {
       const res = await authFetch("/api/conversations/create", {
         method: "POST",
@@ -110,6 +155,17 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
 
   select: async (id) => {
     set({ activeId: id, loadingMessages: true, activeMessages: [] });
+    if (isGuestSession()) {
+      const conversation = getGuestConversations<GuestConversation>().find(
+        (item) => item.id === id
+      );
+      set({
+        activeMessages: conversation?.messages || [],
+        loadingMessages: false,
+      });
+      return;
+    }
+
     try {
       const res = await authFetch(`/api/conversations/get?id=${id}`);
       const json = await res.json();
@@ -122,6 +178,18 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   },
 
   remove: async (id) => {
+    if (isGuestSession()) {
+      saveGuestConversations(
+        getGuestConversations<GuestConversation>().filter((item) => item.id !== id)
+      );
+      set((s) => ({
+        items: s.items.filter((item) => item.id !== id),
+        activeId: s.activeId === id ? null : s.activeId,
+        activeMessages: s.activeId === id ? [] : s.activeMessages,
+      }));
+      return;
+    }
+
     await authFetch(`/api/conversations/delete?id=${id}`, { method: "POST" });
     set((s) => ({
       items: s.items.filter((i) => i.id !== id),
@@ -133,6 +201,22 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   rename: async (id, title) => {
     const trimmed = title.trim();
     if (!trimmed) return;
+    if (isGuestSession()) {
+      saveGuestConversations(
+        getGuestConversations<GuestConversation>().map((item) =>
+          item.id === id
+            ? { ...item, title: trimmed, updatedAt: new Date().toISOString() }
+            : item
+        )
+      );
+      set((s) => ({
+        items: s.items.map((item) =>
+          item.id === id ? { ...item, title: trimmed } : item
+        ),
+      }));
+      return;
+    }
+
     await authFetch("/api/conversations/rename", {
       method: "POST",
       body: { id, title: trimmed },
@@ -152,3 +236,25 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     if (id) await get().select(id);
   },
 }));
+
+useConversations.subscribe((state, previousState) => {
+  if (
+    !isGuestSession() ||
+    !state.activeId ||
+    state.activeId !== previousState.activeId ||
+    state.activeMessages === previousState.activeMessages
+  ) {
+    return;
+  }
+
+  const conversations = getGuestConversations<GuestConversation>();
+  const index = conversations.findIndex((item) => item.id === state.activeId);
+  if (index < 0) return;
+
+  conversations[index] = {
+    ...conversations[index],
+    messages: state.activeMessages,
+    updatedAt: new Date().toISOString(),
+  };
+  saveGuestConversations(conversations);
+});

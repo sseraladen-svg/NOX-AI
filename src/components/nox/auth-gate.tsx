@@ -6,6 +6,7 @@ import { useMultiModel } from "@/store/multi-model-store";
 import { useConversations } from "@/store/conversations-store";
 import { AuthOverlay } from "@/components/nox/auth-overlay";
 import { Loader2 } from "lucide-react";
+import { isGuestSession } from "@/lib/local-storage";
 
 /**
  * Shared shell for every real route (/, /single, /multi, /orchestrator, /usage).
@@ -28,19 +29,27 @@ export function AuthGate({
   const auth = useAuth();
   const mm = useMultiModel();
   const convs = useConversations();
+  const [guestSession, setGuestSession] = React.useState(false);
 
   React.useEffect(() => {
+    if (isGuestSession()) {
+      setGuestSession(true);
+      return;
+    }
     auth.load();
   }, []);
 
   React.useEffect(() => {
-    if (auth.user) {
+    if (guestSession) {
+      mm.load();
+      convs.loadList();
+    } else if (auth.user) {
       mm.load();
       convs.loadList();
     }
-  }, [auth.user?.id, mm.load, convs.loadList]);
+  }, [guestSession, auth.user?.id, mm.load, convs.loadList]);
 
-  if (auth.loading) {
+  if (auth.loading && !guestSession) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background nox-aurora">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -48,7 +57,7 @@ export function AuthGate({
     );
   }
 
-  if (!auth.user) {
+  if (!auth.user && !guestSession) {
     return <AuthOverlay />;
   }
 

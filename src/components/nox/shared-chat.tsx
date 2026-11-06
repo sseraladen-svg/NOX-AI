@@ -51,6 +51,7 @@ import { AdvancedCustomization } from "./advanced-customization";
 import { MultiAgentConfirmDialog } from "./multi-agent-confirm-dialog";
 import type { LimitRow } from "@/store/multi-model-store";
 import { cn } from "@/lib/utils";
+import { clearGuestData, endGuestSession } from "@/lib/local-storage";
 
 // ─── MessageBubble ──────────────────────────────────────────────────────────
 
@@ -431,45 +432,53 @@ function fileToDataUrl(file: File): Promise<string> {
 export function UserMenu() {
   const auth = useAuth();
   const convs = useConversations();
-  const isGuest = !auth.user;
+  const user = auth.user;
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="h-8 w-8 rounded-full bg-muted/60 hover:bg-muted flex items-center justify-center text-xs font-medium uppercase">
-          {isGuest ? "?" : auth.user.email[0]}
+          {user?.email[0] || "?"}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        {isGuest ? (
+        {!user ? (
           <>
             <div className="px-2 py-1.5">
               <div className="text-sm font-medium">Guest User</div>
               <div className="text-xs text-muted-foreground">
-                Data stored in browser
+                Browser-only data · metrics off
               </div>
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => {
-                if (confirm("Clear all local data? This cannot be undone.")) {
-                  localStorage.clear();
+                if (confirm("Clear all NOX AI guest data from this browser? This cannot be undone.")) {
+                  clearGuestData();
                   window.location.reload();
                 }
               }}
               className="text-red-400 focus:text-red-400"
             >
-              <Trash2 className="h-3.5 w-3.5 mr-2" /> Clear local data
+              <Trash2 className="h-3.5 w-3.5 mr-2" /> Clear guest data
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                endGuestSession();
+                window.location.reload();
+              }}
+            >
+              <LogOut className="h-3.5 w-3.5 mr-2" /> Switch to account
             </DropdownMenuItem>
           </>
         ) : (
           <>
             <div className="px-2 py-1.5">
               <div className="text-sm font-medium truncate">
-                {auth.user.name || auth.user.email.split("@")[0]}
+                {user.name || user.email.split("@")[0]}
               </div>
               <div className="text-xs text-muted-foreground truncate">
-                {auth.user.email}
+                {user.email}
               </div>
             </div>
             <DropdownMenuSeparator />

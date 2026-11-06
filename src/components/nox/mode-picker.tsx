@@ -8,6 +8,8 @@ import { useMultiModel } from "@/store/multi-model-store";
 import { UserMenu } from "./shared-chat";
 import { DemoVideoDialog } from "./demo-video-dialog";
 import type { Mode } from "@/lib/multi-model-types";
+import { isGuestSession } from "@/lib/local-storage";
+import { toast } from "sonner";
 
 const MODE_CARDS: {
   id: Mode;
@@ -70,8 +72,14 @@ export function ModePicker() {
   const [guideType, setGuideType] = React.useState<"api" | "cli" | null>(null);
 
   const enterMode = async (mode: Mode) => {
+    if (isGuestSession() && mode === "ORCHESTRATOR") {
+      toast.info("Orchestrator mode requires an account.");
+      return;
+    }
     mm.setMode(mode);
-    await mm.save();
+    if (!(await mm.save())) {
+      toast.error("Could not save your mode. Your account settings may be unavailable.");
+    }
     router.push(`/${mode.toLowerCase()}`);
   };
 

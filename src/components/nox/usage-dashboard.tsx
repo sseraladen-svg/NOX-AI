@@ -18,6 +18,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { authFetch } from "@/lib/auth-fetch";
 import { cn } from "@/lib/utils";
+import { isGuestSession } from "@/lib/local-storage";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Usage dashboard — shows total cost, tokens, per-model breakdown, per-day
@@ -79,6 +80,13 @@ export function UsageDashboard({ onBack }: { onBack: () => void }) {
   const [days, setDays] = React.useState(30);
 
   const load = React.useCallback(async () => {
+    if (isGuestSession()) {
+      setSummary(null);
+      setRecent([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       const [sumRes, recRes] = await Promise.all([
@@ -156,7 +164,15 @@ export function UsageDashboard({ onBack }: { onBack: () => void }) {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6 space-y-6">
-        {loading && !summary ? (
+        {isGuestSession() ? (
+          <Card className="p-6 text-center">
+            <h2 className="font-medium">Guest usage metrics aren&apos;t collected</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Guest requests aren&apos;t added to an account or included in this
+              dashboard. Sign in to save usage history and view metrics.
+            </p>
+          </Card>
+        ) : loading && !summary ? (
           <div className="flex items-center justify-center py-20">
             <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>

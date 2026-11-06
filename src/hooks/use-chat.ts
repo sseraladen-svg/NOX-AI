@@ -8,6 +8,7 @@ import {
 } from "@/store/conversations-store";
 import { useMultiModel, type LimitRow } from "@/store/multi-model-store";
 import { authFetch } from "@/lib/auth-fetch";
+import { getGuestSessionId, isGuestSession } from "@/lib/local-storage";
 import { generateFromBrowser } from "@/lib/local-ollama";
 import { SPECIALISTS, type DispatchStep, type Mode, type FeatureId, type TokenUsage, type CostBreakdown, type IntentClassification, type SpecialistId } from "@/lib/multi-model-types";
 import { toast } from "sonner";
@@ -130,6 +131,8 @@ export function useChat() {
     conversationId: string,
     msg: Omit<ConversationMessage, "id" | "createdAt">
   ) => {
+    if (isGuestSession()) return;
+
     try {
       await authFetch("/api/conversations/save-message", {
         method: "POST",
@@ -209,11 +212,21 @@ export function useChat() {
 
     try {
       // Use streaming endpoint for progressive text display
-      const streamRes = await authFetch("/api/multi-model/dispatch-stream", {
+      const guestSessionId = getGuestSessionId();
+      const guestSession = Boolean(guestSessionId);
+      const streamRes = await authFetch(
+        guestSession ? "/api/guest/dispatch" : "/api/multi-model/dispatch-stream",
+        {
         method: "POST",
         signal: controller.signal,
         body: {
           messages: apiMessages,
+          ...(guestSession
+            ? {
+                guestSessionId,
+                config: mm.asDoc(),
+              }
+            : {}),
           confirmMultiAgent,
           feature,
           conversationId,
@@ -222,7 +235,8 @@ export function useChat() {
           approveHighImpact,
           approvalId,
         },
-      });
+        }
+      );
 
       // Check if response is SSE stream
       const contentType = streamRes.headers.get("content-type") || "";
@@ -338,16 +352,25 @@ export function useChat() {
               return;
             }
 
-            const resumed = await authFetch("/api/multi-model/dispatch-resume", {
+            const guestSessionId = getGuestSessionId();
+            const guestSession = Boolean(guestSessionId);
+            const resumed = await authFetch(
+              guestSession
+                ? "/api/guest/dispatch-resume"
+                : "/api/multi-model/dispatch-resume",
+              {
               method: "POST",
               body: {
+                ...(guestSession ? { guestSessionId, config: mm.asDoc() } : {}),
+                ...(guestSession && feature ? { feature } : {}),
                 stepId: execCtx.stepId,
                 resultText: local.text,
                 resumeContext: execCtx.resumeContext,
                 browserTokens: local.tokens,
                 browserLatencyMs: local.latencyMs,
               },
-            });
+              }
+            );
             const resumedJson = await readJsonResponse<{
               ok: boolean;
               error?: string;

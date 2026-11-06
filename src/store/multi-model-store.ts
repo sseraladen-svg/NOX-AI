@@ -5,8 +5,10 @@ import { authFetch } from "@/lib/auth-fetch";
 import { isMaskedApiKey } from "@/lib/crypto";
 import { testOllamaFromBrowser } from "@/lib/local-ollama";
 import {
-  getMultiModelConfig,
-  saveMultiModelConfig,
+  getGuestConfig,
+  getGuestSessionId,
+  isGuestSession,
+  saveGuestConfig,
 } from "@/lib/local-storage";
 import type {
   Mode,
@@ -105,23 +107,21 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
 
   load: async () => {
     try {
-      // Try localStorage first (no login required)
-      const localConfig = getMultiModelConfig();
-      if (localConfig) {
+      if (isGuestSession()) {
+        const localConfig = getGuestConfig<MultiModelConfigDoc>();
         set({
-          mode: localConfig.mode,
-          globalConfig: localConfig.globalConfig || null,
-          featureConfigs: localConfig.featureConfigs || {},
-          hostConfig: localConfig.hostConfig || null,
-          specialistConfigs: localConfig.specialistConfigs || {},
-          timeoutOverrides: localConfig.timeoutOverrides || {},
+          mode: localConfig?.mode || "SINGLE",
+          globalConfig: localConfig?.globalConfig || null,
+          featureConfigs: localConfig?.featureConfigs || {},
+          hostConfig: localConfig?.hostConfig || null,
+          specialistConfigs: localConfig?.specialistConfigs || {},
+          timeoutOverrides: localConfig?.timeoutOverrides || {},
           loaded: true,
           dirty: false,
         });
         return;
       }
 
-      // Fallback to API (for logged-in users)
       const res = await authFetch("/api/multi-model/config");
       const json = await res.json();
       if (json.ok) {
@@ -187,16 +187,22 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
     try {
       const config = get().asDoc();
 
-      // Save to localStorage (no login required)
-      saveMultiModelConfig(config);
+      if (isGuestSession()) {
+        const saved = saveGuestConfig(config);
+        set({
+          dirty: !saved,
+          saving: false,
+          lastSavedAt: saved ? Date.now() : get().lastSavedAt,
+        });
+        return saved;
+      }
 
-      // Also try to save to server if logged in
       const res = await authFetch("/api/multi-model/config", {
         method: "PUT",
         body: { config },
       });
       const json = await res.json();
-      if (json.ok) {
+      if (res.ok && json.ok) {
         const c = json.config as MultiModelConfigDoc;
         const keepRealKey = (
           incoming: ModelAssignment | null | undefined,
@@ -238,28 +244,27 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
         return true;
       }
 
-      // Even if server save fails, localStorage save succeeded
       set({
-        dirty: false,
+        dirty: true,
         saving: false,
-        lastSavedAt: Date.now(),
       });
-      return true;
+      return false;
     } catch {
-      // Even if error, localStorage save succeeded
       set({
-        dirty: false,
+        dirty: true,
         saving: false,
-        lastSavedAt: Date.now(),
       });
-      return true;
+      return false;
     }
   },
 
   test: async (id, a) => {
     set((s) => ({ tests: { ...s.tests, [id]: { status: "testing" } } }));
     if (a.connectionType === "LOCAL" && a.provider === "ollama") {
-      const r = await testOllamaFromBrowser(a.endpoint || "", a.modelName);
+      const r = await testOllamaFromBrowser(
+        a.localEndpoint || a.endpoint || "",
+        a.modelName
+      );
       set((s) => ({
         tests: {
           ...s.tests,
@@ -274,10 +279,19 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
       return r.ok;
     }
     try {
-      const res = await authFetch("/api/multi-model/test", {
-        method: "POST",
-        body: { id, assignment: a },
-      });
+      const res = await authFetch(
+        isGuestSession() ? "/api/guest/test" : "/api/multi-model/test",
+        {
+          method: "POST",
+          body: {
+            id,
+            assignment: a,
+            ...(isGuestSession()
+              ? { guestSessionId: getGuestSessionId() }
+              : {}),
+          },
+        }
+      );
 
       // Check if the response is JSON before trying to parse it.
       // If the route is missing (404), the server returns an HTML error page.

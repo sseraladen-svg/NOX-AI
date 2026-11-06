@@ -10,6 +10,7 @@ import { useAuth } from "@/store/auth-store";
 import { authFetch } from "@/lib/auth-fetch";
 import { toast } from "sonner";
 import { DemoVideoDialog } from "@/components/nox/demo-video-dialog";
+import { startGuestSession } from "@/lib/local-storage";
 
 type AuthMode = "login" | "signup" | "reset";
 
@@ -68,6 +69,15 @@ export function AuthOverlay() {
   const switchMode = (m: AuthMode) => {
     setMode(m);
     clearError();
+  };
+
+  const continueAsGuest = () => {
+    try {
+      startGuestSession();
+      window.location.assign("/");
+    } catch {
+      toast.error("Could not start a guest session. Check your browser storage settings.");
+    }
   };
 
   return (
@@ -286,6 +296,26 @@ export function AuthOverlay() {
             hashed with scrypt. Configs and conversations are tied to your
             account.
           </p>
+          <div className="mt-5 rounded-lg border border-border bg-muted/30 p-3">
+            <p className="text-xs font-medium text-foreground">Try NOX AI as a guest</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Guest settings, API keys, and conversations stay in this browser
+              only. Clearing this site&apos;s storage deletes them. Guest usage and cost metrics
+              aren&apos;t saved or shown. If you configure a hosted AI provider,
+              its API key and prompts are sent to NOX AI&apos;s server to run your
+              request, but aren&apos;t saved to an account. Guest mode supports
+              built-in provider endpoints and local Ollama; Orchestrator mode
+              requires an account.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-3 w-full"
+              onClick={continueAsGuest}
+            >
+              Continue as guest
+            </Button>
+          </div>
           <Button
             type="button"
             variant="outline"

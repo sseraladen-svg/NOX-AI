@@ -2,6 +2,8 @@
 // All data stored in browser localStorage
 
 const STORAGE_PREFIX = "nox_ai_";
+const GUEST_SESSION_KEY = `${STORAGE_PREFIX}guest_session_id`;
+let activeGuestSessionId: string | null = null;
 
 export interface LocalStorageData {
   multiModelConfig: any;
@@ -62,6 +64,91 @@ export function saveMultiModelConfig(config: any): void {
 
 export function getMultiModelConfig(): any {
   return getLocalStorageItem("config");
+}
+
+export function getGuestSessionId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const storedId = localStorage.getItem(GUEST_SESSION_KEY);
+    if (storedId) activeGuestSessionId = storedId;
+    return storedId || activeGuestSessionId;
+  } catch {
+    return activeGuestSessionId;
+  }
+}
+
+export function startGuestSession(): string {
+  const sessionId = crypto.randomUUID();
+  if (typeof window !== "undefined") {
+    localStorage.setItem(GUEST_SESSION_KEY, sessionId);
+  }
+  activeGuestSessionId = sessionId;
+  return sessionId;
+}
+
+export function endGuestSession(): void {
+  activeGuestSessionId = null;
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.removeItem(GUEST_SESSION_KEY);
+    } catch (error) {
+      console.error("Failed to end guest session:", error);
+    }
+  }
+}
+
+export function isGuestSession(): boolean {
+  return getGuestSessionId() !== null;
+}
+
+export function getGuestConfig<T>(): T | null {
+  const sessionId = getGuestSessionId();
+  return sessionId ? getLocalStorageItem<T>(`guest_${sessionId}_config`) : null;
+}
+
+export function saveGuestConfig<T>(config: T): boolean {
+  const sessionId = getGuestSessionId();
+  if (!sessionId || typeof window === "undefined") return false;
+  try {
+    localStorage.setItem(
+      `${STORAGE_PREFIX}guest_${sessionId}_config`,
+      JSON.stringify(config)
+    );
+    return true;
+  } catch (error) {
+    console.error("Failed to save guest configuration:", error);
+    return false;
+  }
+}
+
+export function getGuestConversations<T>(): T[] {
+  const sessionId = getGuestSessionId();
+  return sessionId
+    ? getLocalStorageItem<T[]>(`guest_${sessionId}_conversations`) || []
+    : [];
+}
+
+export function saveGuestConversations<T>(conversations: T[]): void {
+  const sessionId = getGuestSessionId();
+  if (sessionId) {
+    setLocalStorageItem(`guest_${sessionId}_conversations`, conversations);
+  }
+}
+
+export function clearGuestData(): void {
+  activeGuestSessionId = null;
+  if (typeof window === "undefined") return;
+  try {
+    Object.keys(localStorage)
+      .filter(
+        (key) =>
+          key === GUEST_SESSION_KEY ||
+          key.startsWith(`${STORAGE_PREFIX}guest_`)
+      )
+      .forEach((key) => localStorage.removeItem(key));
+  } catch (error) {
+    console.error("Failed to clear guest data:", error);
+  }
 }
 
 // Conversations storage
