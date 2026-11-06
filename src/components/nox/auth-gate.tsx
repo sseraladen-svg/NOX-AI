@@ -35,6 +35,7 @@ export function AuthGate({
 
   React.useEffect(() => {
     if (auth.user) {
+      mm.load();
       convs.loadList();
     }
   }, [auth.user?.id]);
