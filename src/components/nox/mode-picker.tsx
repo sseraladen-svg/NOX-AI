@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Globe, Layers, Network, ChevronRight, Sparkles, TrendingUp, Play, X, Subtitles, BookOpen, Settings2 } from "lucide-react";
+import { Globe, Layers, Network, ChevronRight, Sparkles, TrendingUp, Play, X, BookOpen, Settings2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMultiModel } from "@/store/multi-model-store";
 import { UserMenu } from "./shared-chat";
@@ -65,12 +65,9 @@ const MODE_CARDS: {
 export function ModePicker() {
   const router = useRouter();
   const mm = useMultiModel();
-  const [showDemo, setShowDemo] = React.useState(false);
   const [showSharedDemo, setShowSharedDemo] = React.useState(false);
-  const [subtitlesEnabled, setSubtitlesEnabled] = React.useState(true);
   const [showGuide, setShowGuide] = React.useState(false);
   const [guideType, setGuideType] = React.useState<"api" | "cli" | null>(null);
-  const videoRef = React.useRef<HTMLVideoElement>(null);
 
   const enterMode = async (mode: Mode) => {
     mm.setMode(mode);
@@ -78,32 +75,9 @@ export function ModePicker() {
     router.push(`/${mode.toLowerCase()}`);
   };
 
-  const toggleSubtitles = () => {
-    const newState = !subtitlesEnabled;
-    setSubtitlesEnabled(newState);
-    if (videoRef.current) {
-      const tracks = videoRef.current.textTracks;
-      for (let i = 0; i < tracks.length; i++) {
-        tracks[i].mode = newState ? 'showing' : 'hidden';
-      }
-    }
-  };
-
   const handleOpenDemo = () => {
-    setShowDemo(true);
-    // Reset subtitles to enabled when opening
-    setSubtitlesEnabled(true);
+    setShowSharedDemo(true);
   };
-
-  // Handle subtitle state when video loads
-  React.useEffect(() => {
-    if (videoRef.current && showDemo) {
-      const tracks = videoRef.current.textTracks;
-      for (let i = 0; i < tracks.length; i++) {
-        tracks[i].mode = subtitlesEnabled ? 'showing' : 'hidden';
-      }
-    }
-  }, [showDemo, subtitlesEnabled]);
 
   return (
     <div className="min-h-screen bg-background nox-aurora">
@@ -267,84 +241,6 @@ export function ModePicker() {
           overrides, encrypted API keys, and the multi-agent confirmation flow.
         </motion.p>
       </main>
-
-      {/* Demo Video Modal */}
-      <AnimatePresence>
-        {showDemo && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-            onClick={() => setShowDemo(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="relative w-full max-w-4xl bg-card rounded-2xl border border-border overflow-hidden shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between p-4 border-b border-border">
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">NOX AI Demo</h3>
-                  <p className="text-xs text-muted-foreground">About the product</p>
-                </div>
-                <button
-                  onClick={() => setShowDemo(false)}
-                  className="h-8 w-8 rounded-lg bg-muted hover:bg-muted/80 flex items-center justify-center transition"
-                >
-                  <X className="h-4 w-4 text-foreground" />
-                </button>
-              </div>
-
-              {/* Video Container */}
-              <div className="relative bg-black">
-                <video
-                  ref={videoRef}
-                  className="w-full aspect-video"
-                  controls
-                  playsInline
-                  autoPlay
-                >
-                  <source src="https://raw.githubusercontent.com/sseraladen-svg/NOX-AI/main/public/videos/nox-demo.mp4" type="video/mp4" />
-                  <track
-                    src="https://raw.githubusercontent.com/sseraladen-svg/NOX-AI/main/public/videos/nox-demo.vtt"
-                    kind="subtitles"
-                    srcLang="en"
-                    label="English"
-                    default
-                  />
-                  Your browser does not support the video tag.
-                </video>
-
-                {/* Subtitle Toggle Button */}
-                <button
-                  onClick={toggleSubtitles}
-                  className="absolute bottom-16 right-4 h-10 w-10 rounded-lg bg-black/60 hover:bg-black/80 backdrop-blur-sm flex items-center justify-center transition border border-white/20"
-                  title={subtitlesEnabled ? "Disable subtitles" : "Enable subtitles"}
-                >
-                  <Subtitles className={`h-5 w-5 ${subtitlesEnabled ? "text-white" : "text-white/50"}`} />
-                </button>
-              </div>
-
-              {/* Footer */}
-              <div className="p-4 border-t border-border flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">
-                  Learn about NOX AI's multi-model platform features
-                </p>
-                <button
-                  onClick={() => setShowDemo(false)}
-                  className="px-4 py-2 text-sm font-medium rounded-lg bg-primary hover:bg-primary/90 text-background transition"
-                >
-                  Close
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       <DemoVideoDialog open={showSharedDemo} onOpenChange={setShowSharedDemo} />
 
