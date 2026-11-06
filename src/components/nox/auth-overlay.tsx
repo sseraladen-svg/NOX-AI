@@ -2,13 +2,14 @@
 
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Loader2, Mail, Lock, User as UserIcon, KeyRound } from "lucide-react";
+import { Sparkles, Loader2, Mail, Lock, User as UserIcon, KeyRound, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/store/auth-store";
 import { authFetch } from "@/lib/auth-fetch";
 import { toast } from "sonner";
+import { DemoVideoDialog } from "@/components/nox/demo-video-dialog";
 
 type AuthMode = "login" | "signup" | "reset";
 
@@ -19,6 +20,7 @@ export function AuthOverlay() {
   const [password, setPassword] = React.useState("");
   const [name, setName] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [showDemo, setShowDemo] = React.useState(false);
 
   // Reset password fields
   const [resetEmail, setResetEmail] = React.useState("");
@@ -284,8 +286,18 @@ export function AuthOverlay() {
             hashed with scrypt. Configs and conversations are tied to your
             account.
           </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-4 w-full"
+            onClick={() => setShowDemo(true)}
+          >
+            <Play className="mr-2 h-4 w-4" />
+            Watch demo video
+          </Button>
         </div>
       </motion.div>
+      <DemoVideoDialog open={showDemo} onOpenChange={setShowDemo} />
     </div>
   );
 }
