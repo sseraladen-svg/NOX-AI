@@ -24,7 +24,9 @@ export function DemoVideoDialog({
           <DialogTitle>NOX AI Demo</DialogTitle>
           <DialogDescription>About the product</DialogDescription>
         </DialogHeader>
-        <div className="aspect-video rounded-lg bg-black" />
+        <div className="aspect-video rounded-lg bg-black">
+          <video className="h-full w-full" src="https://raw.githubusercontent.com/sseraladen-svg/NOX-AI/main/public/videos/nox-demo.mp4" />
+        </div>
       </DialogContent>
     </Dialog>
   );
