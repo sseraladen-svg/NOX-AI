@@ -25,6 +25,10 @@ export function DemoVideoDialog({
   const [subtitlesEnabled, setSubtitlesEnabled] = React.useState(true);
   const videoRef = React.useRef<HTMLVideoElement>(null);
 
+  React.useEffect(() => {
+    if (open) setSubtitlesEnabled(true);
+  }, [open]);
+
   const updateSubtitleTracks = React.useCallback(() => {
     const tracks = videoRef.current?.textTracks;
     if (!tracks) return;
