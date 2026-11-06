@@ -6,6 +6,7 @@ import { Globe, Layers, Network, ChevronRight, Sparkles, TrendingUp, Play, X, Su
 import { useRouter } from "next/navigation";
 import { useMultiModel } from "@/store/multi-model-store";
 import { UserMenu } from "./shared-chat";
+import { DemoVideoDialog } from "./demo-video-dialog";
 import type { Mode } from "@/lib/multi-model-types";
 
 const MODE_CARDS: {
@@ -65,6 +66,7 @@ export function ModePicker() {
   const router = useRouter();
   const mm = useMultiModel();
   const [showDemo, setShowDemo] = React.useState(false);
+  const [showSharedDemo, setShowSharedDemo] = React.useState(false);
   const [subtitlesEnabled, setSubtitlesEnabled] = React.useState(true);
   const [showGuide, setShowGuide] = React.useState(false);
   const [guideType, setGuideType] = React.useState<"api" | "cli" | null>(null);
@@ -343,6 +345,8 @@ export function ModePicker() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <DemoVideoDialog open={showSharedDemo} onOpenChange={setShowSharedDemo} />
 
       {/* Setup Guide Modal */}
       <AnimatePresence>
