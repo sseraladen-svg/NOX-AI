@@ -25,7 +25,13 @@ export function DemoVideoDialog({
           <DialogDescription>About the product</DialogDescription>
         </DialogHeader>
         <div className="aspect-video rounded-lg bg-black">
-          <video className="h-full w-full" src="/videos/nox-demo.mp4" />
+          <video
+            className="h-full w-full"
+            src="/videos/nox-demo.mp4"
+            controls
+            playsInline
+            autoPlay
+          />
         </div>
       </DialogContent>
     </Dialog>
