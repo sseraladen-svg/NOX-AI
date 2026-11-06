@@ -78,6 +78,7 @@ export function DemoVideoDialog({
           <button
             type="button"
             aria-label={subtitlesEnabled ? "Disable subtitles" : "Enable subtitles"}
+            aria-pressed={subtitlesEnabled}
             onClick={() => setSubtitlesEnabled((enabled) => !enabled)}
             className="absolute bottom-4 right-4 flex h-10 w-10 items-center justify-center rounded-lg border border-white/20 bg-black/60 text-white backdrop-blur-sm transition hover:bg-black/80"
           >
