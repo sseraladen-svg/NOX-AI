@@ -31,7 +31,15 @@ export function DemoVideoDialog({
             controls
             playsInline
             autoPlay
-          />
+          >
+            <track
+              src="/videos/nox-demo.vtt"
+              kind="subtitles"
+              srcLang="en"
+              label="English"
+              default
+            />
+          </video>
         </div>
       </DialogContent>
     </Dialog>
