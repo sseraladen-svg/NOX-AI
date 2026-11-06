@@ -38,12 +38,20 @@ export function DemoVideoDialog({
     }
   }, [subtitlesEnabled]);
 
+  const handleOpenChange = React.useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen) videoRef.current?.pause();
+      onOpenChange(nextOpen);
+    },
+    [onOpenChange],
+  );
+
   React.useEffect(() => {
     updateSubtitleTracks();
   }, [open, updateSubtitleTracks]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-4xl" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>NOX AI Demo</DialogTitle>
