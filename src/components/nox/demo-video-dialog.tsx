@@ -23,6 +23,7 @@ export function DemoVideoDialog({
   onOpenChange,
 }: DemoVideoDialogProps) {
   const [subtitlesEnabled, setSubtitlesEnabled] = React.useState(true);
+  const [videoError, setVideoError] = React.useState(false);
   const videoRef = React.useRef<HTMLVideoElement>(null);
 
   React.useEffect(() => {
@@ -68,7 +69,11 @@ export function DemoVideoDialog({
             controls
             playsInline
             autoPlay
-            onLoadedMetadata={updateSubtitleTracks}
+            onLoadedMetadata={() => {
+              setVideoError(false);
+              updateSubtitleTracks();
+            }}
+            onError={() => setVideoError(true)}
           >
             <track
               src="/videos/nox-demo.vtt"
@@ -78,6 +83,14 @@ export function DemoVideoDialog({
               default={subtitlesEnabled}
             />
           </video>
+          {videoError && (
+            <p
+              role="alert"
+              className="absolute inset-0 flex items-center justify-center bg-black/80 p-6 text-center text-sm text-white"
+            >
+              The demo video could not be loaded. Please try again later.
+            </p>
+          )}
           <button
             type="button"
             aria-label={subtitlesEnabled ? "Disable subtitles" : "Enable subtitles"}
