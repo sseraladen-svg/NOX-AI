@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import {
   Dialog,
   DialogContent,
@@ -17,6 +18,8 @@ export function DemoVideoDialog({
   open,
   onOpenChange,
 }: DemoVideoDialogProps) {
+  const [subtitlesEnabled, setSubtitlesEnabled] = React.useState(true);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl">
@@ -37,7 +40,7 @@ export function DemoVideoDialog({
               kind="subtitles"
               srcLang="en"
               label="English"
-              default
+              default={subtitlesEnabled}
             />
           </video>
         </div>
