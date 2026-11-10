@@ -3,6 +3,8 @@
 
 const STORAGE_PREFIX = "nox_ai_";
 const GUEST_SESSION_KEY = `${STORAGE_PREFIX}guest_session_id`;
+const GUEST_SESSION_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let activeGuestSessionId: string | null = null;
 
 export interface LocalStorageData {
@@ -70,8 +72,12 @@ export function getGuestSessionId(): string | null {
   if (typeof window === "undefined") return null;
   try {
     const storedId = localStorage.getItem(GUEST_SESSION_KEY);
-    if (storedId) activeGuestSessionId = storedId;
-    return storedId || activeGuestSessionId;
+    if (!storedId || !GUEST_SESSION_ID_PATTERN.test(storedId)) {
+      activeGuestSessionId = null;
+      return null;
+    }
+    activeGuestSessionId = storedId;
+    return storedId;
   } catch {
     return activeGuestSessionId;
   }
