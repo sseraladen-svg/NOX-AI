@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { testAssignment } from "@/lib/multi-model-service";
 import {
+  GuestRequestTooLargeError,
   isValidGuestSessionId,
+  readGuestJson,
   sanitizeGuestAssignment,
 } from "@/lib/guest-session";
 import { getClientIp, isRateLimited, RATE_LIMITS } from "@/lib/rate-limit";
@@ -33,7 +35,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json();
+    const body = await readGuestJson(req, 32_000);
     if (!isValidGuestSessionId(body?.guestSessionId)) {
       return NextResponse.json(
         { ok: false, error: "A valid guest session is required." },
@@ -57,7 +59,7 @@ export async function POST(req: NextRequest) {
         ok: false,
         error: error instanceof Error ? error.message : "Guest model test failed.",
       },
-      { status: 400 }
+      { status: error instanceof GuestRequestTooLargeError ? 413 : 400 }
     );
   }
 }

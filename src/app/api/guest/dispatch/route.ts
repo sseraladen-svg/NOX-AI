@@ -4,6 +4,8 @@ import type { FeatureId, IntentClassification } from "@/lib/multi-model-types";
 import {
   hideGuestUsage,
   isValidGuestSessionId,
+  GuestRequestTooLargeError,
+  readGuestJson,
   sanitizeGuestConfig,
   validateGuestMessages,
 } from "@/lib/guest-session";
@@ -29,14 +31,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const contentLength = Number(req.headers.get("content-length") || 0);
-    if (contentLength > 10_000_000) {
-      return NextResponse.json(
-        { ok: false, error: "Guest requests must be smaller than 10 MB." },
-        { status: 413 }
-      );
-    }
-
     const ip = getClientIp(req.headers);
     if (
       isRateLimited(
@@ -52,7 +46,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json();
+    const body = await readGuestJson(req, 10_000_000);
     if (!isValidGuestSessionId(body?.guestSessionId)) {
       return NextResponse.json(
         { ok: false, error: "A valid guest session is required." },
@@ -98,7 +92,7 @@ export async function POST(req: NextRequest) {
         ok: false,
         error: error instanceof Error ? error.message : "Guest request failed.",
       },
-      { status: 400 }
+      { status: error instanceof GuestRequestTooLargeError ? 413 : 400 }
     );
   }
 }

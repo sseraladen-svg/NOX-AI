@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { resumeDispatch } from "@/lib/multi-model-service";
 import {
   hideGuestUsage,
+  GuestRequestTooLargeError,
   isValidGuestSessionId,
+  readGuestJson,
   sanitizeGuestConfig,
 } from "@/lib/guest-session";
 import { getClientIp, isRateLimited, RATE_LIMITS } from "@/lib/rate-limit";
@@ -16,14 +18,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { ok: false, error: "Use the signed-in dispatch route for account sessions." },
         { status: 403 }
-      );
-    }
-
-    const contentLength = Number(req.headers.get("content-length") || 0);
-    if (contentLength > 1_000_000) {
-      return NextResponse.json(
-        { ok: false, error: "Guest continuations must be smaller than 1 MB." },
-        { status: 413 }
       );
     }
 
@@ -42,7 +36,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json();
+    const body = await readGuestJson(req, 1_000_000);
     if (
       !isValidGuestSessionId(body?.guestSessionId) ||
       !isValidGuestSessionId(body?.stepId) ||
@@ -103,7 +97,7 @@ export async function POST(req: NextRequest) {
         ok: false,
         error: error instanceof Error ? error.message : "Guest continuation failed.",
       },
-      { status: 400 }
+      { status: error instanceof GuestRequestTooLargeError ? 413 : 400 }
     );
   }
 }
