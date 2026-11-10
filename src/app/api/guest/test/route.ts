@@ -23,8 +23,8 @@ export async function POST(req: NextRequest) {
       isRateLimited(
         ip,
         "guest/test",
-        RATE_LIMITS.DISPATCH.limit,
-        RATE_LIMITS.DISPATCH.windowMs
+        RATE_LIMITS.GUEST.limit,
+        RATE_LIMITS.GUEST.windowMs
       )
     ) {
       return NextResponse.json(

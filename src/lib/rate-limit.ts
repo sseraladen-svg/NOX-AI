@@ -98,6 +98,8 @@ export const RATE_LIMITS = {
   AUTH: { limit: 10, windowMs: 60_000 },
   // Dispatch: 30 requests per minute per IP (prevents API abuse).
   DISPATCH: { limit: 30, windowMs: 60_000 },
+  // Guest requests use a tighter per-IP limit because they do not have accounts.
+  GUEST: { limit: 10, windowMs: 60_000 },
   // Signup: 3 per hour per IP (prevents account farming).
   SIGNUP: { limit: 3, windowMs: 60 * 60_000 },
   // Config save: 20 per minute per IP.
