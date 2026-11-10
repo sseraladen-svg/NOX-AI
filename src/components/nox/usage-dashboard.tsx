@@ -128,7 +128,9 @@ export function UsageDashboard({ onBack }: { onBack: () => void }) {
               <div className="leading-none">
                 <div className="font-semibold text-sm">Usage & Cost</div>
                 <div className="text-[10px] text-muted-foreground">
-                  Track every token, every dollar
+                  {isGuestSession()
+                    ? "Usage metrics are not collected for guests"
+                    : "Track every token, every dollar"}
                 </div>
               </div>
             </div>
