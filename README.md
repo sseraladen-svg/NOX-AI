@@ -75,7 +75,7 @@ NOX AI is a sophisticated multi-model AI platform designed for users who demand 
 ### 🔐 Security & Authentication
 - Secure local authentication with signup/login/logout
 - Application routes require authentication; the login screen and mode picker include a captioned demo video
-- Guest sessions keep settings and conversation history in browser storage, do not record usage metrics, and do not support Orchestrator mode
+- Guest sessions keep settings and conversation history in this browser's local storage only. Clearing site data removes them; guest requests do not record usage metrics, and Orchestrator mode requires an account.
 - Encrypted API key storage with server-side encryption
 - User-scoped conversations and configuration persistence
 - Route-level protections and rate limiting
