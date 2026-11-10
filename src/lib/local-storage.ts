@@ -5,6 +5,7 @@ const STORAGE_PREFIX = "nox_ai_";
 const GUEST_SESSION_KEY = `${STORAGE_PREFIX}guest_session_id`;
 const GUEST_SESSION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_GUEST_CONVERSATIONS = 100;
 let activeGuestSessionId: string | null = null;
 
 export interface LocalStorageData {
@@ -151,6 +152,12 @@ export function getGuestConversations<T>(): T[] {
 export function saveGuestConversations<T>(conversations: T[]): boolean {
   const sessionId = getGuestSessionId();
   if (!sessionId || typeof window === "undefined") return false;
+  if (conversations.length > MAX_GUEST_CONVERSATIONS) {
+    console.warn(
+      `Guest sessions are limited to ${MAX_GUEST_CONVERSATIONS} conversations.`
+    );
+    return false;
+  }
   try {
     localStorage.setItem(
       `${STORAGE_PREFIX}guest_${sessionId}_conversations`,
