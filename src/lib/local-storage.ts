@@ -129,9 +129,23 @@ export function saveGuestConfig<T>(config: T): boolean {
 
 export function getGuestConversations<T>(): T[] {
   const sessionId = getGuestSessionId();
-  return sessionId
-    ? getLocalStorageItem<T[]>(`guest_${sessionId}_conversations`) || []
-    : [];
+  if (!sessionId) return [];
+  const stored = getLocalStorageItem<unknown>(
+    `guest_${sessionId}_conversations`
+  );
+  if (!Array.isArray(stored)) return [];
+  return stored.filter((item: unknown) => {
+    if (!item || typeof item !== "object") return false;
+    const conversation = item as Record<string, unknown>;
+    return (
+      typeof conversation.id === "string" &&
+      typeof conversation.title === "string" &&
+      typeof conversation.mode === "string" &&
+      typeof conversation.createdAt === "string" &&
+      typeof conversation.updatedAt === "string" &&
+      Array.isArray(conversation.messages)
+    );
+  }) as T[];
 }
 
 export function saveGuestConversations<T>(conversations: T[]): boolean {
