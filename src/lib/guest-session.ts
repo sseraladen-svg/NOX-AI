@@ -15,6 +15,14 @@ const API_PROVIDERS = new Set([
   "auto",
 ]);
 const MODES = new Set(["SINGLE", "MULTI", "ORCHESTRATOR"]);
+const FEATURES = new Set([
+  "chat",
+  "voice",
+  "vision",
+  "coding",
+  "automation",
+  "robotics",
+]);
 const SESSION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -94,6 +102,9 @@ export function sanitizeGuestConfig(
   value: unknown,
   requestedFeature?: keyof NonNullable<MultiModelConfigDoc["featureConfigs"]>
 ): MultiModelConfigDoc {
+  if (requestedFeature && !FEATURES.has(requestedFeature)) {
+    throw new Error("The requested guest feature is invalid.");
+  }
   if (!value || typeof value !== "object") {
     throw new Error("Model configuration is required for guest requests.");
   }
