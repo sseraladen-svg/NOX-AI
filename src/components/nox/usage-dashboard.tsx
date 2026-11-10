@@ -135,33 +135,35 @@ export function UsageDashboard({ onBack }: { onBack: () => void }) {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 rounded-lg bg-muted/40 p-0.5">
-              {[7, 30, 90].map((d) => (
-                <button
-                  key={d}
-                  onClick={() => setDays(d)}
-                  className={cn(
-                    "px-2.5 py-1 text-xs rounded-md transition",
-                    days === d
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {d}d
-                </button>
-              ))}
+          {!isGuestSession() && (
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 rounded-lg bg-muted/40 p-0.5">
+                {[7, 30, 90].map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => setDays(d)}
+                    className={cn(
+                      "px-2.5 py-1 text-xs rounded-md transition",
+                      days === d
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {d}d
+                  </button>
+                ))}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={load}
+                disabled={loading}
+              >
+                <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+              </Button>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={load}
-              disabled={loading}
-            >
-              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-            </Button>
-          </div>
+          )}
         </div>
       </header>
 
