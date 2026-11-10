@@ -157,7 +157,7 @@ export function validateGuestMessages(value: unknown): value is ChatMessage[] {
     if (
       !message ||
       typeof message !== "object" ||
-      !["user", "assistant", "system"].includes(message.role) ||
+      !["user", "assistant"].includes(message.role) ||
       typeof message.content !== "string" ||
       message.content.length > 20000
     ) {
@@ -166,12 +166,16 @@ export function validateGuestMessages(value: unknown): value is ChatMessage[] {
     totalLength += message.content.length;
     if (message.image) {
       if (
+        message.role !== "user" ||
         typeof message.image.data !== "string" ||
         message.image.data.length > 8_000_000 ||
         typeof message.image.mimeType !== "string" ||
         !["image/jpeg", "image/png", "image/webp", "image/gif"].includes(
           message.image.mimeType
-        )
+        ) ||
+        !new RegExp(
+          `^data:${message.image.mimeType.replace("/", "\\/")};base64,[A-Za-z0-9+/]+={0,2}$`
+        ).test(message.image.data)
       ) {
         return false;
       }
