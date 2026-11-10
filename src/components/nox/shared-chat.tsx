@@ -445,7 +445,12 @@ export function UserMenu() {
         {!user ? (
           <>
             <div className="px-2 py-1.5">
-              <div className="text-sm font-medium">Guest User</div>
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-medium">Guest User</div>
+                <Badge variant="outline" className="text-[9px]">
+                  GUEST
+                </Badge>
+              </div>
               <div className="text-xs text-muted-foreground">
                 Browser-only data · metrics off
               </div>
