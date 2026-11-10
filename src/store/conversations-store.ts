@@ -124,10 +124,11 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
         updatedAt: now,
         messages: [],
       };
-      saveGuestConversations([
+      const saved = saveGuestConversations([
         item,
         ...getGuestConversations<GuestConversation>(),
       ]);
+      if (!saved) return null;
       set((s) => ({
         items: [item, ...s.items],
         activeId: item.id,
@@ -179,9 +180,12 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
 
   remove: async (id) => {
     if (isGuestSession()) {
-      saveGuestConversations(
-        getGuestConversations<GuestConversation>().filter((item) => item.id !== id)
+      const saved = saveGuestConversations(
+        getGuestConversations<GuestConversation>().filter(
+          (item) => item.id !== id
+        )
       );
+      if (!saved) return;
       set((s) => ({
         items: s.items.filter((item) => item.id !== id),
         activeId: s.activeId === id ? null : s.activeId,
@@ -202,13 +206,14 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     const trimmed = title.trim();
     if (!trimmed) return;
     if (isGuestSession()) {
-      saveGuestConversations(
+      const saved = saveGuestConversations(
         getGuestConversations<GuestConversation>().map((item) =>
           item.id === id
             ? { ...item, title: trimmed, updatedAt: new Date().toISOString() }
             : item
         )
       );
+      if (!saved) return;
       set((s) => ({
         items: s.items.map((item) =>
           item.id === id ? { ...item, title: trimmed } : item

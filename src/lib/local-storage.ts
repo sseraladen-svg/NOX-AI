@@ -134,10 +134,18 @@ export function getGuestConversations<T>(): T[] {
     : [];
 }
 
-export function saveGuestConversations<T>(conversations: T[]): void {
+export function saveGuestConversations<T>(conversations: T[]): boolean {
   const sessionId = getGuestSessionId();
-  if (sessionId) {
-    setLocalStorageItem(`guest_${sessionId}_conversations`, conversations);
+  if (!sessionId || typeof window === "undefined") return false;
+  try {
+    localStorage.setItem(
+      `${STORAGE_PREFIX}guest_${sessionId}_conversations`,
+      JSON.stringify(conversations)
+    );
+    return true;
+  } catch (error) {
+    console.error("Failed to save guest conversations:", error);
+    return false;
   }
 }
 
