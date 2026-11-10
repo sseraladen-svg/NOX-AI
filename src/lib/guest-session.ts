@@ -221,12 +221,25 @@ export function validateGuestMessages(value: unknown): value is ChatMessage[] {
 }
 
 export function hideGuestUsage<T>(result: T): T {
+  const usageFields = new Set([
+    "apiKey",
+    "cost",
+    "inputTokens",
+    "latencyMs",
+    "outputTokens",
+    "retries",
+    "timedOut",
+    "tokens",
+    "totalCost",
+    "totalTokens",
+    "usage",
+  ]);
   const redact = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(redact);
     if (!value || typeof value !== "object") return value;
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([key]) => !["apiKey", "tokens", "cost"].includes(key))
+        .filter(([key]) => !usageFields.has(key))
         .map(([key, child]) => [key, redact(child)])
     );
   };
