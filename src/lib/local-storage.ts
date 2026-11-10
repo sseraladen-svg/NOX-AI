@@ -6,6 +6,7 @@ const GUEST_SESSION_KEY = `${STORAGE_PREFIX}guest_session_id`;
 const GUEST_SESSION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_GUEST_CONVERSATIONS = 100;
+const MAX_GUEST_CONVERSATION_BYTES = 3 * 1024 * 1024;
 let activeGuestSessionId: string | null = null;
 
 export interface LocalStorageData {
@@ -159,9 +160,14 @@ export function saveGuestConversations<T>(conversations: T[]): boolean {
     return false;
   }
   try {
+    const serialized = JSON.stringify(conversations);
+    if (new Blob([serialized]).size > MAX_GUEST_CONVERSATION_BYTES) {
+      console.warn("Guest conversation storage reached its 3 MB limit.");
+      return false;
+    }
     localStorage.setItem(
       `${STORAGE_PREFIX}guest_${sessionId}_conversations`,
-      JSON.stringify(conversations)
+      serialized
     );
     return true;
   } catch (error) {

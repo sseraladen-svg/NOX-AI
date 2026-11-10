@@ -59,14 +59,20 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    if (body.feature !== undefined && !FEATURES.has(body.feature)) {
+    if (
+      body.feature !== undefined &&
+      (typeof body.feature !== "string" || !FEATURES.has(body.feature))
+    ) {
       return NextResponse.json(
         { ok: false, error: "The requested guest feature is invalid." },
         { status: 400 }
       );
     }
 
-    const feature = body.feature as FeatureId | undefined;
+    const feature =
+      typeof body.feature === "string"
+        ? (body.feature as FeatureId)
+        : undefined;
     const config = sanitizeGuestConfig(body.config, feature);
     const result = await dispatch(
       `guest:${body.guestSessionId}`,

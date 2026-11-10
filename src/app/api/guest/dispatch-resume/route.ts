@@ -3,6 +3,7 @@ import { resumeDispatch } from "@/lib/multi-model-service";
 import {
   hideGuestUsage,
   GuestRequestTooLargeError,
+  isValidGuestBrowserTokens,
   isValidGuestSessionId,
   readGuestJson,
   sanitizeGuestConfig,
@@ -55,13 +56,7 @@ export async function POST(req: NextRequest) {
     const browserTokens = body.browserTokens;
     if (
       browserTokens !== undefined &&
-      (!browserTokens ||
-        !["input", "output", "total"].every(
-          (key) =>
-            Number.isInteger(browserTokens[key]) &&
-            browserTokens[key] >= 0 &&
-            browserTokens[key] <= 10_000_000
-        ))
+      !isValidGuestBrowserTokens(browserTokens)
     ) {
       return NextResponse.json(
         { ok: false, error: "Invalid guest model usage data." },
@@ -70,7 +65,8 @@ export async function POST(req: NextRequest) {
     }
     if (
       body.browserLatencyMs !== undefined &&
-      (!Number.isFinite(body.browserLatencyMs) ||
+      (typeof body.browserLatencyMs !== "number" ||
+        !Number.isFinite(body.browserLatencyMs) ||
         body.browserLatencyMs < 0 ||
         body.browserLatencyMs > 300_000)
     ) {
@@ -85,7 +81,7 @@ export async function POST(req: NextRequest) {
       `guest:${body.guestSessionId}`,
       body.stepId,
       body.resultText,
-      body.resumeContext,
+      body.resumeContext as Record<string, unknown>,
       browserTokens,
       body.browserLatencyMs,
       config

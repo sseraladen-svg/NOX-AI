@@ -11,10 +11,30 @@ export class GuestRequestTooLargeError extends Error {
   }
 }
 
+export interface GuestBrowserTokens {
+  input: number;
+  output: number;
+  total: number;
+}
+
+export function isValidGuestBrowserTokens(
+  value: unknown
+): value is GuestBrowserTokens {
+  if (!value || typeof value !== "object") return false;
+  const tokens = value as Record<string, unknown>;
+  return ["input", "output", "total"].every(
+    (key) =>
+      Number.isInteger(tokens[key]) &&
+      typeof tokens[key] === "number" &&
+      tokens[key] >= 0 &&
+      tokens[key] <= 10_000_000
+  );
+}
+
 export async function readGuestJson(
   request: Request,
   maxBytes: number
-): Promise<unknown> {
+): Promise<Record<string, unknown>> {
   const reader = request.body?.getReader();
   if (!reader) throw new Error("Guest request body is required.");
 
@@ -37,7 +57,11 @@ export async function readGuestJson(
     body.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return JSON.parse(new TextDecoder().decode(body));
+  const parsed: unknown = JSON.parse(new TextDecoder().decode(body));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Guest request must be a JSON object.");
+  }
+  return parsed as Record<string, unknown>;
 }
 
 const API_PROVIDERS = new Set([
