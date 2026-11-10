@@ -300,7 +300,9 @@ export function AuthOverlay() {
             <p className="text-xs font-medium text-foreground">Try NOX AI as a guest</p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               Guest settings, API keys, and conversations stay in this browser
-              only. Clearing this site&apos;s storage deletes them. Guest usage and cost metrics
+              only; guest API keys are stored in browser storage and are not
+              encrypted there. Clearing this site&apos;s storage deletes them.
+              Guest usage and cost metrics
               aren&apos;t saved or shown. If you configure a hosted AI provider,
               its API key and prompts are sent to NOX AI&apos;s server to run your
               request, but aren&apos;t saved to an account. Guest mode supports
