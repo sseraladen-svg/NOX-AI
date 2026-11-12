@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   isValidGuestSessionId,
+  hideGuestUsage,
   sanitizeGuestAssignment,
   sanitizeGuestConfig,
   validateGuestMessages,
@@ -232,4 +233,23 @@ test("accepts valid user image data URLs and rejects malformed images", () => {
     ]),
     false
   );
+});
+
+test("redacts guest usage metrics and secrets recursively", () => {
+  const result = hideGuestUsage({
+    finalReply: "response",
+    steps: [
+      {
+        model: "model",
+        tokens: { input: 10, output: 5, total: 15 },
+        cost: { total: 0.01 },
+        latencyMs: 200,
+        nested: { apiKey: "secret", retries: 1 },
+      },
+    ],
+  });
+  assert.deepEqual(result, {
+    finalReply: "response",
+    steps: [{ model: "model", nested: {} }],
+  });
 });
