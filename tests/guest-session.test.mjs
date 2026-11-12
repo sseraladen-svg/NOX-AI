@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  GuestRequestTooLargeError,
   isValidGuestSessionId,
   hideGuestUsage,
   readGuestJson,
@@ -249,30 +250,43 @@ test("redacts guest usage metrics and secrets recursively", () => {
       },
     ],
   });
-
-  test("parses guest JSON objects and rejects non-object bodies", async () => {
-    const parsed = await readGuestJson(
-      new Request("http://localhost/api/guest", {
-        method: "POST",
-        body: JSON.stringify({ guestSessionId: "test" }),
-      }),
-      100
-    );
-    assert.deepEqual(parsed, { guestSessionId: "test" });
-
-    await assert.rejects(
-      readGuestJson(
-        new Request("http://localhost/api/guest", {
-          method: "POST",
-          body: JSON.stringify(["not", "an", "object"]),
-        }),
-        100
-      ),
-      /must be a JSON object/
-    );
-  });
   assert.deepEqual(result, {
     finalReply: "response",
     steps: [{ model: "model", nested: {} }],
   });
+});
+
+test("parses guest JSON objects and rejects non-object bodies", async () => {
+  const parsed = await readGuestJson(
+    new Request("http://localhost/api/guest", {
+      method: "POST",
+      body: JSON.stringify({ guestSessionId: "test" }),
+    }),
+    100
+  );
+  assert.deepEqual(parsed, { guestSessionId: "test" });
+
+  await assert.rejects(
+    readGuestJson(
+      new Request("http://localhost/api/guest", {
+        method: "POST",
+        body: JSON.stringify(["not", "an", "object"]),
+      }),
+      100
+    ),
+    /must be a JSON object/
+  );
+});
+
+test("rejects guest request bodies that exceed the configured byte limit", async () => {
+  await assert.rejects(
+    readGuestJson(
+      new Request("http://localhost/api/guest", {
+        method: "POST",
+        body: JSON.stringify({ message: "x".repeat(200) }),
+      }),
+      100
+    ),
+    GuestRequestTooLargeError
+  );
 });
