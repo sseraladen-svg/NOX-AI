@@ -76,3 +76,30 @@ test("rejects custom endpoints for hosted guest providers", () => {
     );
   }
 });
+
+test("allows a local Ollama endpoint and rejects embedded credentials", () => {
+  assert.deepEqual(
+    sanitizeGuestAssignment({
+      connectionType: "LOCAL",
+      provider: "ollama",
+      modelName: "llama3",
+      localEndpoint: "http://127.0.0.1:11434/",
+    }),
+    {
+      connectionType: "LOCAL",
+      provider: "ollama",
+      modelName: "llama3",
+      localEndpoint: "http://127.0.0.1:11434",
+    }
+  );
+  assert.throws(
+    () =>
+      sanitizeGuestAssignment({
+        connectionType: "LOCAL",
+        provider: "ollama",
+        modelName: "llama3",
+        localEndpoint: "http://user:pass@localhost:11434",
+      }),
+    /valid local Ollama endpoint/
+  );
+});
