@@ -45,3 +45,18 @@ test("rejects hosted providers that are not enabled for guests", () => {
     /not available in guest mode/
   );
 });
+
+test("requires a non-empty API key for hosted guest assignments", () => {
+  for (const apiKey of [undefined, "", "   "]) {
+    assert.throws(
+      () =>
+        sanitizeGuestAssignment({
+          connectionType: "API",
+          provider: "openai",
+          modelName: "model",
+          apiKey,
+        }),
+      /Enter an API key/
+    );
+  }
+});
