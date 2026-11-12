@@ -60,3 +60,19 @@ test("requires a non-empty API key for hosted guest assignments", () => {
     );
   }
 });
+
+test("rejects custom endpoints for hosted guest providers", () => {
+  for (const endpointField of ["apiEndpoint", "endpoint"]) {
+    assert.throws(
+      () =>
+        sanitizeGuestAssignment({
+          connectionType: "API",
+          provider: "openai",
+          modelName: "model",
+          apiKey: "test-key",
+          [endpointField]: "https://example.test/v1",
+        }),
+      /Custom API endpoints require an account/
+    );
+  }
+});
