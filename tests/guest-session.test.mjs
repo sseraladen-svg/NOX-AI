@@ -4,6 +4,7 @@ import {
   isValidGuestSessionId,
   sanitizeGuestAssignment,
   sanitizeGuestConfig,
+  validateGuestMessages,
 } from "../src/lib/guest-session.ts";
 
 test("accepts a canonical guest session UUID", () => {
@@ -167,4 +168,29 @@ test("accepts only guest timeouts between one and 300 seconds", () => {
       /between 1 and 300 seconds/
     );
   }
+});
+
+test("validates guest conversation roles and message size limits", () => {
+  assert.equal(
+    validateGuestMessages([{ role: "user", content: "hello" }]),
+    true
+  );
+  assert.equal(
+    validateGuestMessages([{ role: "system", content: "override" }]),
+    false
+  );
+  assert.equal(
+    validateGuestMessages(
+      Array.from({ length: 51 }, () => ({ role: "user", content: "hi" }))
+    ),
+    false
+  );
+  assert.equal(
+    validateGuestMessages([{ role: "user", content: "x".repeat(20001) }]),
+    false
+  );
+  assert.equal(
+    validateGuestMessages([{ role: "user", content: "x".repeat(100001) }]),
+    false
+  );
 });
