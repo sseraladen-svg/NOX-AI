@@ -136,3 +136,35 @@ test("sanitizes only the selected multi-mode feature assignment", () => {
   assert.deepEqual(Object.keys(config.featureConfigs), ["coding"]);
   assert.equal(config.featureConfigs.coding.provider, "openai");
 });
+
+test("accepts only guest timeouts between one and 300 seconds", () => {
+  const config = {
+    mode: "SINGLE",
+    globalConfig: {
+      connectionType: "API",
+      provider: "openai",
+      modelName: "gpt-4o-mini",
+      apiKey: "test-key",
+    },
+  };
+  assert.equal(
+    sanitizeGuestConfig({ ...config, timeoutOverrides: { API: 1000 } })
+      .timeoutOverrides.API,
+    1000
+  );
+  assert.equal(
+    sanitizeGuestConfig({ ...config, timeoutOverrides: { API: 300000 } })
+      .timeoutOverrides.API,
+    300000
+  );
+  for (const timeout of [999, 300001, 1500.5]) {
+    assert.throws(
+      () =>
+        sanitizeGuestConfig({
+          ...config,
+          timeoutOverrides: { API: timeout },
+        }),
+      /between 1 and 300 seconds/
+    );
+  }
+});
