@@ -32,3 +32,16 @@ test("normalizes allowed hosted provider assignments", () => {
     }
   );
 });
+
+test("rejects hosted providers that are not enabled for guests", () => {
+  assert.throws(
+    () =>
+      sanitizeGuestAssignment({
+        connectionType: "API",
+        provider: "unknown-provider",
+        modelName: "model",
+        apiKey: "test-key",
+      }),
+    /not available in guest mode/
+  );
+});
