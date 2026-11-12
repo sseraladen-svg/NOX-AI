@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   isValidGuestSessionId,
   sanitizeGuestAssignment,
+  sanitizeGuestConfig,
 } from "../src/lib/guest-session.ts";
 
 test("accepts a canonical guest session UUID", () => {
@@ -101,5 +102,17 @@ test("allows a local Ollama endpoint and rejects embedded credentials", () => {
         localEndpoint: "http://user:pass@localhost:11434",
       }),
     /valid local Ollama endpoint/
+  );
+});
+
+test("requires a supported non-orchestrator guest mode", () => {
+  assert.throws(() => sanitizeGuestConfig(null), /configuration is required/);
+  assert.throws(
+    () => sanitizeGuestConfig({ mode: "UNKNOWN" }),
+    /Choose a valid mode/
+  );
+  assert.throws(
+    () => sanitizeGuestConfig({ mode: "ORCHESTRATOR" }),
+    /requires an account/
   );
 });
