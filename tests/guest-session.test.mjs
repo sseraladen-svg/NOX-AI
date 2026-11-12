@@ -194,3 +194,42 @@ test("validates guest conversation roles and message size limits", () => {
     false
   );
 });
+
+test("accepts valid user image data URLs and rejects malformed images", () => {
+  assert.equal(
+    validateGuestMessages([
+      {
+        role: "user",
+        content: "describe this",
+        image: {
+          data: "data:image/png;base64,aGVsbG8=",
+          mimeType: "image/png",
+        },
+      },
+    ]),
+    true
+  );
+  assert.equal(
+    validateGuestMessages([
+      {
+        role: "user",
+        content: "",
+        image: { data: "data:image/png;base64,###", mimeType: "image/png" },
+      },
+    ]),
+    false
+  );
+  assert.equal(
+    validateGuestMessages([
+      {
+        role: "assistant",
+        content: "image",
+        image: {
+          data: "data:image/png;base64,aGVsbG8=",
+          mimeType: "image/png",
+        },
+      },
+    ]),
+    false
+  );
+});
