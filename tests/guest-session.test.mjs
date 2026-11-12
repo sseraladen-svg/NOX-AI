@@ -116,3 +116,23 @@ test("requires a supported non-orchestrator guest mode", () => {
     /requires an account/
   );
 });
+
+test("sanitizes only the selected multi-mode feature assignment", () => {
+  const config = sanitizeGuestConfig(
+    {
+      mode: "MULTI",
+      featureConfigs: {
+        coding: {
+          connectionType: "API",
+          provider: "openai",
+          modelName: "gpt-4o-mini",
+          apiKey: "test-key",
+        },
+        voice: { provider: "unsupported" },
+      },
+    },
+    "coding"
+  );
+  assert.deepEqual(Object.keys(config.featureConfigs), ["coding"]);
+  assert.equal(config.featureConfigs.coding.provider, "openai");
+});
