@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   GuestRequestTooLargeError,
+  isValidGuestBrowserTokens,
   isValidGuestSessionId,
   hideGuestUsage,
   readGuestJson,
@@ -9,6 +10,13 @@ import {
   sanitizeGuestConfig,
   validateGuestMessages,
 } from "../src/lib/guest-session.ts";
+
+test("accepts valid guest browser token totals", () => {
+  assert.equal(
+    isValidGuestBrowserTokens({ input: 12, output: 8, total: 20 }),
+    true
+  );
+});
 
 test("accepts a canonical guest session UUID", () => {
   assert.equal(isValidGuestSessionId("123e4567-e89b-42d3-a456-426614174000"), true);
