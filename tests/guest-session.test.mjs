@@ -37,6 +37,25 @@ test("rejects negative and non-integer guest browser token totals", () => {
   }
 });
 
+test("enforces the guest browser token maximum", () => {
+  assert.equal(
+    isValidGuestBrowserTokens({
+      input: 10_000_001,
+      output: 0,
+      total: 0,
+    }),
+    false
+  );
+  assert.equal(
+    isValidGuestBrowserTokens({
+      input: 10_000_000,
+      output: 10_000_000,
+      total: 10_000_000,
+    }),
+    true
+  );
+});
+
 test("accepts a canonical guest session UUID", () => {
   assert.equal(isValidGuestSessionId("123e4567-e89b-42d3-a456-426614174000"), true);
 });
