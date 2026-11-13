@@ -18,6 +18,12 @@ test("accepts valid guest browser token totals", () => {
   );
 });
 
+test("rejects missing and malformed guest browser token totals", () => {
+  for (const value of [null, [], {}, { input: 1, output: 2 }]) {
+    assert.equal(isValidGuestBrowserTokens(value), false);
+  }
+});
+
 test("accepts a canonical guest session UUID", () => {
   assert.equal(isValidGuestSessionId("123e4567-e89b-42d3-a456-426614174000"), true);
 });
