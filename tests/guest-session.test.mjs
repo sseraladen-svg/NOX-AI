@@ -410,3 +410,18 @@ test("accepts guest JSON bodies exactly at the byte limit", async () => {
   );
   assert.deepEqual(parsed, { message: "valid" });
 });
+
+test("rejects primitive guest JSON values", async () => {
+  for (const body of ["null", '"text"', "42", "true"]) {
+    await assert.rejects(
+      readGuestJson(
+        new Request("http://localhost/api/guest", {
+          method: "POST",
+          body,
+        }),
+        100
+      ),
+      /must be a JSON object/
+    );
+  }
+});
