@@ -112,6 +112,29 @@ test("requires a non-empty API key for hosted guest assignments", () => {
   }
 });
 
+test("enforces the hosted guest model name length limit", () => {
+  const assignment = {
+    connectionType: "API",
+    provider: "openai",
+    apiKey: "test-key",
+  };
+  assert.equal(
+    sanitizeGuestAssignment({
+      ...assignment,
+      modelName: "m".repeat(200),
+    }).modelName.length,
+    200
+  );
+  assert.throws(
+    () =>
+      sanitizeGuestAssignment({
+        ...assignment,
+        modelName: "m".repeat(201),
+      }),
+    /Choose a valid model/
+  );
+});
+
 test("rejects custom endpoints for hosted guest providers", () => {
   for (const endpointField of ["apiEndpoint", "endpoint"]) {
     assert.throws(
