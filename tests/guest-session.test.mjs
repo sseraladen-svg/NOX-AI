@@ -178,6 +178,24 @@ test("allows a local Ollama endpoint and rejects embedded credentials", () => {
   );
 });
 
+test("rejects unsafe and oversized guest Ollama endpoints", () => {
+  for (const localEndpoint of [
+    "ftp://localhost:11434",
+    `http://localhost/${"x".repeat(500)}`,
+  ]) {
+    assert.throws(
+      () =>
+        sanitizeGuestAssignment({
+          connectionType: "LOCAL",
+          provider: "ollama",
+          modelName: "llama3",
+          localEndpoint,
+        }),
+      /local Ollama endpoint/
+    );
+  }
+});
+
 test("requires a supported non-orchestrator guest mode", () => {
   assert.throws(() => sanitizeGuestConfig(null), /configuration is required/);
   assert.throws(
