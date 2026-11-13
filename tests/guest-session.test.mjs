@@ -343,3 +343,16 @@ test("rejects guest requests without a body", async () => {
     /body is required/
   );
 });
+
+test("rejects malformed guest JSON bodies", async () => {
+  await assert.rejects(
+    readGuestJson(
+      new Request("http://localhost/api/guest", {
+        method: "POST",
+        body: "{invalid",
+      }),
+      100
+    ),
+    SyntaxError
+  );
+});
