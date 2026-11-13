@@ -336,3 +336,10 @@ test("rejects guest request bodies that exceed the configured byte limit", async
     GuestRequestTooLargeError
   );
 });
+
+test("rejects guest requests without a body", async () => {
+  await assert.rejects(
+    readGuestJson(new Request("http://localhost/api/guest"), 100),
+    /body is required/
+  );
+});
