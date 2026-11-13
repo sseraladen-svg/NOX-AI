@@ -356,3 +356,16 @@ test("rejects malformed guest JSON bodies", async () => {
     SyntaxError
   );
 });
+
+test("accepts guest JSON bodies exactly at the byte limit", async () => {
+  const body = JSON.stringify({ message: "valid" });
+  const maxBytes = new TextEncoder().encode(body).byteLength;
+  const parsed = await readGuestJson(
+    new Request("http://localhost/api/guest", {
+      method: "POST",
+      body,
+    }),
+    maxBytes
+  );
+  assert.deepEqual(parsed, { message: "valid" });
+});
