@@ -1,4 +1,4 @@
-﻿# NOX AI
+# NOX AI
 
 <div align="center">
 

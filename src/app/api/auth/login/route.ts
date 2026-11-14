@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   try {
     // Rate limit: 10 login attempts per minute per IP (brute-force protection).
     const ip = getClientIp(req.headers);
-    if (isRateLimited(ip, "auth/login", RATE_LIMITS.AUTH.limit, RATE_LIMITS.AUTH.windowMs)) {
+    if (await isRateLimited(ip, "auth/login", RATE_LIMITS.AUTH.limit, RATE_LIMITS.AUTH.windowMs)) {
       return NextResponse.json(
         { ok: false, error: "Too many login attempts. Wait a minute and try again." },
         { status: 429 }

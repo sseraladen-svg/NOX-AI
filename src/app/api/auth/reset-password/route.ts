@@ -13,7 +13,7 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   try {
     const ip = getClientIp(req.headers);
-    if (isRateLimited(ip, "auth/reset", 5, 60_000)) {
+    if (await isRateLimited(ip, "auth/reset", 5, 60_000)) {
       return NextResponse.json(
         { ok: false, error: "Too many reset attempts. Wait a minute." },
         { status: 429 }

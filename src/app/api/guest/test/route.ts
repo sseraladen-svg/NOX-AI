@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
 
     const ip = getClientIp(req.headers);
     if (
-      isRateLimited(
+      await isRateLimited(
         ip,
         "guest/test",
         RATE_LIMITS.GUEST.limit,

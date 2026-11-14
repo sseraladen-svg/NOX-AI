@@ -1,4 +1,4 @@
-﻿// "use client" is intentional here because this helper runs in browser code.
+// "use client" is intentional here because this helper runs in browser code.
 
 const TOKEN_KEY = "nox_session_token";
 

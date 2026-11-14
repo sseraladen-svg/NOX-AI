@@ -1,4 +1,4 @@
-﻿# Provider runtime audit and hardening report
+# Provider runtime audit and hardening report
 
 ## Scope
 - Hardened the multi-model runtime so provider detection, auth headers, endpoint selection, retries, and error handling are handled centrally.

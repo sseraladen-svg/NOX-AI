@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { isRateLimited, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 // POST /api/multi-model/dispatch — routes a message through the active mode.
 // Body: { messages, confirmMultiAgent?, feature?, conversationId? }
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
 
     // Rate limit: 30 dispatches per minute per IP (prevents API abuse).
     const ip = getClientIp(req.headers);
-    if (isRateLimited(ip, "dispatch", RATE_LIMITS.DISPATCH.limit, RATE_LIMITS.DISPATCH.windowMs)) {
+    if (await isRateLimited(ip, "dispatch", RATE_LIMITS.DISPATCH.limit, RATE_LIMITS.DISPATCH.windowMs)) {
       return NextResponse.json(
         { ok: false, error: "Too many requests. Wait a minute and try again." },
         { status: 429 }

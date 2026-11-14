@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { resumeDispatch, saveUsage } from "@/lib/multi-model-service";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {

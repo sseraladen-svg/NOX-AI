@@ -1,4 +1,5 @@
 import "server-only";
+import { consumeApproval, rememberApproval, markStepConsumed } from "@/lib/ephemeral-state";
 import { db } from "@/lib/db";
 import { encryptApiKey, decryptApiKey, maskApiKey, isMaskedApiKey } from "@/lib/crypto";
 import { execFile, spawn } from "child_process";
@@ -70,8 +71,35 @@ function normalizeOllamaEndpoint(endpoint?: string): string {
 
 // Helper to resolve the correct endpoint field based on connection type
 // This is the single source of truth for which endpoint field to use
+const BLOCKED_ALWAYS = /^(169\.254\.|0\.0\.0\.0$|metadata\.google\.internal$|\[?fe80:|\[?::ffff:169\.254\.)/i;
+const PRIVATE_HOST = /^(localhost$|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?$|\[?f[cd][0-9a-f]{2}:|.*\.(internal|local)$)/i;
+
+/** Rejects non-http(s) URLs, cloud-metadata hosts, and (API type, production) private/loopback hosts. */
+function assertSafeEndpoint(raw: string, blockPrivate: boolean): string {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new Error("Endpoint is not a valid URL.");
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    throw new Error("Endpoint must use http or https.");
+  }
+  if (u.username || u.password) throw new Error("Endpoint must not contain credentials.");
+  const host = u.hostname.toLowerCase();
+  if (BLOCKED_ALWAYS.test(host)) throw new Error("Endpoint host is not allowed.");
+  if (blockPrivate && process.env.NODE_ENV === "production" && PRIVATE_HOST.test(host)) {
+    throw new Error(
+      "Private or loopback endpoints cannot be reached from the hosted server. Use the browser Ollama bridge or a public host."
+    );
+  }
+  return raw;
+}
+
 function resolveEndpoint(a: ModelAssignment): string | undefined {
-  return a.connectionType === "API" ? a.apiEndpoint : a.localEndpoint;
+  const raw = a.connectionType === "API" ? a.apiEndpoint : a.localEndpoint;
+  // LOCAL endpoints (Ollama bridge) legitimately use 127.0.0.1; only API endpoints must be public.
+  return raw ? assertSafeEndpoint(raw, a.connectionType === "API") : raw;
 }
 
 // Migration function to auto-heal legacy endpoint field
@@ -92,8 +120,6 @@ function migrateEndpoint(a: ModelAssignment | null | undefined): ModelAssignment
 // Simple in-memory cache for reachability checks with 60s TTL
 const reachabilityCache = new Map<string, { result: ModelLimit; expiresAt: number }>();
 const CACHE_TTL_MS = 60_000; // 60 seconds
-const pendingHighImpactApprovals = new Map<string, { userId: string; expiresAt: number }>();
-const consumedResumeSteps = new Map<string, number>();
 
 function getCacheKey(userId: string, assignment: ModelAssignment): string {
   return `${userId}-${assignment.connectionType}-${assignment.provider}-${assignment.modelName}-${resolveEndpoint(assignment) || ""}-${assignment.apiKey?.slice(-4) || ""}`;
@@ -2867,9 +2893,8 @@ export async function dispatch(
     }
 
     if (opts.approveHighImpact) {
-      const approval = opts.approvalId ? pendingHighImpactApprovals.get(opts.approvalId) : undefined;
-      if (!approval || approval.userId !== userId || approval.expiresAt < Date.now()) {
-        if (opts.approvalId) pendingHighImpactApprovals.delete(opts.approvalId);
+      const approved = opts.approvalId ? await consumeApproval(opts.approvalId, userId) : false;
+      if (!approved) {
         return {
           ok: false,
           mode: doc.mode,
@@ -2882,13 +2907,9 @@ export async function dispatch(
           error: "High-impact approval is missing or expired. Start the confirmation flow again.",
         };
       }
-      if (opts.approvalId) pendingHighImpactApprovals.delete(opts.approvalId);
     } else if (highImpactActions.length > 0) {
       const approvalId = crypto.randomUUID();
-      pendingHighImpactApprovals.set(approvalId, {
-        userId,
-        expiresAt: Date.now() + 10 * 60 * 1000,
-      });
+      await rememberApproval(approvalId, userId);
       return {
         ok: false,
         mode: doc.mode,
@@ -3358,12 +3379,9 @@ export async function resumeDispatch(
   browserLatencyMs?: number,
   config?: MultiModelConfigDoc
 ): Promise<DispatchResult> {
-  const resumeKey = `${userId}:${_stepId}`;
-  const previousUse = consumedResumeSteps.get(resumeKey);
-  if (previousUse && previousUse > Date.now()) {
+  if (!(await markStepConsumed(userId, _stepId))) {
     throw new Error("This dispatch-resume step has already been consumed.");
   }
-  consumedResumeSteps.set(resumeKey, Date.now() + 10 * 60 * 1000);
   const doc = config || await getConfigInternal(userId);
   const ctx = (resumeContext || {}) as Record<string, any>;
   const isGuestDispatch = userId.startsWith("guest:");

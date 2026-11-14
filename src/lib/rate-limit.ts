@@ -1,4 +1,5 @@
 import "server-only";
+import { hitCounter } from "@/lib/ephemeral-state";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Simple in-memory rate limiter.
@@ -47,7 +48,7 @@ function cleanup() {
  * @returns        true if the request should be blocked (limit exceeded),
  *                 false if the request is allowed (and the counter is incremented)
  */
-export function isRateLimited(
+function isRateLimitedLocal(
   key: string,
   route: string,
   limit: number,
@@ -109,3 +110,17 @@ export const RATE_LIMITS = {
   // General API: 60 per minute per IP.
   GENERAL: { limit: 60, windowMs: 60_000 },
 } as const;
+
+/** Shared (Postgres) rate limit; falls back to per-instance memory if the DB is unreachable. */
+export async function isRateLimited(
+  key: string,
+  route: string,
+  limit: number,
+  windowMs: number
+): Promise<boolean> {
+  try {
+    return (await hitCounter(`rl:${key}:${route}`, windowMs)) > limit;
+  } catch {
+    return isRateLimitedLocal(key, route, limit, windowMs);
+  }
+}

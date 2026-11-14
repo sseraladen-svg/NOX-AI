@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { isRateLimited, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 // POST /api/multi-model/dispatch-stream
 //
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
     }
 
     const ip = getClientIp(req.headers);
-    if (isRateLimited(ip, "dispatch", RATE_LIMITS.DISPATCH.limit, RATE_LIMITS.DISPATCH.windowMs)) {
+    if (await isRateLimited(ip, "dispatch", RATE_LIMITS.DISPATCH.limit, RATE_LIMITS.DISPATCH.windowMs)) {
       return new Response(
         JSON.stringify({ ok: false, error: "Too many requests." }),
         { status: 429, headers: { "Content-Type": "application/json" } }

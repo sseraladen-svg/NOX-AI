@@ -1,4 +1,4 @@
-﻿import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@prisma/client'
 
 const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL
 if (databaseUrl) {

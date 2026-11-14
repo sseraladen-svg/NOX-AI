@@ -108,3 +108,14 @@ model UsageRecord {
   @@index([userId, provider, model])
   @@index([conversationId])
 }
+
+// Short-lived server state that must survive across serverless instances:
+// high-impact approvals, consumed resume steps and rate-limit counters.
+model EphemeralState {
+  key       String   @id
+  userId    String?
+  count     Int      @default(1)
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}

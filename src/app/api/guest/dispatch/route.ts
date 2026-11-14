@@ -13,6 +13,7 @@ import { getClientIp, isRateLimited, RATE_LIMITS } from "@/lib/rate-limit";
 import { getCurrentUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 const FEATURES = new Set([
   "chat",
   "voice",
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     const ip = getClientIp(req.headers);
     if (
-      isRateLimited(
+      await isRateLimited(
         ip,
         "guest/dispatch",
         RATE_LIMITS.GUEST.limit,

@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   try {
     // Rate limit: 3 signups per hour per IP (prevents account farming).
     const ip = getClientIp(req.headers);
-    if (isRateLimited(ip, "auth/signup", RATE_LIMITS.SIGNUP.limit, RATE_LIMITS.SIGNUP.windowMs)) {
+    if (await isRateLimited(ip, "auth/signup", RATE_LIMITS.SIGNUP.limit, RATE_LIMITS.SIGNUP.windowMs)) {
       return NextResponse.json(
         { ok: false, error: "Too many signups from this IP. Try again later." },
         { status: 429 }
