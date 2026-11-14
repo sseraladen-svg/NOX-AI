@@ -40,6 +40,7 @@ Every response carries a **dispatch trace**: model, provider, local or API, toke
 - **Streaming.** Gemini streams token by token over SSE. Ollama streams in the browser. Other providers currently return the full response at once.
 - **Attachments.** Images (for vision-capable models) and text documents (`.txt`, `.md`, `.csv`, `.json`, `.html`, `.xml`) added to the prompt as context.
 - **Image generation** (OpenAI) and **voice**: browser speech-to-text and ElevenLabs text-to-speech.
+- **Orchestrator workspace.** A VS Code-style IDE inside Orchestrator mode: Monaco editor with tabs, file explorer, resizable panes and an integrated terminal next to the Host chat. See [Orchestrator workspace](#orchestrator-workspace).
 - **Coding view.** Extracted code blocks, HTML preview and file download.
 - **Fail-fast errors.** Real provider reasons (rate limit, connection refused, missing permissions) instead of generic failures. Model calls are not retried automatically.
 - **Guest mode.** Try it without an account (see below).
@@ -85,6 +86,18 @@ Postgres (Prisma)                 Provider APIs
 | No automatic retry | Retries were doubling requests into rate limits | A one-off network blip shows as an error |
 | Separate timeouts for connection checks and generations | Long answers need more time than a reachability ping | Two values to tune |
 
+## Orchestrator workspace
+
+Orchestrator mode opens as a code workspace (toggle back to the classic chat layout with the button in the header).
+
+- **Editor:** Monaco (the VS Code engine) with tabs, syntax highlighting, `Ctrl/Cmd+S`, and Explain / Fix / Refactor shortcuts that prefill a message to the Host.
+- **Files:** a virtual workspace stored in your browser (IndexedDB), upload support, or **Open folder** to edit a real folder on your computer through the browser File System Access API (Chrome / Edge). Edits to a real folder are written to disk on save; creating, renaming and deleting files is mirrored immediately. `node_modules`, `.git`, `.next`, `dist` and binary or very large files are skipped.
+- **Host integration:** with *Editor context* on, every message to the Host also carries your file list, open tabs, active file and selection (appended to the model request only, never shown or stored). Code blocks in replies get an **Apply** button; start a block with a comment such as `// file: /src/app.ts` to target a file, otherwise the active file is replaced.
+- **Terminal (xterm.js):**
+  - *Virtual* shell over the workspace files: `ls`, `cd`, `cat`, `mkdir`, `touch`, `rm`, `mv`, `cp`, `echo > file`, `grep`, `find`, `tree`, `open`, and `node file.js`.
+  - `node` and the editor **Run** button execute JavaScript in a sandboxed iframe worker (no cookies, no access to the app's API; 8 second limit). HTML files preview in a sandboxed iframe with relative CSS and JS inlined.
+  - *Local shell* runs real commands on the machine hosting the app. It is off by default and only works when `NOX_LOCAL_TERMINAL=1`, you are signed in, the request targets `localhost`, and the app is not on Vercel. Commands run with the server user's permissions, so enable it only on your own computer. Secrets (`AUTH_SECRET`, `NOX_AI_SECRET`, database URLs) are removed from the command environment.
+
 ## Getting started
 
 Requires a current Node.js LTS (20+) and a PostgreSQL database.
@@ -113,6 +126,8 @@ Open http://localhost:3000.
 | `AUTH_SECRET` | Yes | Signs session tokens |
 | `ELEVENLABS_API_KEY` | No | Enables text-to-speech |
 | `ELEVENLABS_VOICE_ID` | No | Voice used for text-to-speech |
+| `NOX_LOCAL_TERMINAL` | No | Set to `1` to enable the Local shell tab (local machine only) |
+| `NOX_WORKSPACE_ROOT` | No | Root folder for the Local shell (defaults to the app's working directory) |
 
 Use long random strings for both secrets and keep them out of version control.
 
@@ -173,11 +188,13 @@ Troubleshooting:
 src/
   app/            pages (single, multi, orchestrator, usage) and API routes
   components/nox/ mode pages, config forms, chat UI, confirmation dialog
+  components/nox/workspace/ editor, explorer, terminal, preview, IDE layout
   hooks/          use-chat.ts (SSE handling, confirmation and resume flow)
   store/          Zustand stores (config, conversations)
   lib/            multi-model-service.ts, multi-model-types.ts, crypto.ts, api-key-mask.ts,
                   auth.ts, rate-limit.ts, ephemeral-state.ts, endpoint-guard.ts, logger.ts,
-                  local-ollama.ts, guest-session.ts, engineering-workspace.ts
+                  local-ollama.ts, guest-session.ts, engineering-workspace.ts,
+                  workspace/ (virtual file system, shell, sandboxed JS runner, editor context)
 prisma/           schema.prisma
 tests/            node:test unit tests
 .github/          CI workflow and pull request template
@@ -192,6 +209,7 @@ tests/            node:test unit tests
 | Dispatch | `/api/multi-model/dispatch`, `dispatch-stream`, `dispatch-resume` |
 | Conversations | `/api/conversations/list`, `create`, `get`, `rename`, `delete`, `save-message` |
 | Usage | `/api/usage/summary`, `/api/usage/recent` |
+| Workspace | `/api/workspace/exec` (Local shell; disabled unless enabled and local) |
 | Health | `/api/health` (liveness and database check) |
 | Guest | `/api/guest/dispatch`, `dispatch-resume`, `test` |
 | Voice | `/api/voice/elevenlabs` |
@@ -205,6 +223,8 @@ tests/            node:test unit tests
 - **Image generation** supports OpenAI only.
 - **No quota fallback.** If a provider runs out of quota the call fails; it does not switch to another model.
 - **No admin or team view.** Each user sees only their own usage.
+
+- **Workspace** terminal and editor were verified with unit tests, a production build and API tests for the Local shell, but not driven in a real browser during development. Real-folder access works only in Chromium browsers. Terminal line editing supports typing, backspace and history, not cursor movement. Monaco loads from a CDN, so the editor needs internet access.
 
 ## Roadmap
 
