@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest,NextResponse } from "next/server";
 import {
-  getConfig,
-  saveConfig,
-  type MultiModelConfigDoc,
+getConfig,
+saveConfig,
+type MultiModelConfigDoc,
 } from "@/lib/multi-model-service";
 import { getCurrentUser } from "@/lib/auth";
 

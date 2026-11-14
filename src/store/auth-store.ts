@@ -2,9 +2,9 @@
 
 import { create } from "zustand";
 import {
-  setSessionToken,
-  clearSessionToken,
-  getSessionToken,
+setSessionToken,
+clearSessionToken,
+getSessionToken,
 } from "@/lib/auth-fetch";
 
 export interface NoxUser {

@@ -1,43 +1,42 @@
 "use client";
 
 import * as React from "react";
-import { motion } from "framer-motion";
 import {
-  ArrowLeft,
-  PanelLeft,
-  Settings2,
-  Network,
-  Code2,
-  Eye,
-  Settings2 as GearIcon,
-  Cpu,
-  Globe,
-  Server,
-  Bot,
+ArrowLeft,
+PanelLeft,
+Settings2,
+Network,
+Code2,
+Eye,
+Settings2 as GearIcon,
+Cpu,
+Globe,
+Server
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@/hooks/use-chat";
 import { useMultiModel } from "@/store/multi-model-store";
 import { useConversations } from "@/store/conversations-store";
 import {
-  SPECIALISTS,
-  type SpecialistId,
-  type ConnectionType,
-  type ModelAssignment,
+SPECIALISTS,
+type SpecialistId,
+type ConnectionType,
+type ModelAssignment,
 } from "@/lib/multi-model-types";
 import {
-  ChatInput,
-  ConversationDrawer,
-  ConversationSidebar,
-  UserMenu,
-  AdvancedDialog,
-  ConfirmWrapper,
-  MessagesArea,
-  IconButton,
+ChatInput,
+ConversationDrawer,
+ConversationSidebar,
+UserMenu,
+AdvancedDialog,
+ConfirmWrapper,
+MessagesArea,
+IconButton,
 } from "./shared-chat";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Sheet,SheetContent,SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import type { DispatchStep } from "@/lib/multi-model-types";
+import { useShallow } from "zustand/react/shallow";
 
 const SPECIALIST_ICONS: Record<
   SpecialistId,
@@ -60,8 +59,8 @@ const EXAMPLES = [
 export function OrchestratorModePage() {
   const router = useRouter();
   const chat = useChat();
-  const mm = useMultiModel();
-  const convs = useConversations();
+  const mm = useMultiModel(useShallow((s) => ({ hostConfig: s.hostConfig, loaded: s.loaded, mode: s.mode, save: s.save, setMode: s.setMode, specialistConfigs: s.specialistConfigs })));
+  const convs = useConversations(useShallow((s) => ({ activeMessages: s.activeMessages, clearActive: s.clearActive, loadingMessages: s.loadingMessages })));
   const [rosterOpen, setRosterOpen] = React.useState(false);
 
   // Ensure mode is ORCHESTRATOR + clear conversation from other modes

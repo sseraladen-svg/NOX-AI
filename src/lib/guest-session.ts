@@ -1,7 +1,7 @@
 import type {
-  ChatMessage,
-  ModelAssignment,
-  MultiModelConfigDoc,
+ChatMessage,
+ModelAssignment,
+MultiModelConfigDoc,
 } from "@/lib/multi-model-types";
 
 export class GuestRequestTooLargeError extends Error {

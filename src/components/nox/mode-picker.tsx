@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Globe, Layers, Network, ChevronRight, Sparkles, TrendingUp, Play, X, BookOpen, Settings2 } from "lucide-react";
+import { motion,AnimatePresence } from "framer-motion";
+import { Globe,Layers,Network,ChevronRight,Sparkles,TrendingUp,Play,X,BookOpen,Settings2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMultiModel } from "@/store/multi-model-store";
 import { UserMenu } from "./shared-chat";
@@ -10,6 +10,7 @@ import { DemoVideoDialog } from "./demo-video-dialog";
 import type { Mode } from "@/lib/multi-model-types";
 import { isGuestSession } from "@/lib/local-storage";
 import { toast } from "sonner";
+import { useShallow } from "zustand/react/shallow";
 
 const MODE_CARDS: {
   id: Mode;
@@ -66,7 +67,7 @@ const MODE_CARDS: {
 
 export function ModePicker() {
   const router = useRouter();
-  const mm = useMultiModel();
+  const mm = useMultiModel(useShallow((s) => ({ mode: s.mode, save: s.save, setMode: s.setMode })));
   const [showSharedDemo, setShowSharedDemo] = React.useState(false);
   const [showGuide, setShowGuide] = React.useState(false);
   const [guideType, setGuideType] = React.useState<"api" | "cli" | null>(null);

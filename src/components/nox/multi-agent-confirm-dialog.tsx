@@ -1,12 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Bot, Code2, Cog, Cpu, Eye, Network, ShieldAlert } from "lucide-react";
+import { AlertTriangle,Bot,Code2,Cog,Cpu,Eye,Network,ShieldAlert } from "lucide-react";
 import type { LimitRow } from "@/store/multi-model-store";
-import { SPECIALISTS, type IntentClassification, type SpecialistId } from "@/lib/multi-model-types";
+import { SPECIALISTS,type IntentClassification,type SpecialistId } from "@/lib/multi-model-types";
 
 interface Props {
   open: boolean;

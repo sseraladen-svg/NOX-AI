@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Loader2, Mail, Lock, User as UserIcon, KeyRound, Play } from "lucide-react";
+import { motion,AnimatePresence } from "framer-motion";
+import { Sparkles,Loader2,Mail,Lock,User as UserIcon,KeyRound,Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

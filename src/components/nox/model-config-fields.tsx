@@ -2,20 +2,20 @@
 
 import * as React from "react";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+Select,
+SelectContent,
+SelectItem,
+SelectTrigger,
+SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, CheckCircle2, XCircle, Zap } from "lucide-react";
-import type { ModelAssignment, ConnectionType } from "@/lib/multi-model-types";
+import { Loader2,CheckCircle2,XCircle,Zap } from "lucide-react";
+import type { ModelAssignment,ConnectionType } from "@/lib/multi-model-types";
 import { listOllamaModels } from "@/lib/local-ollama";
-import { useMultiModel, type TestState } from "@/store/multi-model-store";
+import { useMultiModel,type TestState } from "@/store/multi-model-store";
 
 interface Provider {
   id: string;
@@ -75,14 +75,6 @@ export function ModelConfigFields({
   const apiProviders = providers.filter((p) => p.connectionType === "API");
   const localProviders = providers.filter((p) => p.connectionType === "LOCAL");
 
-  const activeModelName =
-    assignment.connectionType === "API"
-      ? assignment.apiModelName || assignment.modelName || ""
-      : assignment.localModelName || assignment.modelName || "";
-  const activeEndpoint =
-    assignment.connectionType === "API"
-      ? assignment.apiEndpoint || assignment.endpoint || ""
-      : assignment.localEndpoint || assignment.endpoint || "";
 
   function updateActiveState(next: ModelAssignment) {
     const nextModel = next.modelName || "";

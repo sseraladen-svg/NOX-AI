@@ -3,15 +3,12 @@
 import * as React from "react";
 import { motion } from "framer-motion";
 import {
-  DollarSign,
-  Coins,
-  Activity,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  ArrowLeft,
-  RefreshCw,
-  TrendingUp,
+DollarSign,
+Coins,
+Activity,
+CheckCircle2,ArrowLeft,
+RefreshCw,
+TrendingUp
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";

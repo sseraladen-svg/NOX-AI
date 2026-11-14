@@ -3,13 +3,13 @@
 import * as React from "react";
 import { Subtitles } from "lucide-react";
 import {
-  DialogClose,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+DialogClose,
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 

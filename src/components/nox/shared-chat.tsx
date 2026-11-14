@@ -1,44 +1,41 @@
 "use client";
 
 import * as React from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion,AnimatePresence } from "framer-motion";
 import {
-  Send,
-  Loader2,
-  Sparkles,
-  Bot,
-  User as UserIcon,
-  RefreshCw,
-  ChevronRight,
-  Zap,
-  Network,
-  Plus,
-  Trash2,
-  LogOut,
-  MessageSquare,
-  PanelLeft,
-  X,
-  Settings2,
-  Search,
-  Pencil,
-  Upload,
+Send,
+Loader2,
+Sparkles,
+Bot,
+User as UserIcon,
+RefreshCw,
+ChevronRight,
+Zap,
+Network,
+Plus,
+Trash2,
+LogOut,X,
+Settings2,
+Search,
+Pencil,
+Upload
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
+Dialog,
+DialogContent,
+DialogHeader,
+DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+DropdownMenu,
+DropdownMenuContent,
+DropdownMenuItem,
+DropdownMenuSeparator,
+DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ConversationMessage } from "@/store/conversations-store";
 import { useAuth } from "@/store/auth-store";
@@ -46,12 +43,13 @@ import { useConversations } from "@/store/conversations-store";
 import { Markdown } from "./markdown";
 import { useMultiModel } from "@/store/multi-model-store";
 import type { Mode } from "@/lib/multi-model-types";
-import type { IntentClassification, SpecialistId } from "@/lib/multi-model-types";
+import type { IntentClassification,SpecialistId } from "@/lib/multi-model-types";
 import { AdvancedCustomization } from "./advanced-customization";
 import { MultiAgentConfirmDialog } from "./multi-agent-confirm-dialog";
 import type { LimitRow } from "@/store/multi-model-store";
 import { cn } from "@/lib/utils";
-import { clearGuestData, endGuestSession } from "@/lib/local-storage";
+import { clearGuestData,endGuestSession } from "@/lib/local-storage";
+import { useShallow } from "zustand/react/shallow";
 
 // ─── MessageBubble ──────────────────────────────────────────────────────────
 
@@ -430,8 +428,8 @@ function fileToDataUrl(file: File): Promise<string> {
 // ─── UserMenu ───────────────────────────────────────────────────────────────
 
 export function UserMenu() {
-  const auth = useAuth();
-  const convs = useConversations();
+  const auth = useAuth(useShallow((s) => ({ logout: s.logout, user: s.user })));
+  const convs = useConversations(useShallow((s) => ({ activeId: s.activeId, clearActive: s.clearActive, create: s.create, items: s.items, loading: s.loading, remove: s.remove, rename: s.rename, select: s.select })));
   const user = auth.user;
 
   return (
@@ -506,8 +504,8 @@ export function UserMenu() {
 // ─── Conversation list (shared content for sidebar + mobile drawer) ────────
 
 function ConversationListContent({ onAfterSelect }: { onAfterSelect: () => void }) {
-  const convs = useConversations();
-  const mm = useMultiModel();
+  const convs = useConversations(useShallow((s) => ({ activeId: s.activeId, clearActive: s.clearActive, create: s.create, items: s.items, loading: s.loading, remove: s.remove, rename: s.rename, select: s.select })));
+  const mm = useMultiModel(useShallow((s) => ({ mode: s.mode })));
   const [query, setQuery] = React.useState("");
   const [renamingId, setRenamingId] = React.useState<string | null>(null);
   const [renameValue, setRenameValue] = React.useState("");

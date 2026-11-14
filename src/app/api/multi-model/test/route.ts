@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest,NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { isMaskedApiKey } from "@/lib/crypto";
 import {
-  getConfigInternal,
-  testAssignment,
-  type ModelAssignment,
+getConfigInternal,
+testAssignment,
+type ModelAssignment,
 } from "@/lib/multi-model-service";
 
 export const runtime = "nodejs";

@@ -2,15 +2,15 @@
 
 import * as React from "react";
 import {
-  useConversations,
-  type ConversationMessage,
-  type MessageUsage,
+useConversations,
+type ConversationMessage,
+type MessageUsage,
 } from "@/store/conversations-store";
-import { useMultiModel, type LimitRow } from "@/store/multi-model-store";
+import { useMultiModel,type LimitRow } from "@/store/multi-model-store";
 import { authFetch } from "@/lib/auth-fetch";
-import { getGuestSessionId, isGuestSession } from "@/lib/local-storage";
+import { getGuestSessionId,isGuestSession } from "@/lib/local-storage";
 import { generateFromBrowser } from "@/lib/local-ollama";
-import { SPECIALISTS, type DispatchStep, type Mode, type FeatureId, type TokenUsage, type CostBreakdown, type IntentClassification, type SpecialistId } from "@/lib/multi-model-types";
+import { SPECIALISTS,type DispatchStep,type Mode,type FeatureId,type TokenUsage,type CostBreakdown,type IntentClassification,type SpecialistId } from "@/lib/multi-model-types";
 import { toast } from "sonner";
 
 // Sum token usage + cost across all dispatch steps for one message.
@@ -248,7 +248,7 @@ export function useChat() {
         const decoder = new TextDecoder();
         let buffer = "";
         let progressiveText = "";
-        let aiMsgId = crypto.randomUUID();
+        const aiMsgId = crypto.randomUUID();
         let finalResult: any = null;
         let confirmationData: any = null;
         let errorData: any = null;

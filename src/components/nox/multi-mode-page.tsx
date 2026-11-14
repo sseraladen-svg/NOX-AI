@@ -1,42 +1,41 @@
 "use client";
 
 import * as React from "react";
-import { motion } from "framer-motion";
 import {
-  ArrowLeft,
-  PanelLeft,
-  Settings2,
-  Layers,
-  Bot,
-  Mic,
-  Eye,
-  Code2,
-  Settings2 as GearIcon,
-  Cpu,
-  Globe,
-  Server,
+ArrowLeft,
+PanelLeft,
+Settings2,
+Layers,
+Bot,
+Mic,
+Eye,
+Code2,
+Settings2 as GearIcon,
+Cpu,
+Globe,
+Server,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@/hooks/use-chat";
 import { useMultiModel } from "@/store/multi-model-store";
 import { useConversations } from "@/store/conversations-store";
 import {
-  FEATURES,
-  type FeatureId,
-  type ConnectionType,
-  type ModelAssignment,
-  type Mode,
+FEATURES,
+type FeatureId,
+type ConnectionType,
+type ModelAssignment
 } from "@/lib/multi-model-types";
-import { ConversationDrawer, ConversationSidebar, UserMenu, AdvancedDialog, ConfirmWrapper, IconButton } from "./shared-chat";
+import { ConversationDrawer,ConversationSidebar,UserMenu,AdvancedDialog,ConfirmWrapper,IconButton } from "./shared-chat";
 import {
-  ChatFeatureUI,
-  CodingFeatureUI,
-  VoiceFeatureUI,
-  VisionFeatureUI,
-  AutomationFeatureUI,
-  RoboticsFeatureUI,
+ChatFeatureUI,
+CodingFeatureUI,
+VoiceFeatureUI,
+VisionFeatureUI,
+AutomationFeatureUI,
+RoboticsFeatureUI,
 } from "./feature-uis";
 import { cn } from "@/lib/utils";
+import { useShallow } from "zustand/react/shallow";
 
 const FEATURE_ICONS: Record<
   FeatureId,
@@ -89,21 +88,11 @@ const EXAMPLES_BY_FEATURE: Record<FeatureId, string[]> = {
   ],
 };
 
-// Labels for per-tab conversation titles
-const FEATURE_TITLES: Record<FeatureId, string> = {
-  chat: "Chat",
-  voice: "Voice",
-  vision: "Vision",
-  coding: "Coding",
-  automation: "Automation",
-  robotics: "Robotics",
-};
-
 export function MultiModePage() {
   const router = useRouter();
   const chat = useChat();
-  const mm = useMultiModel();
-  const convs = useConversations();
+  const mm = useMultiModel(useShallow((s) => ({ featureConfigs: s.featureConfigs, loaded: s.loaded, mode: s.mode, save: s.save, setMode: s.setMode })));
+  const convs = useConversations(useShallow((s) => ({ activeId: s.activeId, activeMessages: s.activeMessages, clearActive: s.clearActive, items: s.items, loadingMessages: s.loadingMessages, select: s.select })));
   const [activeFeature, setActiveFeature] = React.useState<FeatureId>("chat");
 
   // ─── Per-feature conversation tracking ─────────────────────────────────

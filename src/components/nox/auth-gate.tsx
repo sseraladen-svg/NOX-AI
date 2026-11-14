@@ -7,6 +7,7 @@ import { useConversations } from "@/store/conversations-store";
 import { AuthOverlay } from "@/components/nox/auth-overlay";
 import { Loader2 } from "lucide-react";
 import { isGuestSession } from "@/lib/local-storage";
+import { useShallow } from "zustand/react/shallow";
 
 /**
  * Shared shell for every real route (/, /single, /multi, /orchestrator, /usage).
@@ -26,30 +27,32 @@ export function AuthGate({
   children: React.ReactNode;
   requireConfig?: boolean;
 }) {
-  const auth = useAuth();
-  const mm = useMultiModel();
-  const convs = useConversations();
+  const auth = useAuth(useShallow((s) => ({ load: s.load, loading: s.loading, user: s.user })));
+  const mm = useMultiModel(useShallow((s) => ({ load: s.load, loaded: s.loaded })));
+  const convs = useConversations(useShallow((s) => ({ loadList: s.loadList })));
   const [guestSession, setGuestSession] = React.useState(false);
+
+  const { load: loadAuth, user, loading } = auth;
+  const { load: loadConfig, loaded } = mm;
+  const { loadList } = convs;
 
   React.useEffect(() => {
     if (isGuestSession()) {
       setGuestSession(true);
       return;
     }
-    auth.load();
-  }, []);
+    loadAuth();
+  }, [loadAuth]);
 
+  const userId = user?.id;
   React.useEffect(() => {
-    if (guestSession) {
-      mm.load();
-      convs.loadList();
-    } else if (auth.user) {
-      mm.load();
-      convs.loadList();
+    if (guestSession || userId) {
+      loadConfig();
+      loadList();
     }
-  }, [guestSession, auth.user?.id, mm.load, convs.loadList]);
+  }, [guestSession, userId, loadConfig, loadList]);
 
-  if (auth.loading && !guestSession) {
+  if (loading && !guestSession) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background nox-aurora">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -57,11 +60,11 @@ export function AuthGate({
     );
   }
 
-  if (!auth.user && !guestSession) {
+  if (!user && !guestSession) {
     return <AuthOverlay />;
   }
 
-  if (requireConfig && !mm.loaded) {
+  if (requireConfig && !loaded) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background nox-aurora">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />

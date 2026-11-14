@@ -1,27 +1,27 @@
 "use client";
 
 import * as React from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion,AnimatePresence } from "framer-motion";
 import {
-  Globe,
-  Layers,
-  Network,
-  Save,
-  RotateCcw,
-  Download,
-  Upload,
-  Bot,
-  Code2,
-  Eye,
-  Mic,
-  Cpu,
-  Settings2,
-  Server,
-  Clock,
-  Info,
-  CheckCircle2,
-  AlertTriangle,
-  Loader2,
+Globe,
+Layers,
+Network,
+Save,
+RotateCcw,
+Download,
+Upload,
+Bot,
+Code2,
+Eye,
+Mic,
+Cpu,
+Settings2,
+Server,
+Clock,
+Info,
+CheckCircle2,
+AlertTriangle,
+Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -30,16 +30,17 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import {
-  FEATURES,
-  SPECIALISTS,
-  type Mode,
-  type FeatureId,
-  type SpecialistId,
-  type ModelAssignment,
-  type ConnectionType,
+FEATURES,
+SPECIALISTS,
+type Mode,
+type FeatureId,
+type SpecialistId,
+type ModelAssignment,
+type ConnectionType,
 } from "@/lib/multi-model-types";
 import { useMultiModel } from "@/store/multi-model-store";
 import { ModelConfigFields } from "./model-config-fields";
+import { useShallow } from "zustand/react/shallow";
 
 interface Provider {
   id: string;
@@ -82,7 +83,7 @@ function defaultAssignment(connectionType: ConnectionType = "API"): ModelAssignm
 }
 
 export function AdvancedCustomization() {
-  const store = useMultiModel();
+  const store = useMultiModel(useShallow((s) => ({ dirty: s.dirty, exportConfig: s.exportConfig, featureConfigs: s.featureConfigs, globalConfig: s.globalConfig, hostConfig: s.hostConfig, importConfig: s.importConfig, lastSavedAt: s.lastSavedAt, load: s.load, mode: s.mode, reset: s.reset, save: s.save, saving: s.saving, setFeature: s.setFeature, setGlobal: s.setGlobal, setHost: s.setHost, setMode: s.setMode, setSpecialist: s.setSpecialist, setTimeoutOverride: s.setTimeoutOverride, specialistConfigs: s.specialistConfigs, tests: s.tests, timeoutOverrides: s.timeoutOverrides })));
   const [providers, setProviders] = React.useState<Provider[]>([]);
 
   React.useEffect(() => {

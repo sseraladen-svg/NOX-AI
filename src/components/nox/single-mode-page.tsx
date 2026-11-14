@@ -1,33 +1,32 @@
 "use client";
 
 import * as React from "react";
-import { motion } from "framer-motion";
 import {
-  ArrowLeft,
-  PanelLeft,
-  Settings2,
-  Globe,
-  Server,
-  Clock,
-  Bot,
+ArrowLeft,
+PanelLeft,
+Settings2,
+Globe,
+Server,
+Clock,
+Bot,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@/hooks/use-chat";
 import { useMultiModel } from "@/store/multi-model-store";
 import { useConversations } from "@/store/conversations-store";
-import type { ConnectionType, ModelAssignment } from "@/lib/multi-model-types";
+import type { ConnectionType,ModelAssignment } from "@/lib/multi-model-types";
 import {
-  ChatInput,
-  ConversationDrawer,
-  ConversationSidebar,
-  UserMenu,
-  AdvancedDialog,
-  ConfirmWrapper,
-  MessagesArea,
-  IconButton,
+ChatInput,
+ConversationDrawer,
+ConversationSidebar,
+UserMenu,
+AdvancedDialog,
+ConfirmWrapper,
+MessagesArea,
+IconButton,
 } from "./shared-chat";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useShallow } from "zustand/react/shallow";
 
 const EXAMPLES = [
   "Explain quantum computing simply",
@@ -39,8 +38,8 @@ const EXAMPLES = [
 export function SingleModePage() {
   const router = useRouter();
   const chat = useChat();
-  const mm = useMultiModel();
-  const convs = useConversations();
+  const mm = useMultiModel(useShallow((s) => ({ globalConfig: s.globalConfig, loaded: s.loaded, mode: s.mode, save: s.save, setMode: s.setMode })));
+  const convs = useConversations(useShallow((s) => ({ activeMessages: s.activeMessages, clearActive: s.clearActive, loadingMessages: s.loadingMessages })));
 
   // Ensure mode is SINGLE + clear conversation from other modes
   React.useEffect(() => {

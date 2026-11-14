@@ -5,17 +5,17 @@ import { authFetch } from "@/lib/auth-fetch";
 import { isMaskedApiKey } from "@/lib/crypto";
 import { testOllamaFromBrowser } from "@/lib/local-ollama";
 import {
-  getGuestConfig,
-  getGuestSessionId,
-  isGuestSession,
-  saveGuestConfig,
+getGuestConfig,
+getGuestSessionId,
+isGuestSession,
+saveGuestConfig,
 } from "@/lib/local-storage";
 import type {
-  Mode,
-  FeatureId,
-  SpecialistId,
-  ModelAssignment,
-  MultiModelConfigDoc,
+Mode,
+FeatureId,
+SpecialistId,
+ModelAssignment,
+MultiModelConfigDoc,
 } from "@/lib/multi-model-types";
 
 export interface TestState {

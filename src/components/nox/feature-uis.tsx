@@ -1,47 +1,38 @@
 "use client";
 
 import * as React from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
-  Bot,
-  User as UserIcon,
-  Send,
-  Loader2,
-  Sparkles,
-  ChevronRight,
-  Zap,
-  Network,
-  RefreshCw,
-  Copy,
-  Check,
-  Download,
-  Code2,
-  Mic,
-  MicOff,
-  Play,
-  Pause,
-  Volume2,
-  Upload,
-  Image as ImageIcon,
-  X,
-  Eye,
-  Plus,
-  Trash2,
-  Workflow,
-  Cpu,
-  Gauge,
-  Radio,
-  Activity,
-  Wind,
-  Battery,
-  Settings2,
-  CheckCircle2,
+Bot,
+User as UserIcon,
+Send,
+Loader2,ChevronRight,
+Zap,
+Network,
+RefreshCw,
+Copy,
+Check,
+Download,
+Code2,
+Mic,
+MicOff,
+Play,
+Pause,
+Volume2,
+Upload,
+Image as ImageIcon,
+X,
+Eye,Workflow,
+Cpu,
+Gauge,
+Radio,
+Activity,
+Wind,
+Battery,CheckCircle2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import type { ConversationMessage } from "@/store/conversations-store";
 import type { DispatchStep } from "@/lib/multi-model-types";
 import { Markdown } from "./markdown";
