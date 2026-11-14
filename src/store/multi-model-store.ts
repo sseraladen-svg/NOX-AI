@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { authFetch } from "@/lib/auth-fetch";
-import { isMaskedApiKey } from "@/lib/crypto";
+import { isMaskedApiKey } from "@/lib/api-key-mask";
 import { testOllamaFromBrowser } from "@/lib/local-ollama";
 import {
 getGuestConfig,
