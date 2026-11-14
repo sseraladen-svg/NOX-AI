@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest,NextResponse } from "next/server";
 import { dispatch,saveUsage,type ChatMessage,type FeatureId,type IntentClassification } from "@/lib/multi-model-service";
 import { getCurrentUser } from "@/lib/auth";
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
         );
       } catch (usageErr) {
         // Usage-save failure shouldn't fail the dispatch — log and continue.
-        console.error("[nox] Failed to save usage records:", usageErr);
+        logger.error("Failed to save usage records", usageErr);
       }
     }
 

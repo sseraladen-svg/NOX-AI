@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest } from "next/server";
 import { dispatch,saveUsage,type ChatMessage,type FeatureId,type IntentClassification } from "@/lib/multi-model-service";
 import { getCurrentUser } from "@/lib/auth";
@@ -160,6 +161,7 @@ export async function POST(req: NextRequest) {
           });
           controller.close();
         } catch (err) {
+          logger.error("dispatch-stream failed", err);
           send({ type: "error", error: (err as Error).message });
           controller.close();
         }
@@ -175,6 +177,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
+    logger.error("dispatch-stream request failed", err);
     return new Response(
       JSON.stringify({ ok: false, error: (err as Error).message }),
       { status: 500, headers: { "Content-Type": "application/json" } }
