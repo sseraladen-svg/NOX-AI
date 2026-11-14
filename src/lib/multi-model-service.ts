@@ -1,4 +1,5 @@
 import "server-only";
+import { assertSafeEndpoint } from "@/lib/endpoint-guard";
 import { consumeApproval,rememberApproval,markStepConsumed } from "@/lib/ephemeral-state";
 import { db } from "@/lib/db";
 import { encryptApiKey,decryptApiKey,maskApiKey,isMaskedApiKey } from "@/lib/crypto";
@@ -71,31 +72,6 @@ function normalizeOllamaEndpoint(endpoint?: string): string {
 
 // Helper to resolve the correct endpoint field based on connection type
 // This is the single source of truth for which endpoint field to use
-const BLOCKED_ALWAYS = /^(169\.254\.|0\.0\.0\.0$|metadata\.google\.internal$|\[?fe80:|\[?::ffff:169\.254\.)/i;
-const PRIVATE_HOST = /^(localhost$|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?$|\[?f[cd][0-9a-f]{2}:|.*\.(internal|local)$)/i;
-
-/** Rejects non-http(s) URLs, cloud-metadata hosts, and (API type, production) private/loopback hosts. */
-function assertSafeEndpoint(raw: string, blockPrivate: boolean): string {
-  let u: URL;
-  try {
-    u = new URL(raw);
-  } catch {
-    throw new Error("Endpoint is not a valid URL.");
-  }
-  if (u.protocol !== "http:" && u.protocol !== "https:") {
-    throw new Error("Endpoint must use http or https.");
-  }
-  if (u.username || u.password) throw new Error("Endpoint must not contain credentials.");
-  const host = u.hostname.toLowerCase();
-  if (BLOCKED_ALWAYS.test(host)) throw new Error("Endpoint host is not allowed.");
-  if (blockPrivate && process.env.NODE_ENV === "production" && PRIVATE_HOST.test(host)) {
-    throw new Error(
-      "Private or loopback endpoints cannot be reached from the hosted server. Use the browser Ollama bridge or a public host."
-    );
-  }
-  return raw;
-}
-
 function resolveEndpoint(a: ModelAssignment): string | undefined {
   const raw = a.connectionType === "API" ? a.apiEndpoint : a.localEndpoint;
   // LOCAL endpoints (Ollama bridge) legitimately use 127.0.0.1; only API endpoints must be public.
