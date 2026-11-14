@@ -179,7 +179,7 @@ export function AuthOverlay() {
                     type="password"
                     required
                     className="pl-9 h-10"
-                    placeholder="At least 6 characters"
+                    placeholder="At least 8 characters"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                   />
@@ -255,7 +255,7 @@ export function AuthOverlay() {
                     type="password"
                     required
                     className="pl-9 h-10"
-                    placeholder={mode === "signup" ? "At least 6 characters" : "••••••••"}
+                    placeholder={mode === "signup" ? "At least 8 characters" : "••••••••"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                   />
