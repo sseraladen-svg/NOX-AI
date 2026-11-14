@@ -3,7 +3,8 @@
 import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check,Copy } from "lucide-react";
+import { Check,Copy,FileInput } from "lucide-react";
+import { useIdeBridge } from "@/store/ide-bridge-store";
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Markdown â€” renders AI responses with GFM (tables, strikethrough, task lists)
@@ -142,6 +143,16 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
     return extract(children);
   };
 
+  const ideActive = useIdeBridge((s) => s.active);
+  const lang = (() => {
+    const first = Array.isArray(children) ? children[0] : children;
+    const cls = React.isValidElement(first) ? ((first.props as { className?: string }).className ?? "") : "";
+    return /language-([\w+-]+)/.exec(cls)?.[1] ?? "";
+  })();
+  const applyToEditor = () => {
+    useIdeBridge.getState().apply?.(getText().replace(/\n$/, ""), lang);
+  };
+
   const copy = () => {
     navigator.clipboard.writeText(getText());
     setCopied(true);
@@ -150,6 +161,16 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="relative my-2.5 rounded-lg border border-border bg-[#0d0b14] overflow-hidden">
+      {ideActive && (
+        <button
+          onClick={applyToEditor}
+          className="absolute top-2 right-10 z-10 px-2 h-7 inline-flex items-center gap-1 rounded-md bg-muted/40 hover:bg-muted/70 text-[11px] text-muted-foreground hover:text-foreground transition"
+          title="Apply to the editor (uses the `file:` comment as the path, else the active file)"
+        >
+          <FileInput className="h-3.5 w-3.5" />
+          Apply
+        </button>
+      )}
       <button
         onClick={copy}
         className="absolute top-2 right-2 z-10 p-1.5 rounded-md bg-muted/40 hover:bg-muted/70 text-muted-foreground hover:text-foreground transition"

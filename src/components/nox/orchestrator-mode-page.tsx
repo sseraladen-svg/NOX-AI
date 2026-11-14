@@ -11,7 +11,8 @@ Eye,
 Settings2 as GearIcon,
 Cpu,
 Globe,
-Server
+Server,
+MessageSquare
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@/hooks/use-chat";
@@ -37,6 +38,7 @@ import { Sheet,SheetContent,SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import type { DispatchStep } from "@/lib/multi-model-types";
 import { useShallow } from "zustand/react/shallow";
+import { WorkspaceIDE } from "./workspace/workspace-ide";
 
 const SPECIALIST_ICONS: Record<
   SpecialistId,
@@ -62,6 +64,18 @@ export function OrchestratorModePage() {
   const mm = useMultiModel(useShallow((s) => ({ hostConfig: s.hostConfig, loaded: s.loaded, mode: s.mode, save: s.save, setMode: s.setMode, specialistConfigs: s.specialistConfigs })));
   const convs = useConversations(useShallow((s) => ({ activeMessages: s.activeMessages, clearActive: s.clearActive, loadingMessages: s.loadingMessages })));
   const [rosterOpen, setRosterOpen] = React.useState(false);
+  // "ide" = editor + terminal + chat workbench, "chat" = the classic chat layout.
+  const [view, setView] = React.useState<"ide" | "chat">("ide");
+  React.useEffect(() => {
+    try {
+      if (localStorage.getItem("nox-orch-view") === "chat") setView("chat");
+    } catch { /* storage unavailable */ }
+  }, []);
+  const switchView = () => {
+    const next = view === "ide" ? "chat" : "ide";
+    setView(next);
+    try { localStorage.setItem("nox-orch-view", next); } catch { /* ignore */ }
+  };
 
   // Ensure mode is ORCHESTRATOR + clear conversation from other modes
   React.useEffect(() => {
@@ -80,6 +94,29 @@ export function OrchestratorModePage() {
     status: "untested",
   };
 
+  const chatBody = (
+    <>
+          <MessagesArea
+            scrollRef={chat.scrollRef}
+            messages={chat.convs.activeMessages}
+            sending={chat.sending}
+            loadingMessages={chat.convs.loadingMessages}
+            welcomeProps={{
+              examples: EXAMPLES,
+              onPick: (t) => chat.setInput(t),
+              mode: "ORCHESTRATOR",
+            }}
+          />
+          <ChatInput
+            input={chat.input}
+            setInput={chat.setInput}
+            onSend={(image) => chat.sendMessage(chat.input, false, undefined, image)}
+            sending={chat.sending}
+            placeholder="Message the Host… (try: plan a login system)"
+          />
+    </>
+  );
+
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background nox-aurora">
       {/* Header */}
@@ -89,7 +126,7 @@ export function OrchestratorModePage() {
             <IconButton
               onClick={() => chat.setConvDrawerOpen(true)}
               label="Conversations"
-              className="xl:hidden"
+              className={view === "ide" ? "" : "xl:hidden"}
             >
               <PanelLeft className="h-4 w-4" />
             </IconButton>
@@ -114,9 +151,15 @@ export function OrchestratorModePage() {
           </div>
           <div className="flex items-center gap-2">
             <IconButton
+              onClick={switchView}
+              label={view === "ide" ? "Switch to chat layout" : "Switch to code workspace"}
+            >
+              {view === "ide" ? <MessageSquare className="h-4 w-4" /> : <Code2 className="h-4 w-4" />}
+            </IconButton>
+            <IconButton
               onClick={() => setRosterOpen(true)}
               label="Roster"
-              className="lg:hidden"
+              className={view === "ide" ? "" : "lg:hidden"}
             >
               <Network className="h-4 w-4" />
             </IconButton>
@@ -131,7 +174,12 @@ export function OrchestratorModePage() {
         </div>
       </header>
 
-      {/* Body: roster sidebar + chat */}
+      {view === "ide" ? (
+        <WorkspaceIDE
+          chatPane={<div className="flex-1 min-h-0 flex flex-col gap-3 p-3">{chatBody}</div>}
+          onAsk={chat.setInput}
+        />
+      ) : (
       <div className="flex-1 mx-auto w-full max-w-7xl px-3 sm:px-4 py-4 flex gap-4 min-h-0">
         <ExecutionRail
           sending={chat.sending}
@@ -149,44 +197,27 @@ export function OrchestratorModePage() {
           />
         </aside>
 
-        {/* Roster sidebar (mobile/tablet — same content, in a sheet) */}
-        <Sheet open={rosterOpen} onOpenChange={setRosterOpen}>
-          <SheetContent side="left" className="w-72 p-3 gap-2 overflow-y-auto nox-scroll">
-            <SheetTitle className="text-sm">Host &amp; Specialists</SheetTitle>
-            <RosterSidebar
-              hostAssignment={hostAssignment}
-              specialistConfigs={mm.specialistConfigs}
-              onConfigure={() => {
-                setRosterOpen(false);
-                chat.setAdvancedOpen(true);
-              }}
-            />
-          </SheetContent>
-        </Sheet>
 
         {/* Chat area */}
         <main className="flex-1 flex flex-col gap-3 min-h-0">
-          <MessagesArea
-            scrollRef={chat.scrollRef}
-            messages={chat.convs.activeMessages}
-            sending={chat.sending}
-            loadingMessages={chat.convs.loadingMessages}
-            welcomeProps={{
-              examples: EXAMPLES,
-              onPick: (t) => chat.setInput(t),
-              mode: "ORCHESTRATOR",
-            }}
-          />
-          <ChatInput
-            input={chat.input}
-            setInput={chat.setInput}
-            onSend={(image) => chat.sendMessage(chat.input, false, undefined, image)}
-            sending={chat.sending}
-            placeholder="Message the Host… (try: plan a login system)"
-          />
+          {chatBody}
         </main>
       </div>
-
+      )}
+      {/* Roster sidebar (mobile/tablet — same content, in a sheet) */}
+      <Sheet open={rosterOpen} onOpenChange={setRosterOpen}>
+        <SheetContent side="left" className="w-72 p-3 gap-2 overflow-y-auto nox-scroll">
+          <SheetTitle className="text-sm">Host &amp; Specialists</SheetTitle>
+          <RosterSidebar
+            hostAssignment={hostAssignment}
+            specialistConfigs={mm.specialistConfigs}
+            onConfigure={() => {
+              setRosterOpen(false);
+              chat.setAdvancedOpen(true);
+            }}
+          />
+        </SheetContent>
+      </Sheet>
       <ConversationDrawer
         open={chat.convDrawerOpen}
         onClose={() => chat.setConvDrawerOpen(false)}

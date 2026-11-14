@@ -1,5 +1,6 @@
 "use client";
 
+import { injectEditorContext } from "@/lib/workspace/editor-context";
 import * as React from "react";
 import {
 useConversations,
@@ -199,7 +200,9 @@ export function useChat() {
     // Read CURRENT activeMessages from the store - not the stale closure.
     const currentMessages = useConversations.getState().activeMessages;
 
-    const apiMessages = [
+    // The workspace snapshot (open file, selection, file list) is appended to the latest user
+    // message in the payload only; it is never shown or stored. Applies on confirm re-dispatch too.
+    const apiMessages = injectEditorContext([
       ...currentMessages
         .filter((m) => !m.error)
         .map((m) => ({ role: m.role, content: m.content, image: m.image })),
@@ -208,7 +211,7 @@ export function useChat() {
       ...(confirmMultiAgent
         ? []
         : [{ role: "user" as const, content: text, image }]),
-    ];
+    ]);
 
     try {
       // Use streaming endpoint for progressive text display
