@@ -1,4 +1,5 @@
 import "server-only";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { assertSafeEndpoint } from "@/lib/endpoint-guard";
 import { consumeApproval,rememberApproval,markStepConsumed } from "@/lib/ephemeral-state";
 import { db } from "@/lib/db";
@@ -94,6 +95,11 @@ function migrateEndpoint(a: ModelAssignment | null | undefined): ModelAssignment
 }
 
 // Simple in-memory cache for reachability checks with 60s TTL
+// Max output tokens for the current request. Chat keeps the historical 1024; the workspace agent
+// raises it (via tokenBudget.run) so whole files are not cut off mid-way.
+const tokenBudget = new AsyncLocalStorage<number>();
+const maxTok = () => tokenBudget.getStore() ?? 1024;
+
 const reachabilityCache = new Map<string, { result: ModelLimit; expiresAt: number }>();
 const CACHE_TTL_MS = 60_000; // 60 seconds
 
@@ -1355,7 +1361,7 @@ async function callOpenAiCompatible(
   const res = await fetchWithRetry(url, {
     method: "POST",
     headers,
-    body: JSON.stringify({ model, max_tokens: 1024, messages }),
+    body: JSON.stringify({ model, max_tokens: maxTok(), messages }),
   }, DEFAULT_TIMEOUTS.API);
 
   if (!res.ok) {
@@ -1538,7 +1544,7 @@ async function callAnthropic(
       "x-api-key": safeKey,
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({ model, max_tokens: 1024, system: systemHint, messages }),
+    body: JSON.stringify({ model, max_tokens: maxTok(), system: systemHint, messages }),
   }, DEFAULT_TIMEOUTS.API);
 
   if (!res.ok) {
@@ -1582,7 +1588,7 @@ async function callGemini(
     return { role: m.role === "assistant" ? "model" : "user", parts };
   });
 
-  const init = buildGeminiRequestInit(normalizedKey, "POST", { contents, systemInstruction: { parts: [{ text: systemHint }] }, generationConfig: { maxOutputTokens: 1024 } });
+  const init = buildGeminiRequestInit(normalizedKey, "POST", { contents, systemInstruction: { parts: [{ text: systemHint }] }, generationConfig: { maxOutputTokens: maxTok() } });
   const res = await fetchWithRetry(url, init, DEFAULT_TIMEOUTS.API);
 
   if (!res.ok) {
@@ -1627,7 +1633,7 @@ async function callGeminiStreaming(
   const init = buildGeminiRequestInit(normalizedKey, "POST", {
     contents,
     systemInstruction: { parts: [{ text: systemHint }] },
-    generationConfig: { maxOutputTokens: 1024 },
+    generationConfig: { maxOutputTokens: maxTok() },
   });
 
   const res = await fetch(url, { ...init, signal: AbortSignal.timeout(DEFAULT_TIMEOUTS.GENERATION) });
@@ -4264,4 +4270,27 @@ export async function getRecentUsage(
     error: r.error,
     createdAt: r.createdAt.toISOString(),
   }));
+}
+
+/**
+ * One model call for the workspace agent: no classification or synthesis steps, a custom system
+ * prompt, and a larger output budget. API roles only; local Ollama is called from the browser.
+ */
+export async function agentComplete(
+  userId: string,
+  role: "host" | SpecialistId,
+  system: string,
+  messages: ChatMessage[],
+  maxTokens = 4096
+): Promise<{ text: string; tokens?: TokenUsage; provider: string; model: string }> {
+  const doc = await getConfigInternal(userId);
+  const configured = role === "host" ? doc.hostConfig : doc.specialistConfigs?.[role];
+  if (!configured) throw new Error(`No model is configured for ${role}.`);
+  const base = migrateEndpoint(configured) ?? configured;
+  if (base.connectionType !== "API") throw new Error("This role uses a local model, which runs from the browser.");
+  const assignment: ModelAssignment = { ...base, endpoint: resolveEndpoint(base) };
+  const result = await tokenBudget.run(maxTokens, () =>
+    callApi(assignment, system, messages.filter((m) => m.role !== "system"))
+  );
+  return { text: result.text, tokens: result.tokens, provider: assignment.provider, model: assignment.modelName };
 }
