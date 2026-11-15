@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useShallow } from "zustand/react/shallow";
-import { MessageSquare, PanelLeft, PanelBottom, Code2, FileText } from "lucide-react";
+import { MessageSquare, PanelLeft, PanelBottom, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/store/workspace-store";
 import { useIdeBridge } from "@/store/ide-bridge-store";
@@ -12,6 +12,8 @@ import { WorkspaceExplorer } from "./workspace-explorer";
 import { WorkspaceEditor } from "./workspace-editor";
 import { WorkspaceTerminal } from "./workspace-terminal";
 import { WorkspacePreview } from "./workspace-preview";
+import { AgentPanel } from "./agent-panel";
+import { useAgent } from "@/store/agent-store";
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
@@ -39,6 +41,7 @@ export function WorkspaceIDE({ chatPane, onAsk }: { chatPane: React.ReactNode; o
     }))
   );
   const [pane, setPane] = React.useState<"chat" | "code">("chat");
+  const [side, setSide] = React.useState<"agent" | "chat">("agent");
   const [chatW, setChatW] = React.useState(440);
   const [termH, setTermH] = React.useState(240);
   const [preview, setPreview] = React.useState<string | null>(null);
@@ -94,7 +97,14 @@ export function WorkspaceIDE({ chatPane, onAsk }: { chatPane: React.ReactNode; o
             <span className="text-[10px] text-muted-foreground ml-1 truncate">{active ? baseName(active) : "No file"} · {fileCount} files</span>
           </div>
           <div className="flex-1 min-h-0">
-            <WorkspaceEditor onAsk={(t) => { onAsk(t); setPane("chat"); }} onPreview={setPreview} />
+            <WorkspaceEditor
+              onAsk={(t) => {
+                if (side === "chat") onAsk(t);
+                else useAgent.getState().setDraft(t);
+                setPane("chat");
+              }}
+              onPreview={setPreview}
+            />
           </div>
           {terminalOpen && (
             <>
@@ -114,14 +124,22 @@ export function WorkspaceIDE({ chatPane, onAsk }: { chatPane: React.ReactNode; o
         style={{ ["--chat-w" as string]: `${chatW}px` }}
         className={cn("min-h-0 min-w-0 flex-col flex-1 lg:flex-none lg:shrink-0 lg:w-[var(--chat-w)]", pane === "code" ? "hidden lg:flex" : "flex")}
       >
-        <div className="flex items-center justify-between gap-2 px-3 h-7 border-b border-border shrink-0 bg-card/30">
-          <span className="text-[10px] font-semibold tracking-wider text-muted-foreground flex items-center gap-1"><FileText className="h-3 w-3" />HOST &amp; SPECIALISTS</span>
-          <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer select-none" title="Send your open file, selection and file list with each message">
-            <input type="checkbox" checked={contextEnabled} onChange={(e) => setContextEnabled(e.target.checked)} className="accent-foreground" />
-            Editor context
-          </label>
+        <div className="flex items-center justify-between gap-2 px-2 h-8 border-b border-border shrink-0 bg-card/30">
+          <div className="flex items-center gap-1">
+            {(["agent", "chat"] as const).map((t) => (
+              <button key={t} onClick={() => setSide(t)} className={cn("h-6 px-2.5 rounded text-[11px] font-medium transition", side === t ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                {t === "agent" ? "Agent" : "Host chat"}
+              </button>
+            ))}
+          </div>
+          {side === "chat" && (
+            <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer select-none" title="Send your open file, selection and file list with each message">
+              <input type="checkbox" checked={contextEnabled} onChange={(e) => setContextEnabled(e.target.checked)} className="accent-foreground" />
+              Editor context
+            </label>
+          )}
         </div>
-        {chatPane}
+        {side === "agent" ? <AgentPanel /> : chatPane}
       </aside>
 
       <WorkspacePreview path={preview} onClose={() => setPreview(null)} />

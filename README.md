@@ -98,6 +98,23 @@ Orchestrator mode opens as a code workspace (toggle back to the classic chat lay
   - `node` and the editor **Run** button execute JavaScript in a sandboxed iframe worker (no cookies, no access to the app's API; 8 second limit). HTML files preview in a sandboxed iframe with relative CSS and JS inlined.
   - *Local shell* runs real commands on the machine hosting the app. It is off by default and only works when `NOX_LOCAL_TERMINAL=1`, you are signed in, the request targets `localhost`, and the app is not on Vercel. Commands run with the server user's permissions, so enable it only on your own computer. Secrets (`AUTH_SECRET`, `NOX_AI_SECRET`, database URLs) are removed from the command environment.
 
+### Agent: AI that edits your files
+
+The **Agent** tab (default in the workspace) works like VS Code agent mode. You describe a task; the agents create, edit, read, rename and delete files in the workspace themselves, run JavaScript to check their work, and show every step. Nothing is pasted into chat for you to copy.
+
+| Step | Role (from Advanced settings) | When | What it does |
+|---|---|---|---|
+| Plan | Planning | big or vague tasks (`Plan: auto`) | Short numbered plan, no code |
+| Build | Coding | always | Explores with read/list/search, edits files, runs `.js` files, fixes errors, ends with a summary |
+| Review | Engineering | 2+ files changed or a run failed | Checks the result and applies small fixes |
+
+If a role has no usable model (for example an API role without a key), it falls back to Coding, then Host. Each step is one model call, so small tasks finish fast.
+
+- **Actions:** `<nox:write>`, `<nox:edit>` (exact find and replace), `<nox:delete>`, `<nox:rename>`, `<nox:mkdir>`, `<nox:read>`, `<nox:list>`, `<nox:search>`, `<nox:run>`, `<nox:shell>`, `<nox:done>`. A fenced code block starting with `// file: /path` is accepted as a fallback for small models.
+- **Rules and workflow** live in `src/lib/workspace/agent-prompts.ts` (`AGENT_PIPELINE`, `BUILDER_SYSTEM`, `PLANNER_SYSTEM`, `REVIEWER_SYSTEM`). Edit them to change how the agents behave.
+- **Safety:** `.env`, keys, `.git` and `node_modules` are never read, sent to a model or modified. The agent cannot delete folders. Every run can be **Kept**, **Undone** (only the files it touched) or **Reviewed** in a side-by-side diff. Shell commands are off by default and need the Local shell plus a confirmation for each command.
+- **Models:** local Ollama models run directly in your browser with an 8k context. API models go through `/api/workspace/agent-turn` with a 4096-token output limit. For reliable editing use a coding-capable model (for example `qwen2.5-coder:7b` or `llama3.1:8b`); very small models often break the action format.
+
 ## Getting started
 
 Requires a current Node.js LTS (20+) and a PostgreSQL database.
@@ -209,7 +226,7 @@ tests/            node:test unit tests
 | Dispatch | `/api/multi-model/dispatch`, `dispatch-stream`, `dispatch-resume` |
 | Conversations | `/api/conversations/list`, `create`, `get`, `rename`, `delete`, `save-message` |
 | Usage | `/api/usage/summary`, `/api/usage/recent` |
-| Workspace | `/api/workspace/exec` (Local shell; disabled unless enabled and local) |
+| Workspace | `/api/workspace/exec` (Local shell; disabled unless enabled and local), `/api/workspace/agent-turn` (one agent model call, API roles) |
 | Health | `/api/health` (liveness and database check) |
 | Guest | `/api/guest/dispatch`, `dispatch-resume`, `test` |
 | Voice | `/api/voice/elevenlabs` |
