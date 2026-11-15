@@ -28,3 +28,20 @@ test("rejects bad protocols, credentials and invalid URLs", () => {
   assert.throws(() => assertSafeEndpoint("https://user:pw@example.com", false));
   assert.throws(() => assertSafeEndpoint("not a url", false));
 });
+
+import { isMissingTableError, retryOnMissingTable } from "../src/lib/missing-table.ts";
+
+test("missing-table detection", () => {
+  assert.equal(isMissingTableError({ code: "P2021" }), true);
+  assert.equal(isMissingTableError(new Error('The table `public.EphemeralState` does not exist in the current database.')), true);
+  assert.equal(isMissingTableError(new Error("Unique constraint failed")), false);
+  assert.equal(isMissingTableError(null), false);
+});
+
+test("retryOnMissingTable creates the table once then retries; other errors pass through", async () => {
+  let calls = 0, ensured = 0;
+  const out = await retryOnMissingTable(async () => { if (++calls === 1) throw { code: "P2021" }; return "ok"; }, async () => { ensured++; });
+  assert.deepEqual([out, calls, ensured], ["ok", 2, 1]);
+  await assert.rejects(retryOnMissingTable(async () => { throw new Error("boom"); }, async () => { ensured++; }), /boom/);
+  assert.equal(ensured, 1);
+});
