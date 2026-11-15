@@ -1,3 +1,5 @@
+import { isSensitivePath } from "./agent-protocol.ts";
+
 // Bridges the open workspace to the chat: the IDE registers a provider, the chat hook appends
 // the snapshot to the latest user message (API payload only, never shown or stored).
 
@@ -21,11 +23,13 @@ export function formatEditorContext(s: EditorSnapshot): string {
     "[Workspace context from the user's code editor. Use these exact paths.",
     "To create or change a file, reply with the FULL new content in a fenced code block whose first line is a comment `file: <path>` (for example `// file: /src/app.ts`); the user applies it with one click.]",
     `Files (${s.paths.length}):`,
-    ...s.paths.slice(0, MAX_PATHS).map((p) => `- ${p}`),
+    ...s.paths.filter((p) => !isSensitivePath(p)).slice(0, MAX_PATHS).map((p) => `- ${p}`),
   ];
   if (s.paths.length > MAX_PATHS) lines.push(`- … ${s.paths.length - MAX_PATHS} more`);
   if (s.openTabs.length) lines.push(`Open tabs: ${s.openTabs.join(", ")}`);
-  if (s.active) {
+  if (s.active && isSensitivePath(s.active.path)) {
+    lines.push(`Active file: ${s.active.path} (contents hidden: protected file)`);
+  } else if (s.active) {
     const c = s.active.content;
     lines.push(`Active file: ${s.active.path}`, "```", c.length > MAX_FILE_CHARS ? c.slice(0, MAX_FILE_CHARS) + "\n… (truncated)" : c, "```");
     if (s.active.selection) {
