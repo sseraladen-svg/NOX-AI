@@ -102,18 +102,38 @@ Orchestrator mode opens as a code workspace (toggle back to the classic chat lay
 
 The **Agent** tab (default in the workspace) works like VS Code agent mode. You describe a task; the agents create, edit, read, rename and delete files in the workspace themselves, run JavaScript to check their work, and show every step. Nothing is pasted into chat for you to copy.
 
-| Step | Role (from Advanced settings) | When | What it does |
-|---|---|---|---|
-| Plan | Planning | big or vague tasks (`Plan: auto`) | Short numbered plan, no code |
-| Build | Coding | always | Explores with read/list/search, edits files, runs `.js` files, fixes errors, ends with a summary |
-| Review | Engineering | 2+ files changed or a run failed | Checks the result and applies small fixes |
+**Flow**
 
-If a role has no usable model (for example an API role without a key), it falls back to Coding, then Host. Each step is one model call, so small tasks finish fast.
+1. **Analyze (rules, 0 tokens).** The request is classified by rules into intent (question, create, change, clean-up, automation, plan-only), size (small, medium, large) and the agents it needs.
+2. **Plan check popup.** Before anything runs you see the agents that will be used, why each is needed, and whether its model is ready. It checks live: API key saved, Ollama reachable, model installed, and whether the model suits coding. Unavailable agents show an alternative (use the Coding model, or `ollama pull qwen2.5-coder:7b`). You can switch each agent's model, turn optional steps off, and then press **Run agents**. A setting controls when it appears: always, bigger tasks only, or never.
+3. **Run.** Plan (Planning model) for large tasks, then Build (Coding or Automation model), then Review (Engineering model) only when it is useful. Each step is a single model call.
+4. **Result.** Summary, files changed, model calls used, and **Keep / Undo / Review changes** (diff view).
 
-- **Actions:** `<nox:write>`, `<nox:edit>` (exact find and replace), `<nox:delete>`, `<nox:rename>`, `<nox:mkdir>`, `<nox:read>`, `<nox:list>`, `<nox:search>`, `<nox:run>`, `<nox:shell>`, `<nox:done>`. A fenced code block starting with `// file: /path` is accepted as a fallback for small models.
-- **Rules and workflow** live in `src/lib/workspace/agent-prompts.ts` (`AGENT_PIPELINE`, `BUILDER_SYSTEM`, `PLANNER_SYSTEM`, `REVIEWER_SYSTEM`). Edit them to change how the agents behave.
-- **Safety:** `.env`, keys, `.git` and `node_modules` are never read, sent to a model or modified. The agent cannot delete folders. Every run can be **Kept**, **Undone** (only the files it touched) or **Reviewed** in a side-by-side diff. Shell commands are off by default and need the Local shell plus a confirmation for each command.
-- **Models:** local Ollama models run directly in your browser with an 8k context. API models go through `/api/workspace/agent-turn` with a 4096-token output limit. For reliable editing use a coding-capable model (for example `qwen2.5-coder:7b` or `llama3.1:8b`); very small models often break the action format.
+| Task | Agents | Steps |
+|---|---|---|
+| Question ("explain this") | Coding, read-only | up to 3 |
+| Small create/change | Coding | up to 4 |
+| Medium | Coding, optional Review | up to 8 |
+| Large | Planning, Coding, Review | up to 12 |
+| "Plan …" | Planning only | 1 |
+
+**Efficiency rules** (`AGENT_RULEBOOK` in `src/lib/workspace/agent-prompts.ts`, enforced in code)
+
+- Rules decide intent and agents, not a model call.
+- Only needed agents run; Review only when 2+ files changed or a run failed.
+- Questions are read-only; writes are rejected.
+- Context diet: file tree plus open files; the planner sees the tree only; bodies of files the agent changed are dropped from later steps.
+- Old file contents and tool results are trimmed before each call.
+- Actions are batched; a small task finishes without an extra call after a clean write.
+- Step, context and output limits scale with task size; the Ollama context is sized to the real prompt.
+- Agents pass a compact handoff (plan, changed files, run output, open issues) instead of the whole conversation.
+- If an agent's model is unavailable the next best one is used, or you choose in the popup.
+
+**Actions** the agents use: `<nox:write>`, `<nox:edit>` (exact find and replace), `<nox:delete>`, `<nox:rename>`, `<nox:mkdir>`, `<nox:read>`, `<nox:list>`, `<nox:search>`, `<nox:run>`, `<nox:shell>`, `<nox:done>`. A fenced block starting with `// file: /path` is accepted as a fallback for small models. The prompts live in the same file; edit them to change behaviour.
+
+**Safety:** `.env`, keys, `.git` and `node_modules` are never read, sent to a model or modified. Agents cannot delete folders. Shell commands are off by default and need the Local shell plus a confirmation for each command.
+
+**Models:** local Ollama models run directly in your browser; API models go through `/api/workspace/agent-turn`. For reliable editing use a coder model of 7B or more (for example `qwen2.5-coder:7b`); very small models often break the action format, and vision models such as `moondream` are flagged as unsuitable.
 
 ## Getting started
 
