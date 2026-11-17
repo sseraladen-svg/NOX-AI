@@ -199,6 +199,8 @@ export function useChat() {
 
     // Read CURRENT activeMessages from the store - not the stale closure.
     const currentMessages = useConversations.getState().activeMessages;
+    const userMessageAlreadyInHistory =
+      confirmMultiAgent || mm.mode === "MULTI";
 
     // The workspace snapshot (open file, selection, file list) is appended to the latest user
     // message in the payload only; it is never shown or stored. Applies on confirm re-dispatch too.
@@ -206,9 +208,9 @@ export function useChat() {
       ...currentMessages
         .filter((m) => !m.error)
         .map((m) => ({ role: m.role, content: m.content, image: m.image })),
-      // Only add the user message if it's not already in the history
-      // (on confirmation re-dispatch, it's already there)
-      ...(confirmMultiAgent
+      // MULTI messages are appended locally above; confirmed requests also
+      // already include the user message from their first dispatch.
+      ...(userMessageAlreadyInHistory
         ? []
         : [{ role: "user" as const, content: text, image }]),
     ]);
