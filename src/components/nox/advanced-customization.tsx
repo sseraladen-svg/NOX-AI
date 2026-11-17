@@ -3,30 +3,31 @@
 import * as React from "react";
 import { motion,AnimatePresence } from "framer-motion";
 import {
-Globe,
-Layers,
-Network,
-Save,
-RotateCcw,
-Download,
-Upload,
-Bot,
-Code2,
-Eye,
-Mic,
-Cpu,
-Settings2,
-Server,
-Clock,
-Info,
-CheckCircle2,
-AlertTriangle,
-Loader2,
+  Globe,
+  Layers,
+  Network,
+  Save,
+  RotateCcw,
+  Download,
+  Upload,
+  Brain,
+  Code2,
+  Eye,
+  Mic,
+  Cpu,
+  Settings2,
+  Server,
+  Clock,
+  Info,
+  CheckCircle2,
+  AlertTriangle,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import {
@@ -51,7 +52,7 @@ interface Provider {
 }
 
 const FEATURE_ICONS: Record<FeatureId, React.ComponentType<{ className?: string }>> = {
-  chat: Bot,
+  "deep-analysis": Brain,
   voice: Mic,
   vision: Eye,
   coding: Code2,
@@ -268,6 +269,28 @@ export function AdvancedCustomization() {
                     providers={providers}
                     testState={store.tests[f.id]}
                   />
+                  <div className="mt-4 space-y-1.5">
+                    <Label htmlFor={`system-prompt-${f.id}`} className="text-xs text-muted-foreground">
+                      Feature system prompt (optional)
+                    </Label>
+                    <Textarea
+                      id={`system-prompt-${f.id}`}
+                      value={a.systemPrompt || ""}
+                      onChange={(event) =>
+                        store.setFeature(f.id, {
+                          ...a,
+                          systemPrompt: event.target.value || undefined,
+                        })
+                      }
+                      maxLength={4000}
+                      rows={4}
+                      placeholder="Use the built-in feature rules, or enter an override."
+                      className="resize-y text-xs"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Leave blank to use the built-in {f.label} rules.
+                    </p>
+                  </div>
                 </Card>
               );
             })}
