@@ -6,7 +6,7 @@ MultiModelConfigDoc,
 import {
   migrateFeatureConfigs,
   normalizeFeatureId,
-} from "@/lib/multi-model-types";
+} from "./multi-model-types.ts";
 
 export class GuestRequestTooLargeError extends Error {
   constructor() {

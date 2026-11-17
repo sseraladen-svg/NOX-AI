@@ -10,6 +10,7 @@ import {
   sanitizeGuestConfig,
   validateGuestMessages,
 } from "../src/lib/guest-session.ts";
+import { migrateFeatureConfigs } from "../src/lib/multi-model-types.ts";
 
 test("accepts valid guest browser token totals", () => {
   assert.equal(
@@ -226,6 +227,51 @@ test("sanitizes only the selected multi-mode feature assignment", () => {
   );
   assert.deepEqual(Object.keys(config.featureConfigs), ["coding"]);
   assert.equal(config.featureConfigs.coding.provider, "openai");
+});
+
+test("migrates legacy chat assignments to deep analysis", () => {
+  const legacy = {
+    connectionType: "API",
+    provider: "openai",
+    modelName: "gpt-4o-mini",
+    apiKey: "test-key",
+  };
+  assert.deepEqual(migrateFeatureConfigs({ chat: legacy }), {
+    "deep-analysis": legacy,
+  });
+  assert.deepEqual(
+    migrateFeatureConfigs({
+      chat: legacy,
+      "deep-analysis": { ...legacy, modelName: "new-model" },
+    }),
+    { "deep-analysis": { ...legacy, modelName: "new-model" } }
+  );
+  assert.deepEqual(
+    migrateFeatureConfigs({
+      chat: legacy,
+      "deep-analysis": { malformed: true },
+    }),
+    { "deep-analysis": legacy }
+  );
+});
+
+test("guest Multi Mode accepts a legacy chat feature configuration", () => {
+  const config = sanitizeGuestConfig(
+    {
+      mode: "MULTI",
+      featureConfigs: {
+        chat: {
+          connectionType: "API",
+          provider: "openai",
+          modelName: "gpt-4o-mini",
+          apiKey: "test-key",
+        },
+      },
+    },
+    "deep-analysis"
+  );
+  assert.deepEqual(Object.keys(config.featureConfigs), ["deep-analysis"]);
+  assert.equal(config.featureConfigs["deep-analysis"].modelName, "gpt-4o-mini");
 });
 
 test("accepts only guest timeouts between one and 300 seconds", () => {
