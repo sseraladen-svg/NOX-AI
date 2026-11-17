@@ -10,7 +10,7 @@ export type ConnectionType = "LOCAL" | "API";
 export type Mode = "SINGLE" | "MULTI" | "ORCHESTRATOR";
 
 export type FeatureId =
-  | "chat"
+  | "deep-analysis"
   | "voice"
   | "vision"
   | "coding"
@@ -36,6 +36,7 @@ export interface ModelAssignment {
   localModelName?: string;
   cliPath?: string;
   cliArgs?: string;
+  systemPrompt?: string;
   status?: "untested" | "ready" | "error";
   statusMessage?: string;
   version?: string;
@@ -236,7 +237,12 @@ export const FEATURES: {
   label: string;
   description: string;
 }[] = [
-  { id: "chat", label: "Chat", description: "General conversation & Q&A." },
+  {
+    id: "deep-analysis",
+    label: "Deep Analysis",
+    description:
+      "Comprehensive research, multi-step reasoning, and structured analysis.",
+  },
   {
     id: "voice",
     label: "Voice",
@@ -259,6 +265,38 @@ export const FEATURES: {
     description: "Physical/motion control plans.",
   },
 ];
+
+export function normalizeFeatureId(value: unknown): FeatureId | null {
+  if (value === "chat") return "deep-analysis";
+  return FEATURES.find((feature) => feature.id === value)?.id || null;
+}
+
+export function migrateFeatureConfigs(
+  value: unknown
+): Partial<Record<FeatureId, ModelAssignment>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  const source = value as Record<string, unknown>;
+  const migrated: Partial<Record<FeatureId, ModelAssignment>> = {};
+  const isAssignment = (assignment: unknown): assignment is ModelAssignment =>
+    !!assignment &&
+    typeof assignment === "object" &&
+    !Array.isArray(assignment) &&
+    ((assignment as Record<string, unknown>).connectionType === "API" ||
+      (assignment as Record<string, unknown>).connectionType === "LOCAL") &&
+    typeof (assignment as Record<string, unknown>).provider === "string" &&
+    typeof (assignment as Record<string, unknown>).modelName === "string";
+
+  for (const feature of FEATURES) {
+    const assignment =
+      feature.id === "deep-analysis" && !isAssignment(source["deep-analysis"])
+        ? source.chat
+        : source[feature.id];
+    if (isAssignment(assignment)) migrated[feature.id] = assignment;
+  }
+
+  return migrated;
+}
 
 export const SPECIALISTS: {
   id: SpecialistId;
@@ -377,6 +415,13 @@ export const PROVIDERS = [
     connectionType: "LOCAL" as ConnectionType,
     defaultModel: "local-model.llamafile",
     models: ["local-model.llamafile"],
+  },
+  {
+    id: "qwen-code",
+    label: "Qwen Code (Local CLI)",
+    connectionType: "LOCAL" as ConnectionType,
+    defaultModel: "configured-default",
+    models: ["configured-default"],
   },
 ];
 
