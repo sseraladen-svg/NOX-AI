@@ -3,6 +3,10 @@ ChatMessage,
 ModelAssignment,
 MultiModelConfigDoc,
 } from "@/lib/multi-model-types";
+import {
+  migrateFeatureConfigs,
+  normalizeFeatureId,
+} from "@/lib/multi-model-types";
 
 export class GuestRequestTooLargeError extends Error {
   constructor() {
@@ -76,7 +80,7 @@ const API_PROVIDERS = new Set([
 ]);
 const MODES = new Set(["SINGLE", "MULTI", "ORCHESTRATOR"]);
 const FEATURES = new Set([
-  "chat",
+  "deep-analysis",
   "voice",
   "vision",
   "coding",
@@ -93,6 +97,10 @@ export function isValidGuestSessionId(value: unknown): value is string {
 export function sanitizeGuestAssignment(value: unknown): ModelAssignment | null {
   if (!value || typeof value !== "object") return null;
   const assignment = value as Partial<ModelAssignment>;
+  const systemPrompt = assignment.systemPrompt?.trim();
+  if (systemPrompt && systemPrompt.length > 4000) {
+    throw new Error("Feature system prompts must be 4,000 characters or fewer.");
+  }
   if (
     typeof assignment.modelName !== "string" ||
     !assignment.modelName.trim() ||
@@ -125,6 +133,7 @@ export function sanitizeGuestAssignment(value: unknown): ModelAssignment | null 
       provider: assignment.provider.toLowerCase(),
       modelName: assignment.modelName.trim(),
       apiKey: assignment.apiKey.trim(),
+      ...(systemPrompt ? { systemPrompt } : {}),
     };
   }
 
@@ -152,6 +161,7 @@ export function sanitizeGuestAssignment(value: unknown): ModelAssignment | null 
       provider: "ollama",
       modelName: assignment.modelName.trim(),
       localEndpoint: localEndpoint.replace(/\/+$/, ""),
+      ...(systemPrompt ? { systemPrompt } : {}),
     };
   }
 
@@ -187,12 +197,14 @@ export function sanitizeGuestConfig(
     }
   }
 
-  const selectedFeature = requestedFeature || "chat";
+  const selectedFeature =
+    normalizeFeatureId(requestedFeature) || "deep-analysis";
+  const migratedFeatureConfigs = migrateFeatureConfigs(config.featureConfigs);
   const featureConfigs: MultiModelConfigDoc["featureConfigs"] =
     config.mode === "MULTI"
       ? {
           [selectedFeature]: sanitizeGuestAssignment(
-            config.featureConfigs?.[selectedFeature]
+            migratedFeatureConfigs[selectedFeature]
           ),
         }
       : undefined;
