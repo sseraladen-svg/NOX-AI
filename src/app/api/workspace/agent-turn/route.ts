@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   if (await isRateLimited(getClientIp(req.headers), "agent-turn", 120, 60_000)) {
     return Response.json({ ok: false, error: "Too many requests. Slow down." }, { status: 429 });
   }
-  let body: { role?: unknown; system?: unknown; messages?: unknown };
+  let body: { role?: unknown; system?: unknown; messages?: unknown; maxTokens?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -38,7 +38,8 @@ export async function POST(req: NextRequest) {
     return Response.json({ ok: false, error: "Conversation too large." }, { status: 413 });
   }
   try {
-    const r = await agentComplete(user.id, role as Parameters<typeof agentComplete>[1], system, messages);
+    const maxTokens = typeof body.maxTokens === "number" ? Math.min(8192, Math.max(512, Math.floor(body.maxTokens))) : 4096;
+    const r = await agentComplete(user.id, role as Parameters<typeof agentComplete>[1], system, messages, maxTokens);
     return Response.json({ ok: true, text: r.text, tokens: r.tokens, provider: r.provider, model: r.model });
   } catch (e) {
     logger.error("agent-turn failed", e);

@@ -1,11 +1,12 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 import { useWorkspace } from "@/store/workspace-store";
-import { runAgent, type AgentEvent, type AgentMsg, type AgentOptions } from "@/lib/workspace/agent-runner";
+import { runAgent, type AgentEvent, type AgentMsg, type Phase } from "@/lib/workspace/agent-runner";
+import { type Analysis, type Availability, type Source, analyzeTask } from "@/lib/workspace/agent-routing";
 import { type AgentAction } from "@/lib/workspace/agent-protocol";
 import { type FileChange, revertChanges } from "@/lib/workspace/agent-exec";
 import { type VfsState } from "@/lib/workspace/vfs";
-import { callAgentModel, describeRole } from "@/lib/workspace/agent-model";
+import { callAgentModel, checkAvailability, describeRole } from "@/lib/workspace/agent-model";
 import { execLocalCommand } from "@/lib/workspace/local-shell-client";
 import { runFileCaptured } from "@/components/nox/workspace/run-actions";
 
@@ -19,7 +20,11 @@ export type Item =
 
 type NewItem<T = Item> = T extends Item ? Omit<T, "id"> : never;
 
-export type Settings = Pick<AgentOptions, "plan" | "review"> & { allowShell: boolean };
+export type Confirm = "always" | "complex" | "never";
+export type Settings = { confirm: Confirm; allowShell: boolean };
+export type Pending = { task: string; analysis: Analysis; availability: Availability[] | null };
+/** What the user chose in the mission popup. */
+export type Edits = { enabled: Partial<Record<Phase, boolean>>; sources: Partial<Record<Phase, Source | null>> };
 
 interface AgentState {
   items: Item[];
@@ -27,11 +32,15 @@ interface AgentState {
   streaming: string;
   draft: string;
   settings: Settings;
+  pending: Pending | null;
   history: AgentMsg[];
   checkpoint: { before: VfsState; changes: FileChange[] } | null;
   setDraft: (t: string) => void;
   setSettings: (s: Partial<Settings>) => void;
   start: (task: string) => Promise<void>;
+  confirmRun: (edits: Edits) => Promise<void>;
+  execute: (task: string, analysis: Analysis, edits: Edits) => Promise<void>;
+  cancelPending: () => void;
   stop: () => void;
   undo: () => void;
   keep: () => void;
@@ -47,7 +56,8 @@ export const useAgent = create<AgentState>((set, get) => ({
   running: false,
   streaming: "",
   draft: "",
-  settings: { plan: "auto", review: true, allowShell: false },
+  settings: { confirm: "always", allowShell: false },
+  pending: null,
   history: [],
   checkpoint: null,
 
@@ -66,9 +76,35 @@ export const useAgent = create<AgentState>((set, get) => ({
     toast.success("Agent changes reverted");
   },
 
+  cancelPending: () => set({ pending: null }),
+
   start: async (task) => {
     const text = task.trim();
-    if (!text || get().running) return;
+    if (!text || get().running || get().pending) return;
+    const analysis = analyzeTask(text, { fileCount: Object.keys(useWorkspace.getState().vfs.files).length });
+    const { confirm } = get().settings;
+    if (confirm === "never" || (confirm === "complex" && analysis.complexity === "small")) {
+      await get().execute(text, analysis, { enabled: {}, sources: {} });
+      return;
+    }
+    set({ pending: { task: text, analysis, availability: null }, draft: "" });
+    void checkAvailability()
+      .then((availability) => set((st) => (st.pending?.task === text ? { pending: { ...st.pending, availability } } : st)))
+      .catch(() => set((st) => (st.pending?.task === text ? { pending: { ...st.pending, availability: [] } } : st)));
+  },
+
+  confirmRun: async (edits) => {
+    const p = get().pending;
+    if (!p) return;
+    set({ pending: null });
+    await get().execute(p.task, p.analysis, edits);
+  },
+
+  execute: async (task, analysis, edits) => {
+    const text = task.trim();
+    const stepOn = (id: Phase) => edits.enabled[id] ?? analysis.steps.find((s) => s.id === id)?.enabled ?? false;
+    const hasStep = (id: Phase) => analysis.steps.some((s) => s.id === id);
+    const sourceFor = (role: string): Source | null | undefined => (role === "planning" ? edits.sources.plan : role === "engineering" ? edits.sources.review : edits.sources.build);
     const push = (i: NewItem) => set((st) => ({ items: [...st.items, { ...i, id: ++seq } as Item] }));
     push({ kind: "user", text });
     set({ running: true, streaming: "", draft: "", checkpoint: null });
@@ -78,7 +114,7 @@ export const useAgent = create<AgentState>((set, get) => ({
     const ws = () => useWorkspace.getState();
 
     const onEvent = (e: AgentEvent) => {
-      if (e.type === "phase") push({ kind: "phase", phase: e.phase, label: describeRole(e.role) });
+      if (e.type === "phase") push({ kind: "phase", phase: e.phase, label: describeRole(e.role, sourceFor(e.role)) });
       else if (e.type === "text") push({ kind: "text", phase: e.phase, text: e.text });
       else if (e.type === "action") push({ kind: "action", action: e.action, ok: e.result.ok, message: e.result.message, output: e.action.type === "run" || e.action.type === "shell" ? e.result.output : undefined });
       else if (e.type === "warning") push({ kind: "warning", text: e.message });
@@ -89,10 +125,10 @@ export const useAgent = create<AgentState>((set, get) => ({
       text,
       get().history,
       {
-        callModel: async (role, system, messages) => {
+        callModel: async (role, system, messages, _onToken, budget) => {
           set({ streaming: "" });
           try {
-            return await callAgentModel(role, system, messages, (t) => set((st) => ({ streaming: st.streaming + t })), signal);
+            return await callAgentModel(role, system, messages, (t) => set((st) => ({ streaming: st.streaming + t })), signal, { source: sourceFor(role), budget });
           } finally {
             set({ streaming: "" });
           }
@@ -111,7 +147,16 @@ export const useAgent = create<AgentState>((set, get) => ({
         emit: onEvent,
         signal,
       },
-      { plan: settings.plan, review: settings.review }
+      {
+        plan: hasStep("plan") && stepOn("plan") ? "always" : "never",
+        review: hasStep("review") && stepOn("review"),
+        maxSteps: analysis.maxSteps,
+        readOnly: analysis.readOnly,
+        planOnly: analysis.planOnly,
+        autoFinish: analysis.autoFinish,
+        buildRole: analysis.steps.find((s) => s.id === "build")?.role ?? "coding",
+        budget: analysis.budget,
+      }
     ).catch((e: Error) => {
       push({ kind: "error", text: e.message });
       return null;
@@ -120,6 +165,7 @@ export const useAgent = create<AgentState>((set, get) => ({
     controller = null;
     if (result) {
       push({ kind: "summary", status: result.status, text: result.summary, changes: result.changes });
+      push({ kind: "info", text: `${result.calls} model call${result.calls === 1 ? "" : "s"} used` });
       set((st) => ({
         history: [...st.history, { role: "user" as const, content: text }, { role: "assistant" as const, content: result.summary || "(no summary)" }].slice(-MAX_HISTORY),
         checkpoint: result.changes.length ? { before: result.before, changes: result.changes } : null,

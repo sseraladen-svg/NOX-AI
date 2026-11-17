@@ -8,6 +8,7 @@ import { useAgent, type Item } from "@/store/agent-store";
 import { useWorkspace } from "@/store/workspace-store";
 import { describeStreaming, stripActions, type AgentAction } from "@/lib/workspace/agent-protocol";
 import { ChangeReview } from "./change-review";
+import { MissionDialog } from "./mission-dialog";
 
 const EXAMPLES = ["Create a simple calculator in HTML, CSS and JS", "Add a README that explains this project", "Explain what this project does"];
 
@@ -104,12 +105,11 @@ export function AgentPanel() {
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border text-[10px] text-muted-foreground shrink-0 flex-wrap">
-        <label className="flex items-center gap-1">Plan
-          <select value={settings.plan} onChange={(e) => setSettings({ plan: e.target.value as typeof settings.plan })} className="bg-transparent border border-border rounded px-1 py-0.5 text-foreground">
-            <option value="auto">auto</option><option value="always">always</option><option value="never">never</option>
+        <label className="flex items-center gap-1">Ask before running
+          <select value={settings.confirm} onChange={(e) => setSettings({ confirm: e.target.value as typeof settings.confirm })} className="bg-transparent border border-border rounded px-1 py-0.5 text-foreground">
+            <option value="always">always</option><option value="complex">bigger tasks</option><option value="never">never</option>
           </select>
         </label>
-        <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={settings.review} onChange={(e) => setSettings({ review: e.target.checked })} className="accent-foreground" />Review pass</label>
         <label className="flex items-center gap-1 cursor-pointer" title="Lets the agent propose terminal commands (needs Local shell; asks before each command)"><input type="checkbox" checked={settings.allowShell} onChange={(e) => setSettings({ allowShell: e.target.checked })} className="accent-foreground" />Shell</label>
         {items.length > 0 && <button onClick={() => { if (!running) clear(); }} className="ml-auto hover:text-foreground">Clear</button>}
       </div>
@@ -160,6 +160,7 @@ export function AgentPanel() {
           <button onClick={submit} disabled={!draft.trim()} className="h-9 w-9 inline-flex items-center justify-center rounded-md bg-foreground text-background disabled:opacity-40" title="Send"><Send className="h-4 w-4" /></button>
         )}
       </div>
+      <MissionDialog />
       <ChangeReview open={review} onClose={() => setReview(false)} before={checkpoint?.before ?? null} changes={checkpoint?.changes ?? []} />
     </div>
   );
