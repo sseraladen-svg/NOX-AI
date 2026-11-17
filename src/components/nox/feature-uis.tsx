@@ -3,33 +3,36 @@
 import * as React from "react";
 import { motion } from "framer-motion";
 import {
-Bot,
-User as UserIcon,
-Send,
-Loader2,ChevronRight,
-Zap,
-Network,
-RefreshCw,
-Copy,
-Check,
-Download,
-Code2,
-Mic,
-MicOff,
-Play,
-Pause,
-Volume2,
-Upload,
-Image as ImageIcon,
-X,
-Eye,Workflow,
-Cpu,
-Gauge,
-Radio,
-Activity,
-Wind,
-Battery,CheckCircle2
+  Bot,
+  Brain,
+  User as UserIcon,
+  Send,
+  Loader2,
+  ChevronRight,
+  Zap,
+  Network,
+  RefreshCw,
+  Copy,
+  Check,
+  Download,
+  Code2,
+  Mic,
+  MicOff,
+  Play,
+  Pause,
+  Volume2,
+  Upload,
+  Image as ImageIcon,
+  X,
+  Eye,
+  Workflow,
+  Cpu,
+  Gauge,
+  CheckCircle2,
+  TriangleAlert,
 } from "lucide-react";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -236,6 +239,183 @@ export function ChatFeatureUI({
   );
 }
 
+export function DeepAnalysisFeatureUI({
+  messages,
+  sending,
+  loadingMessages,
+  scrollRef,
+  input,
+  setInput,
+  onSend,
+  onSendText,
+  examples,
+}: {
+  messages: ConversationMessage[];
+  sending: boolean;
+  loadingMessages: boolean;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+  input: string;
+  setInput: (s: string) => void;
+  onSend: (image?: { data: string; mimeType: string }) => void;
+  onSendText?: (text: string) => void;
+  examples: string[];
+}) {
+  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
+  const sections = lastAssistant ? extractMarkdownSections(lastAssistant.content) : [];
+  const submitText = (text: string) => {
+    if (onSendText) onSendText(text);
+    else setInput(text);
+  };
+
+  const exportMarkdown = () => {
+    if (!lastAssistant) return;
+    const blob = new Blob([lastAssistant.content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "deep-analysis.md";
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
+  return (
+    <div className="flex flex-col gap-3 min-h-0 flex-1">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto nox-scroll rounded-2xl border border-border bg-card/30 backdrop-blur-sm p-4 sm:p-6 min-h-0"
+      >
+        {messages.length === 0 && !loadingMessages ? (
+          <div className="h-full flex flex-col items-center justify-center text-center py-8">
+            <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-foreground to-foreground/60 flex items-center justify-center nox-glow mb-4">
+              <Brain className="h-7 w-7 text-background" />
+            </div>
+            <h2 className="text-2xl font-semibold mb-1">Deep Analysis</h2>
+            <p className="text-sm text-muted-foreground mb-6">
+              Research, compare, and break complex questions into clear findings.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-2xl">
+              {examples.map((example) => (
+                <button
+                  key={example}
+                  type="button"
+                  onClick={() => setInput(example)}
+                  className="text-left text-sm rounded-lg border border-border bg-muted/30 hover:bg-muted/60 p-3 transition"
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : loadingMessages ? (
+          <div className="h-full flex items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {messages.map((message) => {
+              const isLatestAnswer = message.id === lastAssistant?.id;
+              return (
+                <div key={message.id} className="rounded-xl border border-border bg-card/40 p-3 sm:p-4">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      {message.role === "user" ? <UserIcon className="h-3.5 w-3.5" /> : <Brain className="h-3.5 w-3.5" />}
+                      {message.role === "user" ? "Question" : "Analysis"}
+                    </div>
+                    {isLatestAnswer && (
+                      <Button type="button" size="sm" variant="outline" onClick={exportMarkdown} className="h-7 text-xs">
+                        <Download className="h-3 w-3 mr-1.5" />
+                        Export Markdown
+                      </Button>
+                    )}
+                  </div>
+                  {message.role === "user" ? (
+                    <Markdown content={message.content} className="nox-prose" />
+                  ) : isLatestAnswer && sections.length > 0 ? (
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                      <nav aria-label="Analysis section overview" className="rounded-lg border border-border/70 bg-background/30 p-3">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3">Analysis overview</div>
+                        <ol className="space-y-2">
+                          {sections.map((section, index) => (
+                            <li key={`${section.title}-${index}`} className="flex items-start gap-2 text-xs">
+                              <span className="h-5 w-5 shrink-0 rounded-full bg-primary/15 text-primary flex items-center justify-center font-mono">
+                                {index + 1}
+                              </span>
+                              <span className="pt-0.5">{section.title}</span>
+                            </li>
+                          ))}
+                        </ol>
+                      </nav>
+                      <div className="space-y-2">
+                        {sections.map((section, index) => (
+                          <details key={`${section.title}-${index}`} open={index === 0} className="group rounded-lg border border-border/70 bg-background/30">
+                            <summary className="cursor-pointer list-none px-3 py-2.5 text-sm font-medium flex items-center gap-2">
+                              <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" />
+                              {section.title}
+                            </summary>
+                            <div className="border-t border-border/60 px-3 py-3">
+                              <Markdown content={section.content} className="nox-prose" />
+                            </div>
+                          </details>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <Markdown content={message.content} className="nox-prose" />
+                  )}
+                  {message.role === "assistant" && <DispatchTrace steps={message.trace || []} />}
+                </div>
+              );
+            })}
+            {sending && <ThinkingIndicator />}
+          </div>
+        )}
+      </div>
+      <ChatInputBar
+        input={input}
+        setInput={setInput}
+        onSend={onSend}
+        sending={sending}
+        placeholder="Ask a question for structured analysis..."
+      />
+      {examples.length > 0 && messages.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {examples.map((example) => (
+            <button key={example} type="button" onClick={() => submitText(example)} className="text-[10px] rounded-full border border-border bg-card/40 px-2.5 py-1 text-muted-foreground hover:text-foreground hover:bg-muted/40">
+              {example}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function extractMarkdownSections(text: string): { title: string; content: string }[] {
+  const sections: { title: string; content: string }[] = [];
+  let currentTitle = "Overview";
+  let currentLines: string[] = [];
+  let hasHeading = false;
+
+  for (const line of text.split("\n")) {
+    const heading = line.match(/^#{1,3}\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      hasHeading = true;
+      if (currentLines.some((entry) => entry.trim())) {
+        sections.push({ title: currentTitle, content: currentLines.join("\n").trim() });
+      }
+      currentTitle = heading[1].trim();
+      currentLines = [];
+    } else {
+      currentLines.push(line);
+    }
+  }
+  if (currentLines.some((entry) => entry.trim())) {
+    sections.push({ title: currentTitle, content: currentLines.join("\n").trim() });
+  }
+  if (!hasHeading) return [{ title: "Analysis", content: text }];
+  return sections.length ? sections : [{ title: currentTitle, content: text }];
+}
+
 function ChatBubble({ msg }: { msg: ConversationMessage }) {
   const isUser = msg.role === "user";
   return (
@@ -406,6 +586,7 @@ export function CodingFeatureUI({
   input,
   setInput,
   onSend,
+  onSendText,
 }: {
   messages: ConversationMessage[];
   sending: boolean;
@@ -414,16 +595,33 @@ export function CodingFeatureUI({
   input: string;
   setInput: (s: string) => void;
   onSend: (image?: { data: string; mimeType: string }) => void;
+  onSendText?: (text: string) => void;
 }) {
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
   const codeBlocks = lastAssistant ? extractCodeBlocks(lastAssistant.content) : [];
   const [copiedIdx, setCopiedIdx] = React.useState<number | null>(null);
   const [previewIdx, setPreviewIdx] = React.useState<number | null>(null);
+  const [copyError, setCopyError] = React.useState<string | null>(null);
 
   const copy = (text: string, idx: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIdx(idx);
-    setTimeout(() => setCopiedIdx(null), 2000);
+    setCopyError(null);
+    if (!navigator.clipboard?.writeText) {
+      setCopyError("Clipboard access is unavailable in this browser.");
+      return;
+    }
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopiedIdx(idx);
+      window.setTimeout(() => setCopiedIdx(null), 2000);
+    }).catch((error: unknown) => {
+      console.error("Could not copy code block:", error);
+      setCopyError("Clipboard access failed. Select and copy the code manually.");
+    });
+  };
+
+  const explainCode = (block: { lang: string; code: string }) => {
+    const request = `Explain this ${block.lang || ""} code clearly, including its purpose and important behavior:\n\n\`\`\`${block.lang}\n${block.code}\n\`\`\``;
+    if (onSendText) onSendText(request);
+    else setInput(request);
   };
 
   const download = (block: { lang: string; code: string }, idx: number) => {
@@ -536,6 +734,7 @@ export function CodingFeatureUI({
         </div>
 
         <div className="flex-1 overflow-y-auto nox-scroll rounded-xl border border-border bg-[#0d0b14] min-h-0">
+          {copyError && <p role="alert" className="px-3 pt-2 text-xs text-red-400">{copyError}</p>}
           {codeBlocks.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center text-sm text-muted-foreground p-6">
               <Code2 className="h-10 w-10 mb-3 opacity-30" />
@@ -577,6 +776,13 @@ export function CodingFeatureUI({
                         )}
                       </button>
                       <button
+                        type="button"
+                        onClick={() => explainCode(block)}
+                        className="text-[10px] text-muted-foreground hover:text-foreground"
+                      >
+                        Explain this code
+                      </button>
+                      <button
                         onClick={() => download(block, i)}
                         className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
                       >
@@ -592,9 +798,13 @@ export function CodingFeatureUI({
                       className="w-full min-h-64 bg-white"
                     />
                   ) : (
-                    <pre className="p-3 text-xs font-mono leading-relaxed overflow-x-auto nox-scroll text-foreground/90">
-                      <code>{block.code}</code>
-                    </pre>
+                    <SyntaxHighlighter
+                      language={block.lang === "code" ? "text" : block.lang.toLowerCase()}
+                      style={oneDark}
+                      customStyle={{ margin: 0, padding: "0.75rem", background: "transparent", fontSize: "0.75rem", lineHeight: "1.5" }}
+                    >
+                      {block.code}
+                    </SyntaxHighlighter>
                   )}
                 </div>
               ))}
@@ -647,6 +857,10 @@ export function VoiceFeatureUI({
   const elevenAudioRef = React.useRef<HTMLAudioElement | null>(null);
   const [sttSupported, setSttSupported] = React.useState(true);
   const recognitionRef = React.useRef<any>(null);
+  const [liveTranscript, setLiveTranscript] = React.useState("");
+  const [playbackRate, setPlaybackRate] = React.useState(1);
+  const [waveform, setWaveform] = React.useState<number[]>(() => Array(24).fill(0));
+  const [waveformError, setWaveformError] = React.useState<string | null>(null);
 
   // Check if Web Speech API (SpeechRecognition) is available.
   React.useEffect(() => {
@@ -668,6 +882,7 @@ export function VoiceFeatureUI({
         transcript += event.results[i][0].transcript;
       }
       setInput(transcript);
+      setLiveTranscript(transcript);
     };
 
     recognition.onerror = (event: any) => {
@@ -682,6 +897,52 @@ export function VoiceFeatureUI({
     recognitionRef.current = recognition;
   }, [setInput]);
 
+  React.useEffect(() => {
+    if (!recording) return;
+    let active = true;
+    let stream: MediaStream | null = null;
+    let audioContext: AudioContext | null = null;
+    let animationFrame = 0;
+    setWaveformError(null);
+
+    const startMeter = async () => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error("Microphone level visualization is not supported in this browser.");
+        }
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (!active) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        audioContext = new AudioContext();
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 64;
+        audioContext.createMediaStreamSource(stream).connect(analyser);
+        const levels = new Uint8Array(analyser.frequencyBinCount);
+        const updateWaveform = () => {
+          if (!active) return;
+          analyser.getByteFrequencyData(levels);
+          setWaveform(Array.from(levels.slice(0, 24), (level) => level / 255));
+          animationFrame = window.requestAnimationFrame(updateWaveform);
+        };
+        updateWaveform();
+      } catch (error) {
+        if (active) {
+          setWaveformError(error instanceof Error ? error.message : "Could not access microphone levels.");
+        }
+      }
+    };
+
+    void startMeter();
+    return () => {
+      active = false;
+      window.cancelAnimationFrame(animationFrame);
+      stream?.getTracks().forEach((track) => track.stop());
+      if (audioContext && audioContext.state !== "closed") void audioContext.close();
+    };
+  }, [recording]);
+
   const toggleMic = () => {
     if (!recognitionRef.current) return;
     if (recording) {
@@ -691,6 +952,8 @@ export function VoiceFeatureUI({
       try {
         recognitionRef.current.start();
         setRecording(true);
+        setLiveTranscript("");
+        setWaveformError(null);
         setInput(""); // clear previous input
       } catch (err) {
         console.error("Failed to start recognition:", err);
@@ -710,6 +973,7 @@ export function VoiceFeatureUI({
     // Cancel any ongoing speech
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = playbackRate;
     utterance.onend = () => setPlayingId(null);
     utterance.onerror = () => setPlayingId(null);
     window.speechSynthesis.speak(utterance);
@@ -730,6 +994,7 @@ export function VoiceFeatureUI({
       });
       if (!response.ok) throw new Error("ElevenLabs unavailable");
       const audio = new Audio(URL.createObjectURL(await response.blob()));
+      audio.playbackRate = playbackRate;
       elevenAudioRef.current = audio;
       audio.onended = () => setPlayingId(null);
       audio.onerror = () => setPlayingId(null);
@@ -789,22 +1054,40 @@ export function VoiceFeatureUI({
           </div>
           {recording && (
             <div className="flex items-center gap-0.5 mt-2 h-6">
-              {Array.from({ length: 24 }).map((_, i) => (
-                <motion.div
+              {waveform.map((level, i) => (
+                <div
                   key={i}
                   className="w-1 bg-red-400 rounded-full"
-                  animate={{ height: [4, 6 + Math.random() * 16, 4] }}
-                  transition={{
-                    duration: 0.4 + Math.random() * 0.3,
-                    repeat: Infinity,
-                    delay: i * 0.03,
-                  }}
+                  style={{ height: `${Math.max(3, level * 24)}px` }}
                 />
               ))}
             </div>
           )}
+          {recording && liveTranscript && (
+            <p aria-live="polite" className="mt-2 text-xs text-foreground/80">
+              {liveTranscript}
+            </p>
+          )}
+          {waveformError && recording && (
+            <p role="status" className="mt-2 text-[10px] text-amber-400">{waveformError}</p>
+          )}
         </div>
       </div>
+
+      <label className="flex items-center gap-3 text-xs text-muted-foreground">
+        <Volume2 className="h-3.5 w-3.5" />
+        Playback speed
+        <input
+          type="range"
+          min={0.75}
+          max={1.5}
+          step={0.25}
+          value={playbackRate}
+          onChange={(event) => setPlaybackRate(Number(event.target.value))}
+          className="w-28 accent-primary"
+        />
+        <span className="w-8 font-mono text-foreground">{playbackRate.toFixed(2)}×</span>
+      </label>
 
       {/* Transcript */}
       <div
@@ -856,22 +1139,6 @@ export function VoiceFeatureUI({
                   )}
                 </div>
                 <Markdown content={m.content} className="nox-prose" />
-                {m.role === "assistant" && playingId === m.id && (
-                  <div className="flex items-center gap-0.5 mt-2 h-4">
-                    {Array.from({ length: 30 }).map((_, i) => (
-                      <motion.div
-                        key={i}
-                        className="w-0.5 bg-primary rounded-full"
-                        animate={{ height: [3, 10 + Math.random() * 8, 3] }}
-                        transition={{
-                          duration: 0.3 + Math.random() * 0.2,
-                          repeat: Infinity,
-                          delay: i * 0.02,
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
                 <DispatchTrace steps={m.trace || []} />
               </div>
             ))}
@@ -913,31 +1180,86 @@ export function VisionFeatureUI({
   const [preview, setPreview] = React.useState<string | null>(null);
   const [imageData, setImageData] = React.useState<{ data: string; mimeType: string } | null>(null);
   const [dragOver, setDragOver] = React.useState(false);
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
+  const [measurementPoints, setMeasurementPoints] = React.useState<Array<{ x: number; y: number }>>([]);
+  const [imageDimensions, setImageDimensions] = React.useState<{ width: number; height: number } | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const imageRef = React.useRef<HTMLImageElement>(null);
 
   const handleFile = (file: File) => {
-    if (!file.type.startsWith("image/")) return;
+    setUploadError(null);
+    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
+      setUploadError("Choose a JPEG, PNG, WebP, or GIF image.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError("Images must be 10 MB or smaller.");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
-      const dataUrl = reader.result as string;
+      if (typeof reader.result !== "string") {
+        setUploadError("Could not read the selected image.");
+        return;
+      }
+      const dataUrl = reader.result;
       setPreview(dataUrl);
-      // Extract base64 data + mime type from the data URL.
-      // data:image/jpeg;base64,/9j/4AAQ... → { data: "/9j/4AAQ...", mimeType: "image/jpeg" }
-      const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+      setMeasurementPoints([]);
+      setImageDimensions(null);
+      const match = dataUrl.match(/^data:(image\/(?:jpeg|png|webp|gif));base64,(.+)$/);
       if (match) {
         setImageData({ mimeType: match[1], data: match[2] });
+      } else {
+        setUploadError("The selected image could not be encoded.");
       }
     };
+    reader.onerror = () => setUploadError("Could not read the selected image.");
     reader.readAsDataURL(file);
   };
 
   const clearImage = () => {
     setPreview(null);
     setImageData(null);
+    setMeasurementPoints([]);
+    setImageDimensions(null);
   };
 
   const handleAnalyze = () => {
-    onSend(imageData || undefined);
+    const image = imageData || undefined;
+    onSend(image);
+    if (image) clearImage();
+  };
+
+  const lastImageIndex = messages.reduce(
+    (index, message, currentIndex) => message.role === "user" && message.image ? currentIndex : index,
+    -1
+  );
+  const latestAssistantIndex = messages.reduce(
+    (index, message, currentIndex) => message.role === "assistant" ? currentIndex : index,
+    -1
+  );
+  const storedImage = lastImageIndex >= 0 ? messages[lastImageIndex].image : undefined;
+  const displayImage = preview || (storedImage
+    ? storedImage.data.startsWith("data:")
+      ? storedImage.data
+      : `data:${storedImage.mimeType};base64,${storedImage.data}`
+    : null);
+  const latestAnalysis = !preview && latestAssistantIndex > lastImageIndex ? messages[latestAssistantIndex] : undefined;
+  const parsedRegions = latestAnalysis ? extractVisionRegions(latestAnalysis.content) : { regions: [], invalid: false };
+  const measuredPixels = imageDimensions && measurementPoints.length === 2
+    ? Math.round(Math.hypot(
+        (measurementPoints[1].x - measurementPoints[0].x) * imageDimensions.width,
+        (measurementPoints[1].y - measurementPoints[0].y) * imageDimensions.height
+      ))
+    : null;
+
+  const addMeasurementPoint = (event: React.MouseEvent<HTMLDivElement>) => {
+    const image = imageRef.current;
+    if (!image) return;
+    const bounds = image.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+    const y = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
+    setMeasurementPoints((points) => points.length === 2 ? [{ x, y }] : [...points, { x, y }]);
   };
 
   return (
@@ -962,29 +1284,77 @@ export function VisionFeatureUI({
             const f = e.dataTransfer.files?.[0];
             if (f) handleFile(f);
           }}
-          onClick={() => fileRef.current?.click()}
+          onClick={() => {
+            if (!displayImage) fileRef.current?.click();
+          }}
           className={`flex-1 rounded-xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition min-h-[200px] ${
             dragOver
               ? "border-primary bg-primary/10"
               : "border-border bg-card/30 hover:bg-card/50"
           }`}
         >
-          {preview ? (
-            <div className="relative w-full h-full p-2">
+          {displayImage ? (
+            <div
+              className="relative w-fit max-w-full max-h-full p-2"
+              onClick={(event) => {
+                event.stopPropagation();
+                addMeasurementPoint(event);
+              }}
+            >
               <img
-                src={preview}
-                alt="Upload preview"
-                className="w-full h-full object-contain rounded-lg"
+                ref={imageRef}
+                src={displayImage}
+                alt="Image selected for visual analysis"
+                className="block max-w-full max-h-[360px] object-contain rounded-lg"
+                onLoad={(event) => setImageDimensions({
+                  width: event.currentTarget.naturalWidth,
+                  height: event.currentTarget.naturalHeight,
+                })}
               />
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  clearImage();
-                }}
-                className="absolute top-3 right-3 h-7 w-7 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-black/80"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <svg className="absolute inset-2 h-[calc(100%-1rem)] w-[calc(100%-1rem)] pointer-events-none" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
+                {parsedRegions.regions.map((region, index) => (
+                  <g key={`${region.label}-${index}`}>
+                    <rect
+                      x={region.x * 1000}
+                      y={region.y * 1000}
+                      width={region.width * 1000}
+                      height={region.height * 1000}
+                      fill="none"
+                      stroke={region.kind === "defect" ? "#fb7185" : "#38bdf8"}
+                      strokeWidth="4"
+                    />
+                    <text x={region.x * 1000} y={Math.max(14, region.y * 1000 - 5)} fill={region.kind === "defect" ? "#fb7185" : "#38bdf8"} fontSize="18">
+                      {region.label}
+                    </text>
+                  </g>
+                ))}
+                {measurementPoints.length === 2 && (
+                  <line
+                    x1={measurementPoints[0].x * 1000}
+                    y1={measurementPoints[0].y * 1000}
+                    x2={measurementPoints[1].x * 1000}
+                    y2={measurementPoints[1].y * 1000}
+                    stroke="#fbbf24"
+                    strokeWidth="4"
+                  />
+                )}
+                {measurementPoints.map((point, index) => (
+                  <circle key={index} cx={point.x * 1000} cy={point.y * 1000} r="7" fill="#fbbf24" />
+                ))}
+              </svg>
+              {preview && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    clearImage();
+                  }}
+                  className="absolute top-3 right-3 h-7 w-7 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-black/80"
+                  aria-label="Remove image"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </div>
           ) : (
             <div className="text-center p-6">
@@ -1008,6 +1378,18 @@ export function VisionFeatureUI({
             }}
           />
         </div>
+        {uploadError && <p role="alert" className="text-xs text-red-400">{uploadError}</p>}
+        {displayImage && (
+          <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+            <span>{preview ? "Selected image · click two points to measure pixel distance" : "Image from this conversation · click two points to measure pixel distance"}</span>
+            {measuredPixels !== null && <span className="font-mono text-amber-400">{measuredPixels} px (uncalibrated)</span>}
+          </div>
+        )}
+        {latestAnalysis && !parsedRegions.regions.length && (
+          <p className="text-[10px] text-muted-foreground">
+            {parsedRegions.invalid ? "The response contained invalid region coordinates; no boxes were drawn." : "No verified region coordinates were returned."}
+          </p>
+        )}
         {preview && (
           <div className="text-[10px] text-muted-foreground text-center">
             Image attached - ask the vision model to analyze it
@@ -1035,7 +1417,7 @@ export function VisionFeatureUI({
             <Button
               size="sm"
               onClick={handleAnalyze}
-              disabled={sending || !input.trim()}
+              disabled={sending || (!input.trim() && !imageData)}
               className="bg-primary text-primary-foreground hover:bg-primary/90 h-8"
             >
               {sending ? (
@@ -1091,6 +1473,60 @@ export function VisionFeatureUI({
   );
 }
 
+function extractVisionRegions(text: string): {
+  regions: Array<{ label: string; kind: "defect" | "object"; x: number; y: number; width: number; height: number }>;
+  invalid: boolean;
+} {
+  const block = text.match(/```(?:nox-vision|json)\s*([\s\S]*?)```/i);
+  if (!block) return { regions: [], invalid: false };
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(block[1]);
+  } catch {
+    return { regions: [], invalid: true };
+  }
+  if (!payload || typeof payload !== "object" || !("regions" in payload) || !Array.isArray(payload.regions)) {
+    return { regions: [], invalid: true };
+  }
+
+  const regions: Array<{ label: string; kind: "defect" | "object"; x: number; y: number; width: number; height: number }> = [];
+  let invalid = false;
+  for (const candidate of payload.regions.slice(0, 20)) {
+    if (!candidate || typeof candidate !== "object") {
+      invalid = true;
+      continue;
+    }
+    const region = candidate as Record<string, unknown>;
+    const { x, y, width, height } = region;
+    const kind = region.kind;
+    if (
+      typeof region.label !== "string" ||
+      typeof x !== "number" ||
+      typeof y !== "number" ||
+      typeof width !== "number" ||
+      typeof height !== "number" ||
+      !Number.isFinite(x) ||
+      !Number.isFinite(y) ||
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      (kind !== "defect" && kind !== "object") ||
+      x < 0 ||
+      y < 0 ||
+      width <= 0 ||
+      height <= 0 ||
+      x + width > 1 ||
+      y + height > 1
+    ) {
+      invalid = true;
+      continue;
+    }
+    regions.push({ label: region.label.slice(0, 80), kind, x, y, width, height });
+  }
+  if (payload.regions.length > 20) invalid = true;
+  return { regions, invalid };
+}
+
 // ─── 5. AUTOMATION FEATURE - workflow node canvas ───────────────────────────
 
 export function AutomationFeatureUI({
@@ -1101,6 +1537,7 @@ export function AutomationFeatureUI({
   input,
   setInput,
   onSend,
+  onSendText,
 }: {
   messages: ConversationMessage[];
   sending: boolean;
@@ -1109,13 +1546,13 @@ export function AutomationFeatureUI({
   input: string;
   setInput: (s: string) => void;
   onSend: (image?: { data: string; mimeType: string }) => void;
+  onSendText?: (text: string) => void;
 }) {
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
   const steps = lastAssistant ? extractWorkflowSteps(lastAssistant.content) : [];
 
   // Interactive workflow state - each step can be checked off
   const [checkedSteps, setCheckedSteps] = React.useState<Set<number>>(new Set());
-  const [running, setRunning] = React.useState(false);
 
   // Reset checked steps when new workflow arrives
   React.useEffect(() => {
@@ -1131,18 +1568,13 @@ export function AutomationFeatureUI({
     });
   };
 
-  // Simulate running the workflow step by step
-  const runWorkflow = async () => {
-    setRunning(true);
-    for (let i = 0; i < steps.length; i++) {
-      await new Promise((r) => setTimeout(r, 800));
-      setCheckedSteps((prev) => new Set(prev).add(i));
-    }
-    setRunning(false);
-  };
-
   const completedCount = checkedSteps.size;
   const progress = steps.length > 0 ? Math.round((completedCount / steps.length) * 100) : 0;
+  const retryStep = (step: { name: string; detail?: string }, index: number) => {
+    const request = `Review and correct workflow step ${index + 1}: ${step.name}${step.detail ? ` — ${step.detail}` : ""}. Return the corrected step and its safety checks.`;
+    if (onSendText) onSendText(request);
+    else setInput(request);
+  };
 
   return (
     <div className="flex flex-col lg:flex-row gap-3 min-h-0 flex-1">
@@ -1160,32 +1592,21 @@ export function AutomationFeatureUI({
               </Badge>
             )}
           </div>
-          {steps.length > 0 && (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={runWorkflow}
-              disabled={running}
-              className="h-7 text-xs"
-            >
-              {running ? (
-                <Loader2 className="h-3 w-3 animate-spin mr-1" />
-              ) : (
-                <Play className="h-3 w-3 mr-1" />
-              )}
-              {running ? "Running..." : "Run All"}
-            </Button>
-          )}
         </div>
 
         {/* Progress bar */}
         {steps.length > 0 && (
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-            <motion.div
-              className="h-full bg-gradient-to-r from-primary to-emerald-500"
-              animate={{ width: `${progress}%` }}
-              transition={{ duration: 0.3 }}
-            />
+          <div>
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+              <motion.div
+                className="h-full bg-gradient-to-r from-primary to-emerald-500"
+                animate={{ width: `${progress}%` }}
+                transition={{ duration: 0.3 }}
+              />
+            </div>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Manual progress only. Confirm each step after completing it; this interface does not execute external workflows.
+            </p>
           </div>
         )}
 
@@ -1196,7 +1617,7 @@ export function AutomationFeatureUI({
               <p className="font-medium">No workflow yet</p>
               <p className="text-xs mt-1 max-w-xs">
                 Describe an automation task (e.g. &ldquo;Daily report pipeline&rdquo;).
-                The AI will break it into steps you can check off and run.
+                The AI will outline steps for you to review and track manually.
               </p>
             </div>
           ) : (
@@ -1213,14 +1634,20 @@ export function AutomationFeatureUI({
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => toggleStep(i)}
+                        disabled={step.status === "error"}
+                        aria-label={`${isChecked ? "Unmark" : "Mark"} step ${i + 1} ${isChecked ? "incomplete" : "complete"}`}
                         className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 transition ${
                           isChecked
                             ? "bg-emerald-500/20 border border-emerald-500/40"
+                            : step.status === "error"
+                            ? "bg-red-500/15 border border-red-500/40"
                             : "bg-primary/15 border border-primary/30 hover:bg-primary/25"
                         }`}
                       >
                         {isChecked ? (
                           <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                        ) : step.status === "error" ? (
+                          <TriangleAlert className="h-4 w-4 text-red-400" />
                         ) : (
                           <span className="text-xs font-mono text-primary">{i + 1}</span>
                         )}
@@ -1229,18 +1656,26 @@ export function AutomationFeatureUI({
                         className={`flex-1 rounded-lg border px-3 py-2 transition ${
                           isChecked
                             ? "border-emerald-500/30 bg-emerald-500/5"
+                            : step.status === "error"
+                            ? "border-red-500/40 bg-red-500/5"
                             : "border-border bg-card/60"
                         }`}
                       >
-                        <div className={`text-sm font-medium ${isChecked ? "line-through text-muted-foreground" : ""}`}>
+                        <div className={`text-sm font-medium ${isChecked ? "line-through text-muted-foreground" : step.status === "error" ? "text-red-300" : ""}`}>
                           {step.name}
                         </div>
                         {step.detail && (
-                          <div className="text-[11px] text-muted-foreground mt-0.5">
+                          <div className={`text-[11px] mt-0.5 ${step.status === "error" ? "text-red-300/80" : "text-muted-foreground"}`}>
                             {step.detail}
                           </div>
                         )}
                       </div>
+                      {step.status === "error" && (
+                        <Button type="button" size="sm" variant="outline" onClick={() => retryStep(step, i)} className="h-7 shrink-0 text-[10px]">
+                          <RefreshCw className="h-3 w-3 mr-1" />
+                          Retry
+                        </Button>
+                      )}
                     </div>
                     {i < steps.length - 1 && (
                       <div className="ml-4 h-4 w-px bg-border" />
@@ -1325,20 +1760,22 @@ export function AutomationFeatureUI({
   );
 }
 
-function extractWorkflowSteps(text: string): { name: string; detail?: string }[] {
-  // Try to parse numbered steps from the response
-  const steps: { name: string; detail?: string }[] = [];
+function extractWorkflowSteps(text: string): { name: string; detail?: string; status: "planned" | "error" }[] {
+  const steps: { name: string; detail?: string; status: "planned" | "error" }[] = [];
   const lines = text.split("\n");
   for (const line of lines) {
-    const m = line.match(/^\s*(?:\d+[\.\)]|[-**])\s+\*\*([^*]+)\*\*:?\s*(.*)/);
-    if (m) {
-      steps.push({ name: m[1].trim(), detail: m[2].trim() || undefined });
-      continue;
-    }
-    const m2 = line.match(/^\s*(?:\d+[\.\)]|[-**])\s+(.+)/);
-    if (m2) {
-      steps.push({ name: m2[1].trim().split(/[.:\\-]/)[0] });
-    }
+    const match = line.match(/^\s*(?:\d+[.)]|[-*])\s+(.+)\s*$/);
+    if (!match) continue;
+    const body = match[1].trim();
+    const boldTitle = body.match(/^\*\*(.+?)\*\*:?\s*(.*)$/);
+    const plainTitle = body.match(/^(.+?):\s+(.+)$/);
+    const title = boldTitle?.[1] || plainTitle?.[1] || body;
+    const detail = boldTitle?.[2] || plainTitle?.[2] || "";
+    steps.push({
+      name: title.trim(),
+      detail: detail.trim() || undefined,
+      status: /\b(error|failed|blocked|unavailable)\b/i.test(body) ? "error" : "planned",
+    });
   }
   return steps.slice(0, 12);
 }
@@ -1364,122 +1801,97 @@ export function RoboticsFeatureUI({
 }) {
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
   const plan = lastAssistant ? extractMotionPlan(lastAssistant.content) : null;
-
-  // Interactive joint sliders - user can manually control the arm
-  const jointNames = ["Base", "Shoulder", "Elbow", "Wrist", "Gripper"];
-  const [jointAngles, setJointAngles] = React.useState<number[]>([45, 30, 60, 90, 0]);
-  const [executing, setExecuting] = React.useState(false);
-  const [activeWaypoint, setActiveWaypoint] = React.useState(-1);
-
-  // Simulate executing the motion plan - animates joints through waypoints
-  const executePlan = async () => {
-    if (!plan || plan.waypoints.length === 0) return;
-    setExecuting(true);
-    for (let i = 0; i < plan.waypoints.length; i++) {
-      setActiveWaypoint(i);
-      // Animate joints to a new position for each waypoint
-      const newAngles = jointNames.map((_, j) => {
-        const base = jointAngles[j];
-        const variation = Math.sin((i + 1) * (j + 1)) * 30;
-        return Math.max(0, Math.min(180, Math.round(base + variation)));
-      });
-      setJointAngles(newAngles);
-      await new Promise((r) => setTimeout(r, 1200));
-    }
-    setActiveWaypoint(-1);
-    setExecuting(false);
-  };
-
-  const setJoint = (index: number, value: number) => {
-    setJointAngles((prev) => prev.map((v, i) => (i === index ? value : v)));
-  };
+  const [speed, setSpeed] = React.useState(0.5);
+  const [acceleration, setAcceleration] = React.useState(0.5);
+  const points = plan ? getWaypointPlotPoints(plan.waypoints) : [];
 
   return (
     <div className="flex flex-col lg:flex-row gap-3 min-h-0 flex-1">
-      {/* Left: interactive sensor + joint control */}
+      {/* Left: model-provided path preview */}
       <div className="lg:w-1/2 flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
             <Cpu className="h-4 w-4 text-primary" />
             <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Robot Control
+              Motion Preview
             </span>
           </div>
-          {plan && plan.waypoints.length > 0 && (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={executePlan}
-              disabled={executing}
-              className="h-7 text-xs"
-            >
-              {executing ? (
-                <Loader2 className="h-3 w-3 animate-spin mr-1" />
-              ) : (
-                <Play className="h-3 w-3 mr-1" />
+        </div>
+
+        <div className="rounded-xl border border-border bg-card/30 p-3">
+          {plan && plan.waypoints.length > 0 ? (
+            <>
+              <div className="flex items-center justify-between mb-2 text-[10px] text-muted-foreground">
+                <span>Top-down X/Y path · {plan.units}</span>
+                <span>{plan.waypoints.length} waypoints</span>
+              </div>
+              <svg viewBox="0 0 400 300" role="img" aria-label="Preview of the proposed robot motion path" className="w-full h-56 rounded-lg bg-background/40">
+                <path d="M50 20V270H380" fill="none" stroke="currentColor" className="text-border" strokeWidth="1" />
+                {points.length > 1 && (
+                  <polyline points={points.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke="currentColor" className="text-primary" strokeWidth="3" strokeDasharray="7 5" />
+                )}
+                {points.map((point, index) => (
+                  <g key={`${plan.waypoints[index].label}-${index}`}>
+                    <circle cx={point.x} cy={point.y} r="5" fill="currentColor" className="text-primary" />
+                    <text x={point.x + 8} y={point.y - 7} fill="currentColor" className="text-muted-foreground" fontSize="10">
+                      {index + 1}
+                    </text>
+                  </g>
+                ))}
+              </svg>
+              <ol className="mt-3 space-y-1 text-xs">
+                {plan.waypoints.map((waypoint, index) => (
+                  <li key={`${waypoint.label}-${index}`} className="flex justify-between gap-3">
+                    <span><span className="font-mono text-primary mr-2">{index + 1}.</span>{waypoint.label}</span>
+                    <span className="shrink-0 font-mono text-muted-foreground">
+                      {waypoint.x}, {waypoint.y}, {waypoint.z} {plan.units}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              {plan.warnings.length > 0 && (
+                <ul className="mt-3 space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/5 p-2 text-[11px] text-amber-300">
+                  {plan.warnings.map((warning, index) => <li key={index}>• {warning}</li>)}
+                </ul>
               )}
-              {executing ? "Executing..." : "Execute Plan"}
-            </Button>
+              {plan.invalid && (
+                <p role="status" className="mt-2 text-[10px] text-amber-400">
+                  Some generated waypoints or warnings were invalid and were omitted from the preview.
+                </p>
+              )}
+            </>
+          ) : (
+            <div className="h-56 flex flex-col items-center justify-center text-center text-sm text-muted-foreground">
+              <Network className="h-8 w-8 mb-2 opacity-40" />
+              <p>{plan?.invalid ? "No valid path coordinates were returned" : "No structured path data yet"}</p>
+              <p className="text-xs mt-1">The preview uses only validated model-provided coordinates.</p>
+            </div>
           )}
         </div>
 
-        {/* Live sensor cards */}
-        <div className="grid grid-cols-2 gap-2">
-          <SensorCard icon={Battery} label="Power" value={`${100 - Math.round(jointAngles.reduce((a,b)=>a+b,0) / 10)}%`} color="emerald" />
-          <SensorCard icon={Activity} label="CPU" value={`${30 + Math.round(jointAngles[2] / 3)}%`} color="cyan" />
-          <SensorCard icon={Wind} label="Temp" value={`${35 + Math.round(jointAngles[1] / 4)}°C`} color="amber" />
-          <SensorCard icon={Radio} label="Signal" value="Strong" color="violet" />
-        </div>
-
-        {/* Interactive joint sliders */}
-        <div className="flex-1 overflow-y-auto nox-scroll rounded-xl border border-border bg-card/20 p-3 min-h-0">
-          <div className="flex items-center gap-1.5 mb-2 text-[10px] text-muted-foreground uppercase tracking-wider">
+        <div className="rounded-xl border border-border bg-card/30 p-3 space-y-3">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
             <Gauge className="h-3 w-3" />
-            Joint Control - drag to move
+            Preview parameters (not sent to hardware)
           </div>
-          <div className="space-y-2.5">
-            {jointNames.map((joint, i) => (
-              <div key={joint} className="space-y-1">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">{joint}</span>
-                  <span className="font-mono text-primary">{jointAngles[i]}°</span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={180}
-                  value={jointAngles[i]}
-                  onChange={(e) => setJoint(i, parseInt(e.target.value))}
-                  disabled={executing}
-                  className="w-full h-2 rounded-full appearance-none cursor-pointer bg-muted
-                    [&::-webkit-slider-thumb]:appearance-none
-                    [&::-webkit-slider-thumb]:h-4
-                    [&::-webkit-slider-thumb]:w-4
-                    [&::-webkit-slider-thumb]:rounded-full
-                    [&::-webkit-slider-thumb]:bg-primary
-                    [&::-webkit-slider-thumb]:cursor-pointer
-                    [&::-webkit-slider-thumb]:disabled:opacity-50"
-                  style={{
-                    background: `linear-gradient(to right, oklch(0.7 0.22 295) ${jointAngles[i] / 1.8}%, oklch(0.22 0.025 285) ${jointAngles[i] / 1.8}%)`,
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 pt-2 border-t border-border/60">
-            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-              <span className="font-mono">TCP:</span>
-              <span>
-                X: {Math.round(Math.cos(jointAngles[0] * Math.PI / 180) * (jointAngles[1] + jointAngles[2]))}mm,
-                Y: {Math.round(Math.sin(jointAngles[0] * Math.PI / 180) * (jointAngles[1] + jointAngles[2]))}mm,
-                Z: {jointAngles[3]}mm
-              </span>
-            </div>
-          </div>
+          <label className="flex items-center gap-3 text-xs">
+            <span className="w-24 text-muted-foreground">Speed</span>
+            <input type="range" min="0.1" max="1" step="0.05" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} className="flex-1 accent-primary" />
+            <span className="w-10 text-right font-mono">{speed.toFixed(2)}×</span>
+          </label>
+          <label className="flex items-center gap-3 text-xs">
+            <span className="w-24 text-muted-foreground">Acceleration</span>
+            <input type="range" min="0.1" max="1" step="0.05" value={acceleration} onChange={(event) => setAcceleration(Number(event.target.value))} className="flex-1 accent-primary" />
+            <span className="w-10 text-right font-mono">{acceleration.toFixed(2)}×</span>
+          </label>
+        </div>
+        <div role="note" className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5 text-[11px] text-amber-300">
+          <TriangleAlert className="h-4 w-4 shrink-0" />
+          Preview only—no robot or actuator is connected. Validate the coordinate frame, joint limits, collision clearance, and emergency-stop behavior before using any plan on real hardware.
         </div>
       </div>
 
-      {/* Right: motion plan + prompt */}
+      {/* Right: prompt + conversation */}
       <div className="lg:w-1/2 flex flex-col gap-2 min-h-0">
         <div className="rounded-xl border border-border bg-card/40 backdrop-blur p-2.5">
           <Textarea
@@ -1516,52 +1928,16 @@ export function RoboticsFeatureUI({
           ref={scrollRef}
           className="flex-1 overflow-y-auto nox-scroll rounded-xl border border-border bg-card/20 p-3 min-h-0"
         >
-          {!plan && messages.length === 0 && !loadingMessages ? (
+          {messages.length === 0 && !loadingMessages ? (
             <div className="h-full flex flex-col items-center justify-center text-center text-sm text-muted-foreground">
               <Cpu className="h-10 w-10 mb-3 opacity-40" />
               <p className="font-medium">No motion plan</p>
               <p className="text-xs mt-1 max-w-xs">
-                Describe a robotics task and the AI will generate a motion plan
-                with waypoints. Then click Execute Plan to animate the arm.
+                Describe a robotics task. The model can return coordinate waypoints for a non-executable preview.
               </p>
             </div>
           ) : (
             <div className="space-y-3">
-              {plan && (
-                <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
-                  <div className="flex items-center gap-1.5 mb-2 text-[10px] text-primary uppercase tracking-wider font-medium">
-                    <Network className="h-3 w-3" />
-                    Motion Plan
-                  </div>
-                  <div className="space-y-1">
-                    {plan.waypoints.map((wp, i) => (
-                      <motion.div
-                        key={i}
-                        initial={{ opacity: 0, x: -8 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: i * 0.12 }}
-                        className={`flex items-center gap-2 text-xs rounded px-2 py-1 transition ${
-                          activeWaypoint === i
-                            ? "bg-primary/20 border border-primary/30"
-                            : ""
-                        }`}
-                      >
-                        <span className={`h-5 w-5 rounded-full flex items-center justify-center font-mono text-[10px] ${
-                          activeWaypoint === i
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-primary/20 text-primary"
-                        }`}>
-                          {i + 1}
-                        </span>
-                        <span className="flex-1">{wp}</span>
-                        {activeWaypoint === i && (
-                          <Loader2 className="h-3 w-3 animate-spin text-primary" />
-                        )}
-                      </motion.div>
-                    ))}
-                  </div>
-                </div>
-              )}
               {messages.map((m) => (
                 <div
                   key={m.id}
@@ -1575,9 +1951,6 @@ export function RoboticsFeatureUI({
                     {m.role}
                   </div>
                   <Markdown content={m.content} className="nox-prose" />
-                  <div className="whitespace-pre-wrap leading-relaxed">
-                    {m.content}
-                  </div>
                   {m.role === "assistant" && (
                     <DispatchTrace steps={m.trace || []} />
                   )}
@@ -1592,47 +1965,72 @@ export function RoboticsFeatureUI({
   );
 }
 
-function SensorCard({
-  icon: Icon,
-  label,
-  value,
-  color,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  color: "emerald" | "cyan" | "amber" | "violet";
-}) {
-  const colorMap = {
-    emerald: "text-foreground bg-foreground/10 border-foreground/20",
-    cyan: "text-foreground/90 bg-foreground/[0.07] border-foreground/15",
-    amber: "text-foreground/80 bg-muted border-border",
-    violet: "text-muted-foreground bg-muted/50 border-border/60",
-  };
-  return (
-    <div className={`rounded-lg border p-2.5 ${colorMap[color]}`}>
-      <div className="flex items-center gap-1.5 mb-0.5">
-        <Icon className="h-3 w-3" />
-        <span className="text-[10px] uppercase tracking-wider opacity-80">
-          {label}
-        </span>
-      </div>
-      <div className="text-sm font-mono font-medium">{value}</div>
-    </div>
-  );
+function extractMotionPlan(text: string): {
+  units: string;
+  waypoints: Array<{ label: string; x: number; y: number; z: number }>;
+  warnings: string[];
+  invalid: boolean;
+} | null {
+  const block = text.match(/```nox-robotics\s*([\s\S]*?)```/i);
+  if (!block) return null;
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(block[1]);
+  } catch {
+    return { units: "units", waypoints: [], warnings: [], invalid: true };
+  }
+  if (!payload || typeof payload !== "object" || !("waypoints" in payload) || !Array.isArray(payload.waypoints)) {
+    return { units: "units", waypoints: [], warnings: [], invalid: true };
+  }
+
+  const units = "units" in payload && typeof payload.units === "string" && payload.units.length <= 16
+    ? payload.units
+    : "units";
+  const waypoints: Array<{ label: string; x: number; y: number; z: number }> = [];
+  let invalid = false;
+  for (const candidate of payload.waypoints.slice(0, 20)) {
+    if (!candidate || typeof candidate !== "object") {
+      invalid = true;
+      continue;
+    }
+    const waypoint = candidate as Record<string, unknown>;
+    if (
+      typeof waypoint.label !== "string" ||
+      typeof waypoint.x !== "number" ||
+      typeof waypoint.y !== "number" ||
+      typeof waypoint.z !== "number" ||
+      !Number.isFinite(waypoint.x) ||
+      !Number.isFinite(waypoint.y) ||
+      !Number.isFinite(waypoint.z)
+    ) {
+      invalid = true;
+      continue;
+    }
+    waypoints.push({
+      label: waypoint.label.slice(0, 80),
+      x: waypoint.x,
+      y: waypoint.y,
+      z: waypoint.z,
+    });
+  }
+  if (payload.waypoints.length > 20) invalid = true;
+  const rawWarnings = "safetyWarnings" in payload && Array.isArray(payload.safetyWarnings) ? payload.safetyWarnings : [];
+  const warnings = rawWarnings.filter((warning): warning is string => typeof warning === "string").slice(0, 10);
+  if (warnings.length !== rawWarnings.length) invalid = true;
+  return { units, waypoints, warnings, invalid };
 }
 
-function extractMotionPlan(text: string): {
-  waypoints: string[];
-  joints?: number[];
-} | null {
-  const waypoints: string[] = [];
-  const lines = text.split("\n");
-  for (const line of lines) {
-    const m = line.match(/^\s*(?:\d+[\.\)]|[-**])\s+(.+)/);
-    if (m && m[1].length < 120) {
-      waypoints.push(m[1].trim());
-    }
-  }
-  return waypoints.length > 0 ? { waypoints: waypoints.slice(0, 8) } : null;
+function getWaypointPlotPoints(waypoints: Array<{ x: number; y: number }>): Array<{ x: number; y: number }> {
+  if (waypoints.length === 0) return [];
+  const minX = Math.min(...waypoints.map((waypoint) => waypoint.x));
+  const maxX = Math.max(...waypoints.map((waypoint) => waypoint.x));
+  const minY = Math.min(...waypoints.map((waypoint) => waypoint.y));
+  const maxY = Math.max(...waypoints.map((waypoint) => waypoint.y));
+  const rangeX = maxX - minX || 1;
+  const rangeY = maxY - minY || 1;
+  return waypoints.map((waypoint) => ({
+    x: 60 + ((waypoint.x - minX) / rangeX) * 300,
+    y: 30 + (1 - (waypoint.y - minY) / rangeY) * 220,
+  }));
 }
