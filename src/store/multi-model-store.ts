@@ -17,6 +17,7 @@ SpecialistId,
 ModelAssignment,
 MultiModelConfigDoc,
 } from "@/lib/multi-model-types";
+import { migrateFeatureConfigs } from "@/lib/multi-model-types";
 
 export interface TestState {
   status: "idle" | "testing" | "ready" | "error";
@@ -55,6 +56,7 @@ interface MultiModelStore {
 
   // UI state
   loaded: boolean;
+  loadError: string | null;
   dirty: boolean;
   saving: boolean;
   lastSavedAt: number | null;
@@ -97,6 +99,7 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
   specialistConfigs: {},
   timeoutOverrides: {},
   loaded: false,
+  loadError: null,
   dirty: false,
   saving: false,
   lastSavedAt: null,
@@ -106,17 +109,19 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
   confirmMode: null,
 
   load: async () => {
+    set({ loaded: false, loadError: null });
     try {
       if (isGuestSession()) {
         const localConfig = getGuestConfig<MultiModelConfigDoc>();
         set({
           mode: localConfig?.mode || "SINGLE",
           globalConfig: localConfig?.globalConfig || null,
-          featureConfigs: localConfig?.featureConfigs || {},
+          featureConfigs: migrateFeatureConfigs(localConfig?.featureConfigs),
           hostConfig: localConfig?.hostConfig || null,
           specialistConfigs: localConfig?.specialistConfigs || {},
           timeoutOverrides: localConfig?.timeoutOverrides || {},
           loaded: true,
+          loadError: null,
           dirty: false,
         });
         return;
@@ -129,20 +134,28 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
         set({
           mode: c.mode,
           globalConfig: c.globalConfig || null,
-          featureConfigs: c.featureConfigs || {},
+          featureConfigs: migrateFeatureConfigs(c.featureConfigs),
           hostConfig: c.hostConfig || null,
           specialistConfigs: c.specialistConfigs || {},
           timeoutOverrides: c.timeoutOverrides || {},
           loaded: true,
+          loadError: null,
           dirty: false,
         });
       } else {
-        // Auth failure or other error - still mark loaded so the UI doesn't
-        // spin forever. The auth gate will redirect to the login screen.
-        set({ loaded: true });
+        set({
+          loaded: true,
+          loadError: json.error || "Could not load model configuration.",
+        });
       }
-    } catch {
-      set({ loaded: true });
+    } catch (error) {
+      set({
+        loaded: true,
+        loadError:
+          error instanceof Error
+            ? error.message
+            : "Could not load model configuration.",
+      });
     }
   },
 
@@ -233,7 +246,10 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
         set({
           mode: c.mode,
           globalConfig: keepRealKey(prev.globalConfig, c.globalConfig) || null,
-          featureConfigs: keepMap(prev.featureConfigs, c.featureConfigs || {}),
+          featureConfigs: keepMap(
+            prev.featureConfigs,
+            migrateFeatureConfigs(c.featureConfigs)
+          ),
           hostConfig: keepRealKey(prev.hostConfig, c.hostConfig) || null,
           specialistConfigs: keepMap(prev.specialistConfigs, c.specialistConfigs || {}),
           timeoutOverrides: c.timeoutOverrides || {},
@@ -408,7 +424,7 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
         set({
           mode: c.mode,
           globalConfig: c.globalConfig || null,
-          featureConfigs: c.featureConfigs || {},
+          featureConfigs: migrateFeatureConfigs(c.featureConfigs),
           hostConfig: c.hostConfig || null,
           specialistConfigs: c.specialistConfigs || {},
           timeoutOverrides: c.timeoutOverrides || {},
