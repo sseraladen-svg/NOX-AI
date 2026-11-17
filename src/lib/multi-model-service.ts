@@ -31,6 +31,8 @@ type AgentWorkspace,
 type VerificationResult,
 type OrchestrationState,
 type OrchestrationStage,
+migrateFeatureConfigs,
+normalizeFeatureId,
 FEATURES,
 SPECIALISTS,
 PROVIDERS,
@@ -63,6 +65,21 @@ export type {
   OrchestrationStage,
 };
 export { FEATURES, SPECIALISTS, PROVIDERS, DEFAULT_TIMEOUTS, MAX_RETRY };
+
+export const FEATURE_BUILTIN_RULES: Record<FeatureId, string> = {
+  "deep-analysis":
+    "You are an expert analyst. Provide comprehensive, structured analysis. Break down complex problems. Cite evidence. Identify assumptions. Output in clear sections with headers. Be thorough but concise. Provide a concise rationale summary and key steps rather than private internal reasoning.",
+  coding:
+    "Output ONLY valid, production-ready code in markdown blocks. Do not provide explanations or conversational fluff unless explicitly asked.",
+  vision:
+    "Output structured, objective, and concise visual analysis. Prioritize defect detection and spatial relationships. No fluff. End with a fenced nox-vision JSON block containing {\"regions\":[{\"label\":\"...\",\"kind\":\"defect|object\",\"x\":0,\"y\":0,\"width\":0,\"height\":0}]}; use normalized coordinates from 0 to 1, and include only regions you can visually ground. Return an empty regions array when coordinates are uncertain.",
+  voice:
+    "Output concise, natural language suitable for text-to-speech conversion. Keep sentences short.",
+  automation:
+    "Output strict, step-by-step logical sequences. Prioritize deterministic execution and safety. Format executable workflow steps as a numbered list with a short title and detail for each step; identify risks and required approvals.",
+  robotics:
+    "Output precise, low-level motion or control instructions. Prioritize safety constraints and efficiency. End with a fenced nox-robotics JSON block containing {\"units\":\"mm\",\"waypoints\":[{\"label\":\"...\",\"x\":0,\"y\":0,\"z\":0}],\"safetyWarnings\":[]}; coordinates must be finite and physically justified, and uncertain values must be called out rather than invented. This is a plan only, not hardware control.",
+};
 
 // Helper to normalize localhost to 127.0.0.1 to avoid IPv6 resolution issues
 // On Windows, Node.js often resolves "localhost" to ::1 (IPv6) but Ollama only listens on IPv4
@@ -397,11 +414,11 @@ function maskFeatureMap(
   if (!raw) return undefined;
   try {
     const parsed = JSON.parse(raw) as Record<string, ModelAssignment>;
-    const out: Partial<Record<FeatureId, ModelAssignment>> = {};
+    const out: Record<string, ModelAssignment> = {};
     for (const [k, v] of Object.entries(parsed)) {
       out[k as FeatureId] = maskAssignment(v)!;
     }
-    return out;
+    return migrateFeatureConfigs(out);
   } catch {
     return undefined;
   }
@@ -429,14 +446,14 @@ function unmaskFeatureMap(
   if (!raw) return undefined;
   try {
     const parsed = JSON.parse(raw) as Record<string, ModelAssignment>;
-    const out: Partial<Record<FeatureId, ModelAssignment>> = {};
+    const out: Record<string, ModelAssignment> = {};
     for (const [k, v] of Object.entries(parsed)) {
       out[k as FeatureId] = {
         ...v,
         apiKey: v.apiKey ? decryptApiKey(v.apiKey) : undefined,
       };
     }
-    return out;
+    return migrateFeatureConfigs(out);
   } catch {
     return undefined;
   }
@@ -586,7 +603,22 @@ export async function saveConfig(
     return out;
   };
 
-  const featureConfigs = encryptFeatureMap(preserveMap(doc.featureConfigs, existing?.featureConfigs || null) as Partial<Record<FeatureId, ModelAssignment>> | undefined);
+  let existingFeatureConfigs: Partial<Record<FeatureId, ModelAssignment>> = {};
+  if (existing?.featureConfigs) {
+    try {
+      existingFeatureConfigs = migrateFeatureConfigs(
+        JSON.parse(existing.featureConfigs)
+      );
+    } catch {
+      existingFeatureConfigs = {};
+    }
+  }
+  const featureConfigs = encryptFeatureMap(
+    preserveMap(
+      migrateFeatureConfigs(doc.featureConfigs),
+      JSON.stringify(existingFeatureConfigs)
+    ) as Partial<Record<FeatureId, ModelAssignment>> | undefined
+  );
   const hostConfig = doc.hostConfig
     ? JSON.stringify(encryptAssignment(preserveMaskedKey(doc.hostConfig, existing?.hostConfig || null)))
     : null;
@@ -1052,14 +1084,16 @@ function buildClassificationPrompt(messages: ChatMessage[]): string {
 function buildPromptFromMessages(
   messages: ChatMessage[],
   role: string,
-  intent?: string
+  intent?: string,
+  featureSystemPrompt?: string
 ): string {
   const systemHint =
-    role === "host"
+    featureSystemPrompt ||
+    (role === "host"
       ? "You are NOX Host. Analyze the user's intent and either answer directly or synthesize the response from a specialist model into a clean reply to the user. Be concise."
       : intent
-      ? `You are NOX ${role} specialist (intent: ${intent}). Answer the user's request focused on your specialty. Be concise and useful.`
-      : "You are NOX AI. Respond helpfully and concisely.";
+        ? `You are NOX ${role} specialist (intent: ${intent}). Answer the user's request focused on your specialty. Be concise and useful.`
+        : "You are NOX AI. Respond helpfully and concisely.");
 
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   return `${systemHint}\n\nUser: ${lastUser?.content || ""}\nAssistant:`;
@@ -1095,26 +1129,8 @@ function resolvePlan(
   }
 
   if (doc.mode === "MULTI") {
-    // Use the explicitly-passed feature from the UI tab. Only fall back to
-    // keyword detection if no feature was provided (e.g. API calls without
-    // a tab context).
-    let feature: FeatureId = explicitFeature || "chat";
-    if (!explicitFeature) {
-      if (/(code|function|bug|class|api|sql|regex)/.test(text)) feature = "coding";
-      else if (/(image|picture|photo|see|vision|ocr)/.test(text))
-        feature = "vision";
-      else if (/(voice|speak|speech|audio|transcri)/.test(text))
-        feature = "voice";
-      else if (/(automate|workflow|schedule|pipeline)/.test(text))
-        feature = "automation";
-      else if (/(robot|move|arm|sensor|actuator)/.test(text))
-        feature = "robotics";
-    }
-
-    const assignment =
-      doc.featureConfigs?.[feature] ||
-      doc.featureConfigs?.chat ||
-      emptyAssignment();
+    const feature: FeatureId = explicitFeature || "deep-analysis";
+    const assignment = doc.featureConfigs?.[feature] || emptyAssignment();
     return {
       assignments: [{ id: feature, label: feature, assignment }],
       multiAgent: false,
@@ -1181,6 +1197,13 @@ async function callModel(
     (assignment.provider === "gemini" || assignment.provider === "ollama") && opts.onChunk
       ? DEFAULT_TIMEOUTS.GENERATION
       : opts.timeoutMs;
+  const systemPrompt =
+    messages.find((message) => message.role === "system")?.content ||
+    (opts.role === "host"
+      ? "You are NOX Host. Analyze the user's intent and either answer directly or synthesize the response from a specialist model into a clean reply to the user. Be concise."
+      : opts.intent
+        ? `You are NOX ${opts.role} specialist (intent: ${opts.intent}). Answer the user's request focused on your specialty. Be concise and useful.`
+        : "You are NOX AI. Respond helpfully and concisely.");
 
   for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
     try {
@@ -1189,11 +1212,7 @@ async function callModel(
           ? callGeminiStreaming(
               assignment.apiKey || "",
               assignment.modelName,
-              opts.role === "host"
-                ? "You are NOX Host. Analyze the user's intent and either answer directly or synthesize the response from a specialist model into a clean reply to the user. Be concise."
-                : opts.intent
-                ? `You are NOX ${opts.role} specialist (intent: ${opts.intent}). Answer the user's request focused on your specialty. Be concise and useful.`
-                : "You are NOX AI. Respond helpfully and concisely.",
+              systemPrompt,
               messages.filter((m) => m.role !== "system"),
               assignment.endpoint,
               opts.onChunk
@@ -1263,11 +1282,12 @@ async function realCall(
 ): Promise<ModelCallResult> {
   // Build the system hint the same way "" this is the NOX persona prompt.
   const systemHint =
-    role === "host"
+    messages.find((message) => message.role === "system")?.content ||
+    (role === "host"
       ? "You are NOX Host. Analyze the user's intent and either answer directly or synthesize the response from a specialist model into a clean reply to the user. Be concise."
       : intent
-      ? `You are NOX ${role} specialist (intent: ${intent}). Answer the user's request focused on your specialty. Be concise and useful.`
-      : "You are NOX AI. Respond helpfully and concisely.";
+        ? `You are NOX ${role} specialist (intent: ${intent}). Answer the user's request focused on your specialty. Be concise and useful.`
+        : "You are NOX AI. Respond helpfully and concisely.");
 
   // Normalise the conversation "" preserve image attachments for vision.
   const conv: ChatMessage[] = messages
@@ -2048,13 +2068,19 @@ async function callLocalCli(
     .filter((data): data is string => Boolean(data));
 
   let args: string[];
-  if (provider === "llamacpp" || provider === "llamafile") {
+  if (provider === "qwen-code") {
+    args = [
+      ...(cliArgs?.split(/\s+/).filter(Boolean) || []),
+      "-p",
+      prompt,
+    ];
+  } else if (provider === "llamacpp" || provider === "llamafile") {
     args = ["-m", modelName, "-p", prompt];
   } else {
     args = [modelName, prompt];
   }
 
-  if (cliArgs) {
+  if (cliArgs && provider !== "qwen-code") {
     args.push(...cliArgs.split(/\s+/).filter(Boolean));
   }
 
@@ -3203,7 +3229,68 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
   }
 
   // ---
-  const plan = resolvePlan(doc, messages, opts.feature);
+  let dispatchFeature = opts.feature;
+  if (doc.mode === "MULTI") {
+    dispatchFeature =
+      opts.feature === undefined
+        ? "deep-analysis"
+        : normalizeFeatureId(opts.feature) || undefined;
+    if (!dispatchFeature) {
+      return {
+        ok: false,
+        mode: doc.mode,
+        steps: [],
+        finalReply: "",
+        multiAgent: false,
+        confirmationRequired: false,
+        error: "Choose a valid Multi Mode feature before sending a request.",
+      };
+    }
+
+    const assignment = doc.featureConfigs?.[dispatchFeature];
+    if (!assignment) {
+      return {
+        ok: false,
+        mode: doc.mode,
+        steps: [],
+        finalReply: "",
+        multiAgent: false,
+        confirmationRequired: false,
+        error: `No model is configured for ${dispatchFeature}. Configure that feature before sending a request.`,
+      };
+    }
+    if (
+      assignment.systemPrompt !== undefined &&
+      assignment.systemPrompt.length > 4000
+    ) {
+      return {
+        ok: false,
+        mode: doc.mode,
+        steps: [],
+        finalReply: "",
+        multiAgent: false,
+        confirmationRequired: false,
+        error: "Feature system prompts must be 4,000 characters or fewer.",
+      };
+    }
+    if (!messages.some((message) => message.role === "system")) {
+      messages = [
+        {
+          role: "system",
+          content:
+            assignment.systemPrompt?.trim() ||
+            FEATURE_BUILTIN_RULES[dispatchFeature],
+        },
+        ...messages,
+      ];
+    }
+  }
+
+  const plan = resolvePlan(
+    doc,
+    messages,
+    doc.mode === "MULTI" ? dispatchFeature : opts.feature
+  );
 
   // Explicit image requests in SINGLE mode use the image generation endpoint
   // instead of asking the text model to describe an image.
@@ -3300,7 +3387,14 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
         stepId: crypto.randomUUID(),
         endpoint: resolveEndpoint(a) || "",
         model: a.modelName,
-        prompt: buildPromptFromMessages(messages, plan.assignments[0].label, plan.intent),
+        prompt: buildPromptFromMessages(
+          messages,
+          plan.assignments[0].label,
+          plan.intent,
+          doc.mode === "MULTI"
+            ? messages.find((message) => message.role === "system")?.content
+            : undefined
+        ),
         resumeContext: {
           mode: doc.mode,
           stage: "single",
@@ -3308,7 +3402,7 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
           role: plan.assignments[0].label,
           intent: plan.intent,
           assignment: a,
-          feature: opts.feature,
+          feature: doc.mode === "MULTI" ? dispatchFeature : opts.feature,
         },
       },
     };
