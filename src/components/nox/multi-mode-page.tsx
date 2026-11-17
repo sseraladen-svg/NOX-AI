@@ -2,37 +2,37 @@
 
 import * as React from "react";
 import {
-ArrowLeft,
-PanelLeft,
-Settings2,
-Layers,
-Bot,
-Mic,
-Eye,
-Code2,
-Settings2 as GearIcon,
-Cpu,
-Globe,
-Server,
+  ArrowLeft,
+  PanelLeft,
+  Settings2,
+  Layers,
+  Brain,
+  Mic,
+  Eye,
+  Code2,
+  Settings2 as GearIcon,
+  Cpu,
+  Globe,
+  Server,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@/hooks/use-chat";
 import { useMultiModel } from "@/store/multi-model-store";
 import { useConversations } from "@/store/conversations-store";
 import {
-FEATURES,
-type FeatureId,
-type ConnectionType,
-type ModelAssignment
+  FEATURES,
+  type FeatureId,
+  type ModelAssignment,
+  normalizeFeatureId,
 } from "@/lib/multi-model-types";
 import { ConversationDrawer,ConversationSidebar,UserMenu,AdvancedDialog,ConfirmWrapper,IconButton } from "./shared-chat";
 import {
-ChatFeatureUI,
-CodingFeatureUI,
-VoiceFeatureUI,
-VisionFeatureUI,
-AutomationFeatureUI,
-RoboticsFeatureUI,
+  DeepAnalysisFeatureUI,
+  CodingFeatureUI,
+  VoiceFeatureUI,
+  VisionFeatureUI,
+  AutomationFeatureUI,
+  RoboticsFeatureUI,
 } from "./feature-uis";
 import { cn } from "@/lib/utils";
 import { useShallow } from "zustand/react/shallow";
@@ -41,7 +41,7 @@ const FEATURE_ICONS: Record<
   FeatureId,
   React.ComponentType<{ className?: string }>
 > = {
-  chat: Bot,
+  "deep-analysis": Brain,
   voice: Mic,
   vision: Eye,
   coding: Code2,
@@ -50,11 +50,11 @@ const FEATURE_ICONS: Record<
 };
 
 const EXAMPLES_BY_FEATURE: Record<FeatureId, string[]> = {
-  chat: [
-    "Explain quantum computing simply",
-    "What's the capital of Brazil?",
-    "Write a haiku about the ocean",
-    "Give me 5 productivity tips",
+  "deep-analysis": [
+    "Analyze the pros and cons of microservices vs monolith",
+    "Break down this business problem into actionable steps",
+    "Research the latest trends in edge AI deployment",
+    "Compare three database solutions for my use case",
   ],
   voice: [
     "Transcribe this audio sample",
@@ -91,21 +91,35 @@ const EXAMPLES_BY_FEATURE: Record<FeatureId, string[]> = {
 export function MultiModePage() {
   const router = useRouter();
   const chat = useChat();
-  const mm = useMultiModel(useShallow((s) => ({ featureConfigs: s.featureConfigs, loaded: s.loaded, mode: s.mode, save: s.save, setMode: s.setMode })));
-  const convs = useConversations(useShallow((s) => ({ activeId: s.activeId, activeMessages: s.activeMessages, clearActive: s.clearActive, items: s.items, loadingMessages: s.loadingMessages, select: s.select })));
-  const [activeFeature, setActiveFeature] = React.useState<FeatureId>("chat");
+  const mm = useMultiModel(useShallow((state) => ({
+    featureConfigs: state.featureConfigs,
+    loaded: state.loaded,
+    loadError: state.loadError,
+    load: state.load,
+    mode: state.mode,
+    save: state.save,
+    setMode: state.setMode,
+  })));
+  const convs = useConversations(useShallow((state) => ({
+    activeId: state.activeId,
+    clearActive: state.clearActive,
+    items: state.items,
+    select: state.select,
+  })));
+  const [activeFeature, setActiveFeature] =
+    React.useState<FeatureId>("deep-analysis");
 
   // ─── Per-feature conversation tracking ─────────────────────────────────
   //
   // Each feature tab gets its own conversation ID. When the user switches
   // tabs, we save the current tab's conversation ID and load/create the
   // new tab's conversation. This ensures each tab has its own isolated
-  // message history — Chat has its own messages, Coding has its own, etc.
+  // message history — Deep Analysis has its own messages, Coding has its own, etc.
   //
   // Using state (not ref) so the tab indicators update when conversations
   // are created.
   const [tabConversationIds, setTabConversationIds] = React.useState<Record<string, string | null>>({
-    chat: null,
+    "deep-analysis": null,
     voice: null,
     vision: null,
     coding: null,
@@ -116,20 +130,20 @@ export function MultiModePage() {
 
   // Ensure mode is MULTI
   React.useEffect(() => {
-    if (mm.loaded && mm.mode !== "MULTI") {
+    if (mm.loaded && !mm.loadError && mm.mode !== "MULTI") {
       mm.setMode("MULTI");
       mm.save();
     }
-  }, [mm.loaded]);
+  }, [mm]);
 
   // Initialize: clear any existing active conversation so each tab starts fresh
   React.useEffect(() => {
-    if (!initialized.current && mm.loaded) {
+    if (!initialized.current && mm.loaded && !mm.loadError) {
       initialized.current = true;
       // Clear the active conversation — each tab will create its own on first message
       convs.clearActive();
     }
-  }, [mm.loaded, convs]);
+  }, [mm, convs]);
 
   // When switching tabs, save the current conversation ID for the old tab
   // and load the new tab's conversation (or clear if none exists yet).
@@ -164,9 +178,11 @@ export function MultiModePage() {
     const convState = useConversations.getState();
     if (convState.activeId && tabConversationIds[activeFeature] !== convState.activeId) {
       const selected = convState.items.find((item) => item.id === convState.activeId);
-      const selectedScope = selected?.mode.startsWith("MULTI:")
-        ? selected.mode.slice("MULTI:".length)
-        : activeFeature;
+      const selectedScope =
+        selected?.mode.startsWith("MULTI:")
+          ? normalizeFeatureId(selected.mode.slice("MULTI:".length)) ||
+            activeFeature
+          : activeFeature;
       setTabConversationIds((prev) => ({
         ...prev,
         [selectedScope]: convState.activeId,
@@ -174,12 +190,7 @@ export function MultiModePage() {
     }
   }, [convs.activeId, activeFeature, tabConversationIds, convs.items]);
 
-  const assignment: ModelAssignment = mm.featureConfigs[activeFeature] || {
-    connectionType: "API" as ConnectionType,
-    provider: "openai",
-    modelName: "gpt-4o-mini",
-    status: "untested",
-  };
+  const assignment = mm.featureConfigs[activeFeature] || null;
 
   const examples = EXAMPLES_BY_FEATURE[activeFeature];
 
@@ -194,11 +205,13 @@ export function MultiModePage() {
       setInput: chat.setInput,
       onSend: (image?: { data: string; mimeType: string }) =>
         chat.sendMessage(chat.input, false, activeFeature, image),
+      onSendText: (text: string) =>
+        chat.sendMessage(text, false, activeFeature),
     };
 
     switch (activeFeature) {
-      case "chat":
-        return <ChatFeatureUI {...commonProps} examples={examples} />;
+      case "deep-analysis":
+        return <DeepAnalysisFeatureUI {...commonProps} examples={examples} />;
       case "coding":
         return <CodingFeatureUI {...commonProps} />;
       case "voice":
@@ -210,7 +223,7 @@ export function MultiModePage() {
       case "robotics":
         return <RoboticsFeatureUI {...commonProps} />;
       default:
-        return <ChatFeatureUI {...commonProps} examples={examples} />;
+        return <DeepAnalysisFeatureUI {...commonProps} examples={examples} />;
     }
   };
 
@@ -262,6 +275,25 @@ export function MultiModePage() {
           </div>
         </div>
       </header>
+
+      {mm.loadError && (
+        <div
+          role="alert"
+          className="mx-auto mt-3 flex w-full max-w-6xl items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs"
+        >
+          <span>
+            Could not load your model configuration: {mm.loadError}. It has not
+            been changed.
+          </span>
+          <button
+            type="button"
+            onClick={() => void mm.load()}
+            className="shrink-0 font-semibold text-primary hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Feature tabs — each tab is an independent conversation */}
       <div className="mx-auto w-full max-w-6xl px-3 sm:px-4 pt-4">
@@ -354,7 +386,7 @@ function FeatureModelStrip({
   onConfigure,
 }: {
   featureId: FeatureId;
-  assignment: ModelAssignment;
+  assignment: ModelAssignment | null;
   onConfigure: () => void;
 }) {
   const feature = FEATURES.find((f) => f.id === featureId)!;
@@ -370,33 +402,35 @@ function FeatureModelStrip({
             {feature.label} feature — separate history
           </div>
           <div className="text-sm font-medium font-mono">
-            {assignment.modelName}
+            {assignment?.modelName || "No model configured"}
           </div>
         </div>
       </div>
       <div className="h-8 w-px bg-border" />
       <div className="flex items-center gap-2 text-xs">
         <span className="text-[11px] text-muted-foreground uppercase tracking-wider">
-          {assignment.provider}
+          {assignment?.provider || "Not configured"}
         </span>
-        <span
-          className={cn(
-            "px-2 py-0.5 rounded text-[10px] font-medium",
-            assignment.connectionType === "API"
-              ? "bg-foreground/10 text-foreground"
-              : "bg-muted text-muted-foreground"
-          )}
-        >
-          {assignment.connectionType === "API" ? (
-            <span className="flex items-center gap-1">
-              <Globe className="h-2.5 w-2.5" /> API
-            </span>
-          ) : (
-            <span className="flex items-center gap-1">
-              <Server className="h-2.5 w-2.5" /> LOCAL
-            </span>
-          )}
-        </span>
+        {assignment && (
+          <span
+            className={cn(
+              "px-2 py-0.5 rounded text-[10px] font-medium",
+              assignment.connectionType === "API"
+                ? "bg-foreground/10 text-foreground"
+                : "bg-muted text-muted-foreground"
+            )}
+          >
+            {assignment.connectionType === "API" ? (
+              <span className="flex items-center gap-1">
+                <Globe className="h-2.5 w-2.5" /> API
+              </span>
+            ) : (
+              <span className="flex items-center gap-1">
+                <Server className="h-2.5 w-2.5" /> LOCAL
+              </span>
+            )}
+          </span>
+        )}
       </div>
       <p className="text-[11px] text-muted-foreground hidden sm:block">
         {feature.description}

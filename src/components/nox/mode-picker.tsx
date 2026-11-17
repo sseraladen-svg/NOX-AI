@@ -40,13 +40,14 @@ const MODE_CARDS: {
     label: "Multi",
     tagline: "Right model for each job",
     description:
-      "Assign a different model to each of the 6 features. Use GPT-4o for chat, Claude for coding, Gemini for vision — each prompt routes to the best-fit model automatically.",
+      "Assign a dedicated model or local CLI to each feature. Deep Analysis, Coding, Vision, Voice, Automation, and Robotics use their own rules and configuration.",
     icon: Layers,
     accent: "from-foreground/85 to-foreground/55",
     features: [
       "6 independent feature cards",
       "Per-feature provider + connection",
-      "Intent-based routing",
+      "Feature-specific built-in rules",
+      "Selected-feature routing",
     ],
   },
   {
