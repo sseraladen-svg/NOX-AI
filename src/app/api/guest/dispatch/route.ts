@@ -1,6 +1,9 @@
 import { NextRequest,NextResponse } from "next/server";
 import { dispatch } from "@/lib/multi-model-service";
-import type { FeatureId,IntentClassification } from "@/lib/multi-model-types";
+import {
+  normalizeFeatureId,
+  type IntentClassification,
+} from "@/lib/multi-model-types";
 import {
 hideGuestUsage,
 isValidGuestSessionId,
@@ -14,14 +17,6 @@ import { getCurrentUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-const FEATURES = new Set([
-  "chat",
-  "voice",
-  "vision",
-  "coding",
-  "automation",
-  "robotics",
-]);
 
 export async function POST(req: NextRequest) {
   try {
@@ -60,20 +55,15 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    if (
-      body.feature !== undefined &&
-      (typeof body.feature !== "string" || !FEATURES.has(body.feature))
-    ) {
+    const feature =
+      body.feature === undefined ? undefined : normalizeFeatureId(body.feature) || undefined;
+    if (body.feature !== undefined && !feature) {
       return NextResponse.json(
         { ok: false, error: "The requested guest feature is invalid." },
         { status: 400 }
       );
     }
 
-    const feature =
-      typeof body.feature === "string"
-        ? (body.feature as FeatureId)
-        : undefined;
     const config = sanitizeGuestConfig(body.config, feature);
     const result = await dispatch(
       `guest:${body.guestSessionId}`,
