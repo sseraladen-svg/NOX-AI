@@ -3,13 +3,26 @@
 import { type VfsState, allFilePaths } from "./vfs.ts";
 import { isSensitivePath } from "./agent-protocol.ts";
 
-export type AgentRole = "planning" | "coding" | "engineering";
+export type AgentRole = "planning" | "coding" | "engineering" | "automation";
 
 /** Workflow, in order. The runner follows this; each step names the role that owns it. */
 export const AGENT_PIPELINE = [
   { step: "plan", role: "planning" as AgentRole, when: "task is large or vague (auto) — skipped for small tasks", does: "Writes a short numbered plan naming files to create or change. No code." },
   { step: "build", role: "coding" as AgentRole, when: "always", does: "Explores (read/list/search), then creates and edits files with actions, runs JavaScript to check, fixes errors, finishes with <nox:done>." },
   { step: "review", role: "engineering" as AgentRole, when: "2+ files changed or a run failed (optional)", does: "Reads the result, checks imports/bugs/missing pieces, applies small fixes or approves." },
+];
+
+/** Pre-written efficiency rules. `enforcedBy` says where the code applies each one. */
+export const AGENT_RULEBOOK = [
+  { id: "rules-first", rule: "Intent, complexity and the agents needed are decided by rules, not by a model call (0 tokens, instant, works with any Host model).", enforcedBy: "agent-routing.ts analyzeTask" },
+  { id: "only-needed", rule: "Only needed agents run: Plan for large tasks, Review only when 2+ files changed or a run failed, nothing extra for questions.", enforcedBy: "analyzeTask + runner" },
+  { id: "read-only", rule: "Questions and plan-only requests are read-only (writes are rejected) and capped at a few steps.", enforcedBy: "runner readOnly" },
+  { id: "context-diet", rule: "Send the file tree plus open files only; the planner gets the tree without file bodies; bodies of files the agent changed are dropped from later steps.", enforcedBy: "buildWorkspaceContext + compactMessages" },
+  { id: "compaction", rule: "Old file contents and tool results are trimmed before each call, so long runs do not grow without limit.", enforcedBy: "compactMessages" },
+  { id: "batching", rule: "Batch independent actions in one reply and put <nox:done> in the same reply when no results are needed. Small tasks auto-finish after a clean write.", enforcedBy: "BUILDER_SYSTEM + autoFinish" },
+  { id: "caps", rule: "Step, context and output limits scale with task size (small 4 steps / 4k context, large 12 steps / 8k).", enforcedBy: "analyzeTask budget" },
+  { id: "handoff", rule: "Agents pass a compact handoff (plan, changed files, run log, open issues) instead of the whole conversation.", enforcedBy: "formatHandoff" },
+  { id: "fallback", rule: "If an agent's model is unavailable the next best configured model is used; the user can override it before running.", enforcedBy: "agent-model resolveRole + mission dialog" },
 ];
 
 const FORMAT = `ACTIONS (the only way to change the workspace; code in plain chat text is NOT saved):
@@ -34,7 +47,12 @@ const RULES = `RULES
 5. At most 8 actions per reply. After each reply you receive the results (success or error text). Read errors, fix them, and continue.
 6. Check your work: for JavaScript use <nox:run>. If it fails, fix and run again. For HTML/CSS/other languages, re-read your file once to confirm it is complete.
 7. Keep the chat text short (at most 3 sentences). Never paste code in the chat text; code belongs only inside actions.
-8. When the task is finished, reply with <nox:done> and stop. If you cannot do it, explain why inside <nox:done>.`;
+8. When the task is finished, reply with <nox:done> and stop. If you cannot do it, explain why inside <nox:done>.
+9. Be efficient: use as few replies as possible. Put all actions you already know you need in ONE reply, and if you do not need results back (no run/read/search), add <nox:done> in that same reply. Do not re-read files you just wrote.`;
+
+export const AUTOMATION_HINT = `
+
+You are the Automation specialist: prefer small runnable scripts and workflow files that chain steps, name inputs and outputs clearly, and keep them easy to rerun.`;
 
 export const BUILDER_SYSTEM = `You are NOX Coder, a coding agent working directly inside the user's code editor workspace (like VS Code agent mode). You create, edit, read, rename and delete files by emitting actions.
 
@@ -84,7 +102,7 @@ const CONTEXT_BUDGET = 28_000;
 export type ContextInput = { active: string | null; tabs: string[]; selection?: string };
 
 /** Starting context: the file tree plus the files the agent most likely needs (tiny projects: all). */
-export function buildWorkspaceContext(vfs: VfsState, input: ContextInput): string {
+export function buildWorkspaceContext(vfs: VfsState, input: ContextInput, opts: { bodies?: boolean } = {}): string {
   const paths = allFilePaths(vfs);
   const visible = paths.filter((p) => !isSensitivePath(p));
   const out: string[] = [`Workspace files (${visible.length}):`, ...visible.slice(0, 200).map((p) => `- ${p} (${vfs.files[p].length} chars)`)];
@@ -92,7 +110,7 @@ export function buildWorkspaceContext(vfs: VfsState, input: ContextInput): strin
   if (visible.length === 0) out.push("(empty workspace)");
 
   const total = visible.reduce((n, p) => n + vfs.files[p].length, 0);
-  const include: string[] =
+  const include: string[] = opts.bodies === false ? [] :
     visible.length <= SMALL_PROJECT_FILES && total <= SMALL_PROJECT_CHARS
       ? visible
       : [...new Set([input.active, ...input.tabs].filter((p): p is string => !!p && visible.includes(p)))];

@@ -186,3 +186,108 @@ test("editor context hides protected files", () => {
   assert.doesNotMatch(t, /SECRET|- \/\.env/);
   assert.match(t, /hidden: protected/);
 });
+
+import { analyzeTask, suggestAlternative, rankModels, modelQuality, paramsB } from "../src/lib/workspace/agent-routing.ts";
+import { compactMessages, dropFileBodies, formatHandoff } from "../src/lib/workspace/agent-runner.ts";
+
+test("analyzeTask: intent, size and agents by rules (no model call)", () => {
+  let a = analyzeTask("create a simple calculator", { fileCount: 2 });
+  assert.deepEqual([a.intent, a.complexity, a.readOnly, a.autoFinish], ["create", "small", false, true]);
+  assert.deepEqual(a.steps.map((s) => s.id), ["build"]);
+  assert.equal(a.budget.ctx, 4096);
+  a = analyzeTask("Explain what this project does", { fileCount: 3 });
+  assert.deepEqual([a.intent, a.readOnly], ["explain", true]);
+  assert.deepEqual(a.steps.map((s) => s.id), ["build"]);
+  assert.equal(a.maxSteps, 3);
+  a = analyzeTask("build a full-stack app with login, a dashboard and an admin API", { fileCount: 0 });
+  assert.equal(a.complexity, "large");
+  assert.deepEqual(a.steps.map((s) => s.id), ["plan", "build", "review"]);
+  a = analyzeTask("plan the architecture for a chat system", { fileCount: 0 });
+  assert.deepEqual([a.intent, a.planOnly], ["plan", true]);
+  assert.deepEqual(a.steps.map((s) => s.id), ["plan"]);
+  a = analyzeTask("automate the daily report with a workflow script", { fileCount: 1 });
+  assert.equal(a.steps.find((s) => s.id === "build").role, "automation");
+  assert.match(analyzeTask("fix the bug in the screenshot", { fileCount: 1 }).notes.join(" "), /image/i);
+  assert.match(analyzeTask("delete the unused files", { fileCount: 5 }).notes.join(" "), /undone/i);
+});
+
+test("model quality, ranking and alternatives", () => {
+  assert.equal(modelQuality("moondream:latest").ok, false);
+  assert.match(modelQuality("llama3.2:latest").warn, /Small model/);
+  assert.equal(modelQuality("qwen2.5-coder:7b").warn, undefined);
+  assert.equal(paramsB("llama3.2:latest"), 3);
+  assert.deepEqual(rankModels(["moondream:latest", "llama3.2:latest", "qwen2.5-coder:7b"]), ["qwen2.5-coder:7b", "llama3.2:latest"]);
+  const av = [
+    { source: "coding", model: "llama3.2:latest", kind: "ollama", status: "unavailable", note: "x", installed: [] },
+    { source: "host", model: "moondream:latest", kind: "ollama", status: "ready", note: "", installed: ["moondream:latest"] },
+    { source: "engineering", model: "gpt-4o-mini", kind: "api", status: "unavailable", note: "no key" },
+  ];
+  assert.match(suggestAlternative("coding", av).message, /pull qwen2\.5-coder/);
+  const av2 = [{ ...av[0], status: "ready" }, ...av.slice(1)];
+  assert.equal(suggestAlternative("coding", av2).source, "coding");
+  assert.equal(suggestAlternative("engineering", av2).source, "coding");
+});
+
+test("compaction drops stale file bodies and old write bodies", () => {
+  const ctx = "Workspace files (2):\n- /a.js\n- /b.js\n\n--- /a.js (active file) ---\nAAAA\nmore\n\n--- /b.js ---\nBBBB\n\nTask: x";
+  assert.match(dropFileBodies(ctx, new Set(["/a.js"])), /--- \/a\.js ---\n\[changed by the agent[\s\S]*--- \/b\.js ---\nBBBB/);
+  assert.doesNotMatch(dropFileBodies(ctx, new Set(["/a.js"])), /AAAA/);
+  const msgs = [
+    { role: "user", content: ctx },
+    { role: "assistant", content: '<nox:write path="/a.js">\nl1\nl2\nl3\n</nox:write>' },
+    { role: "user", content: "Results:\n" + "x".repeat(900) },
+    { role: "assistant", content: "ok" }, { role: "user", content: "r" }, { role: "assistant", content: '<nox:write path="/z">\nkeep\n</nox:write>' },
+    { role: "user", content: "r2" }, { role: "assistant", content: "ok2" },
+  ];
+  const out = compactMessages(msgs, new Set(["/a.js"]));
+  assert.match(out[0].content, /changed by the agent/);
+  assert.match(out[1].content, /content omitted: 5 lines|content omitted: 4 lines/);
+  assert.match(out[2].content, /older results trimmed/);
+  assert.match(out[5].content, /keep/); // recent messages stay intact
+});
+
+test("formatHandoff carries plan, changes, run log and issues", () => {
+  const vfs = writeFile(emptyVfs(), "/a.js", "code");
+  const t = formatHandoff("do x", { plan: "1. a", summary: "built", changes: [{ path: "/a.js", status: "added" }], runLog: ["/a.js: 5"], issues: ["Edit failed"] }, vfs);
+  for (const part of ["Request: do x", "1. a", "built", "added /a.js", "/a.js: 5", "Edit failed", "--- /a.js (added) ---"]) assert.ok(t.includes(part), part);
+});
+
+test("agent: read-only rejects writes; plan-only stops after the plan; small tasks auto-finish in one call", async () => {
+  let h = harness({ coding: ['<nox:write path="/x.js">\n1\n</nox:write>', "It prints a greeting."] });
+  const r1 = await runAgent("what does this do", [], h.deps, { readOnly: true });
+  assert.equal(h.vfs.files["/x.js"], undefined);
+  assert.match(h.calls[1].last, /read-only request/);
+  assert.equal(r1.status, "done");
+  h = harness({ planning: ["Plan:\n1. do it"] });
+  const r2 = await runAgent("plan a thing", [], h.deps, { planOnly: true });
+  assert.deepEqual(h.calls.map((c) => c.role), ["planning"]);
+  assert.deepEqual([r2.status, r2.summary, r2.calls], ["chat", "Plan:\n1. do it", 1]);
+  h = harness({ coding: ['<nox:write path="/c.js">\nconsole.log(1)\n</nox:write>'] });
+  const r3 = await runAgent("make c", [], h.deps, { autoFinish: true });
+  assert.equal(r3.calls, 1);
+  assert.equal(h.vfs.files["/c.js"], "console.log(1)");
+  h = harness({ coding: ['<nox:write path="/c.js">\nconsole.log(1)\n</nox:write><nox:run path="/c.js"/>', "<nox:done>ok</nox:done>"] });
+  assert.equal((await runAgent("make c", [], h.deps, { autoFinish: true })).calls, 2); // run needs its result
+});
+
+test("agent: planner sees the tree without file bodies; automation role is used for the build", async () => {
+  const h = harness({ planning: ["Plan:\n1. a"], coding: ["x"], automation: ["<nox:done>ok</nox:done>"] });
+  h.deps.commit(writeFile(emptyVfs(), "/secret-code.js", "UNIQUE_BODY"));
+  await runAgent("build an app", [], h.deps, { plan: "always", buildRole: "automation" });
+  assert.doesNotMatch(h.calls[0].last, /UNIQUE_BODY/);
+  assert.match(h.calls[0].last, /\/secret-code\.js/);
+  assert.deepEqual(h.calls.map((c) => c.role), ["planning", "automation"]);
+});
+
+import { effectiveSource } from "../src/lib/workspace/agent-routing.ts";
+test("effectiveSource honours usable overrides and rejects unusable ones", () => {
+  const av = [
+    { source: "coding", model: "qwen2.5-coder:7b", kind: "ollama", status: "ready", note: "" },
+    { source: "host", model: "moondream:latest", kind: "ollama", status: "warn", note: "vision model" },
+    { source: "engineering", model: "gpt-4o-mini", kind: "api", status: "unavailable", note: "no key" },
+  ];
+  assert.equal(effectiveSource("coding", null, av), "coding");
+  assert.equal(effectiveSource("engineering", null, av), "coding");
+  assert.equal(effectiveSource("coding", "engineering", av), null);
+  assert.equal(effectiveSource("coding", "host", av), null);
+});
