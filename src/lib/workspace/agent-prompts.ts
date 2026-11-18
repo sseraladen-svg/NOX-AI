@@ -2,6 +2,7 @@
 // action format. Edit AGENT_PIPELINE / the prompts here to change how the agents behave.
 import { type VfsState, allFilePaths } from "./vfs.ts";
 import { isSensitivePath } from "./agent-protocol.ts";
+import { CREATION_RULES } from "./playbooks.ts";
 
 export type AgentRole = "planning" | "coding" | "engineering" | "automation";
 
@@ -22,6 +23,9 @@ export const AGENT_RULEBOOK = [
   { id: "batching", rule: "Batch independent actions in one reply and put <nox:done> in the same reply when no results are needed. Small tasks auto-finish after a clean write.", enforcedBy: "BUILDER_SYSTEM + autoFinish" },
   { id: "caps", rule: "Step, context and output limits scale with task size (small 4 steps / 4k context, large 12 steps / 8k).", enforcedBy: "analyzeTask budget" },
   { id: "handoff", rule: "Agents pass a compact handoff (plan, changed files, run log, open issues) instead of the whole conversation.", enforcedBy: "formatHandoff" },
+  { id: "host-fallback", rule: "When the rules are unsure (match under 60%) and a suitable Host model is available, one tiny Host call (about 150 tokens) classifies the request; unsuitable Host models such as vision-only ones are skipped.", enforcedBy: "classify.ts + agent-store" },
+  { id: "creation", rule: "A short playbook for the detected project kind (web page, script, Python, React, server, docs) and topic (calculator, to-do, form, game…) tells the builder the file layout and quality bar up front.", enforcedBy: "playbooks.ts" },
+  { id: "verify", rule: "After building, zero-token checks (syntax, JSON, broken file references, placeholders, editor diagnostics) run; problems go straight back to the builder for a fix, then it is re-checked.", enforcedBy: "validators.ts + runner fix rounds" },
   { id: "fallback", rule: "If an agent's model is unavailable the next best configured model is used; the user can override it before running.", enforcedBy: "agent-model resolveRole + mission dialog" },
 ];
 
@@ -61,6 +65,8 @@ WORKFLOW: 1) understand the task and look at the files given  2) read anything e
 ${FORMAT}
 
 ${RULES}
+
+${CREATION_RULES}
 
 EXAMPLE (new file, then verify, then finish):
 Creating the calculator.

@@ -291,3 +291,99 @@ test("effectiveSource honours usable overrides and rejects unusable ones", () =>
   assert.equal(effectiveSource("coding", "engineering", av), null);
   assert.equal(effectiveSource("coding", "host", av), null);
 });
+
+import { fuzzyMatch, fuzzyFilter } from "../src/lib/workspace/fuzzy.ts";
+import { searchFiles, replaceInFiles, globToRegExp } from "../src/lib/workspace/search.ts";
+import { validateFiles } from "../src/lib/workspace/validators.ts";
+import { detectProjectKind, playbookFor, CREATION_RULES } from "../src/lib/workspace/playbooks.ts";
+import { parseHostClassification } from "../src/lib/workspace/classify.ts";
+
+test("fuzzy: subsequence match, ranking prefers file names and consecutive hits", () => {
+  assert.equal(fuzzyMatch("xyz", "/src/app.js"), null);
+  const r = fuzzyFilter(["/src/components/button.tsx", "/src/app.ts", "/README.md"], "app", (x) => x);
+  assert.equal(r[0].item, "/src/app.ts");
+  assert.ok(fuzzyMatch("bt", "/src/button.tsx").positions.length === 2);
+  assert.equal(fuzzyFilter(["a", "b"], "", (x) => x).length, 2);
+});
+
+test("search: plain, regex, whole word, case, include globs", () => {
+  let s = writeFile(writeFile(writeFile(emptyVfs(), "/src/a.js", "const Foo = 1;\nfoo(foo)"), "/src/b.ts", "foobar"), "/c.md", "foo");
+  assert.equal(searchFiles(s, { query: "foo" }).total, 5);
+  assert.equal(searchFiles(s, { query: "foo", caseSensitive: true }).total, 4);
+  assert.equal(searchFiles(s, { query: "foo", wholeWord: true }).total, 4);
+  assert.equal(searchFiles(s, { query: "fo+", regex: true, include: "*.js" }).results.length, 1);
+  assert.equal(searchFiles(s, { query: "foo", include: "src/**", exclude: "*.ts" }).results.length, 1);
+  assert.match(searchFiles(s, { query: "(", regex: true }).error, /./);
+  assert.equal(globToRegExp("*.js").test("/x/y/a.js"), true);
+  assert.equal(globToRegExp("src/**").test("/src/a/b.js"), true);
+  const r = replaceInFiles(s, { query: "foo", caseSensitive: true }, "BAR");
+  assert.deepEqual([r.count, r.vfs.files["/src/a.js"]], [4, "const Foo = 1;\nBAR(BAR)"]);
+  const r2 = replaceInFiles(s, { query: "(f)oo", regex: true }, "[$1]", ["/c.md"]);
+  assert.equal(r2.vfs.files["/c.md"], "[f]");
+  assert.equal(r2.vfs.files["/src/b.ts"], "foobar");
+});
+
+test("validators catch broken references, syntax, JSON, braces and placeholders", () => {
+  const s = writeFile(writeFile(writeFile(writeFile(writeFile(emptyVfs(),
+    "/index.html", '<html><link rel="stylesheet" href="style.css"><script src="missing.js"></script></html>'),
+    "/bad.js", "const = ;"), "/c.json", "{a:1}"), "/s.css", "p { color: red;"), "/p.js", "function f() {\n  // ... rest of file\n}");
+  const issues = validateFiles(s, ["/index.html", "/bad.js", "/c.json", "/s.css", "/p.js"]);
+  const msgs = issues.map((i) => `${i.path}|${i.severity}|${i.message}`).join("\n");
+  assert.match(msgs, /index\.html\|error\|References "style\.css"/);
+  assert.match(msgs, /index\.html\|error\|References "missing\.js"/);
+  assert.match(msgs, /index\.html\|warning\|Missing <!doctype/);
+  assert.match(msgs, /bad\.js\|error\|Syntax error/);
+  assert.match(msgs, /c\.json\|error\|Invalid JSON/);
+  assert.match(msgs, /s\.css\|error\|Unbalanced braces/);
+  assert.match(msgs, /p\.js\|error\|Contains a placeholder/);
+  const ok = writeFile(writeFile(writeFile(emptyVfs(), "/index.html", '<!doctype html><title>t</title><meta name="viewport" content="x"><link rel="stylesheet" href="s.css"><script src="a.js"></script>'), "/s.css", "p{}"), "/a.js", "import './b.js'");
+  assert.equal(validateFiles(writeFile(ok, "/b.js", "1"), ["/index.html", "/a.js"]).filter((i) => i.severity === "error").length, 0);
+  assert.equal(validateFiles(ok, ["/a.js"]).filter((i) => /b\.js/.test(i.message)).length, 1);
+});
+
+test("playbooks: kind detection and topic hints", () => {
+  const e = emptyVfs();
+  assert.equal(detectProjectKind("create a simple calculator", e), "web");
+  assert.equal(detectProjectKind("write a python script to sort files", e), "python");
+  assert.equal(detectProjectKind("add a Button component", e), "react");
+  assert.equal(detectProjectKind("write a README", e), "docs");
+  assert.equal(detectProjectKind("sort an array of numbers", e), "node-script");
+  const pb = playbookFor("web", "create a calculator", false);
+  assert.match(pb, /WEB PAGE PLAYBOOK/);
+  assert.match(pb, /divide by zero/);
+  assert.match(playbookFor("web", "fix the layout", true), /CHANGE PLAYBOOK/);
+  assert.match(CREATION_RULES, /no placeholders/);
+});
+
+test("host classification parsing", () => {
+  assert.deepEqual(parseHostClassification('Sure! {"intent":"create","size":"large"}'), { intent: "create", complexity: "large" });
+  assert.equal(parseHostClassification("no json"), null);
+  assert.equal(parseHostClassification('{"intent":"dance","size":"small"}'), null);
+});
+
+test("analyzeTask with a Host classification override", () => {
+  const a = analyzeTask("hmm do the thing", { fileCount: 0 }, { intent: "create", complexity: "large" });
+  assert.deepEqual([a.source, a.intent, a.complexity, a.confidence], ["host", "create", "large", 0.85]);
+  assert.deepEqual(a.steps.map((s) => s.id), ["plan", "build", "review"]);
+  assert.equal(analyzeTask("make a calculator", { fileCount: 0 }).source, "rules");
+});
+
+test("agent: automatic checks send errors back, the builder fixes them, then it passes", async () => {
+  const h = harness({ coding: ['<nox:write path="/index.html">\n<!doctype html><title>t</title><meta name="viewport" content="x"><script src="app.js"></script>\n</nox:write>', '<nox:write path="/app.js">\nconsole.log(1)\n</nox:write><nox:done>fixed</nox:done>'] });
+  const events = h.events;
+  const r = await runAgent("make a page", [], h.deps, { autoFinish: true, fixRounds: 1 });
+  assert.match(h.calls[1].last, /Automatic checks found problems[\s\S]*app\.js/);
+  assert.equal(h.vfs.files["/app.js"], "console.log(1)");
+  const v = events.filter((e) => e.type === "verify");
+  assert.deepEqual(v.map((e) => e.passed), [false, true]);
+  assert.equal(r.status, "done");
+});
+
+test("agent: playbook is added for creation, not for read-only", async () => {
+  let h = harness({ coding: ["<nox:done>x</nox:done>"] });
+  await runAgent("create a simple calculator", [], h.deps);
+  assert.match(h.calls[0].last, /WEB PAGE PLAYBOOK[\s\S]*divide by zero/);
+  h = harness({ coding: ["answer"] });
+  await runAgent("explain this", [], h.deps, { readOnly: true });
+  assert.doesNotMatch(h.calls[0].last, /PLAYBOOK/);
+});

@@ -5,7 +5,8 @@ import { useMultiModel } from "@/store/multi-model-store";
 import type { ModelAssignment } from "@/lib/multi-model-types";
 import type { AgentMsg, CallBudget } from "./agent-runner.ts";
 import type { AgentRole } from "./agent-prompts.ts";
-import { type Availability, type Source, modelQuality } from "./agent-routing.ts";
+import { type Availability, type Complexity, type Intent, type Source, modelQuality } from "./agent-routing.ts";
+import { HOST_CLASSIFY_SYSTEM, parseHostClassification } from "./classify.ts";
 
 type Resolved = { source: Source; assignment: ModelAssignment; label: string };
 
@@ -154,6 +155,15 @@ async function ollamaChat(a: ModelAssignment, system: string, messages: AgentMsg
   return text;
 }
 
+async function invoke(r: Resolved, system: string, messages: AgentMsg[], onToken?: (t: string) => void, signal?: AbortSignal, budget?: CallBudget): Promise<string> {
+  if (r.assignment.connectionType === "LOCAL") return ollamaChat(r.assignment, system, messages, onToken, signal, budget);
+  const res = await authFetch("/api/workspace/agent-turn", { method: "POST", signal, body: { role: r.source, system, messages, maxTokens: budget?.maxOut ?? 4096 } });
+  const j = (await res.json().catch(() => null)) as { ok?: boolean; text?: string; error?: string } | null;
+  if (!res.ok || !j?.ok) throw new Error(j?.error ?? `Model request failed (HTTP ${res.status})`);
+  onToken?.(j.text ?? "");
+  return j.text ?? "";
+}
+
 export async function callAgentModel(
   role: AgentRole,
   system: string,
@@ -162,11 +172,18 @@ export async function callAgentModel(
   signal?: AbortSignal,
   opts: { source?: Source | null; budget?: CallBudget } = {}
 ): Promise<string> {
-  const r = resolveRole(role, opts.source);
-  if (r.assignment.connectionType === "LOCAL") return ollamaChat(r.assignment, system, messages, onToken, signal, opts.budget);
-  const res = await authFetch("/api/workspace/agent-turn", { method: "POST", signal, body: { role: r.source, system, messages, maxTokens: opts.budget?.maxOut ?? 4096 } });
-  const j = (await res.json().catch(() => null)) as { ok?: boolean; text?: string; error?: string } | null;
-  if (!res.ok || !j?.ok) throw new Error(j?.error ?? `Model request failed (HTTP ${res.status})`);
-  onToken?.(j.text ?? "");
-  return j.text ?? "";
+  return invoke(resolveRole(role, opts.source), system, messages, onToken, signal, opts.budget);
+}
+
+/** Optional fallback when the rules are unsure: one tiny Host call. Returns null if the Host is missing or unsuitable. */
+export async function classifyWithHost(task: string, signal?: AbortSignal): Promise<{ intent: Intent; complexity: Complexity; model: string } | null> {
+  const a = assignmentFor("host");
+  if (!usable(a, Boolean(getGuestSessionId())) || !modelQuality(modelOf(a)).ok) return null;
+  try {
+    const text = await invoke({ source: "host", assignment: a, label: "host" }, HOST_CLASSIFY_SYSTEM, [{ role: "user", content: task.slice(0, 600) }], undefined, signal, { ctx: 2048, maxOut: 60 });
+    const parsed = parseHostClassification(text);
+    return parsed ? { ...parsed, model: modelOf(a) } : null;
+  } catch {
+    return null;
+  }
 }
