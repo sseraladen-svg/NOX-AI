@@ -13,6 +13,7 @@ type Source = { kind: "virtual" } | { kind: "folder"; name: string; connected: b
 
 interface Snapshot {
   vfs: VfsState;
+  baseline?: VfsState;
   tabs: string[];
   active: string | null;
   source: Source;
@@ -33,6 +34,8 @@ let rootHandle: DirHandle | null = null;
 
 interface WorkspaceState {
   vfs: VfsState;
+  /** Reference tree for the Changes view (like the last git commit). */
+  baseline: VfsState;
   tabs: string[];
   active: string | null;
   dirty: Record<string, true>;
@@ -46,6 +49,11 @@ interface WorkspaceState {
   setContent: (path: string, content: string) => void;
   openFile: (path: string) => void;
   closeTab: (path: string) => void;
+  closeOthers: (path: string) => void;
+  closeAll: () => void;
+  reorderTabs: (from: number, to: number) => void;
+  discardChange: (path: string) => void;
+  acceptBaseline: () => void;
   setActive: (path: string) => void;
   /** Applies a structural change (create/delete/rename/shell) to the tree and the connected folder. */
   commit: (next: VfsState) => void;
@@ -53,8 +61,8 @@ interface WorkspaceState {
   createDir: (path: string) => void;
   remove: (path: string) => void;
   rename: (from: string, to: string) => void;
-  saveFile: (path: string) => Promise<void>;
-  saveAll: () => Promise<void>;
+  saveFile: (path: string, silent?: boolean) => Promise<void>;
+  saveAll: (silent?: boolean) => Promise<void>;
   openFolder: () => Promise<void>;
   importFiles: (files: FileList) => Promise<void>;
   applyCode: (code: string, lang: string) => string | null;
@@ -75,6 +83,7 @@ const safe = (fn: () => void) => {
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
   vfs: SEED,
+  baseline: SEED,
   tabs: ["/README.md"],
   active: "/README.md",
   dirty: {},
@@ -90,15 +99,15 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const snap = await idbGet<Snapshot>("snapshot");
     if (snap?.vfs && Object.keys(snap.vfs.files).length + snap.vfs.dirs.length > 0) {
       const source: Source = snap.source?.kind === "folder" ? { ...snap.source, connected: false } : { kind: "virtual" };
-      set({ vfs: snap.vfs, tabs: snap.tabs.filter((t) => t in snap.vfs.files), active: snap.active && snap.active in snap.vfs.files ? snap.active : null, source, hydrated: true });
+      set({ vfs: snap.vfs, baseline: snap.baseline ?? snap.vfs, tabs: snap.tabs.filter((t) => t in snap.vfs.files), active: snap.active && snap.active in snap.vfs.files ? snap.active : null, source, hydrated: true });
     } else {
       set({ hydrated: true });
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
     useWorkspace.subscribe((s, prev) => {
-      if (s.vfs === prev.vfs && s.tabs === prev.tabs && s.active === prev.active && s.source === prev.source) return;
+      if (s.vfs === prev.vfs && s.tabs === prev.tabs && s.active === prev.active && s.source === prev.source && s.baseline === prev.baseline) return;
       clearTimeout(timer);
-      timer = setTimeout(() => void idbSet("snapshot", { vfs: s.vfs, tabs: s.tabs, active: s.active, source: s.source } satisfies Snapshot), 600);
+      timer = setTimeout(() => void idbSet("snapshot", { vfs: s.vfs, baseline: s.baseline, tabs: s.tabs, active: s.active, source: s.source } satisfies Snapshot), 600);
     });
   },
 
@@ -122,6 +131,23 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       delete dirty[path];
       return { tabs, active, dirty };
     }),
+
+  closeOthers: (path) => set((s) => ({ tabs: s.tabs.filter((t) => t === path), active: path, dirty: Object.fromEntries(Object.entries(s.dirty).filter(([p]) => p === path)) as Record<string, true> })),
+  closeAll: () => set({ tabs: [], active: null, dirty: {} }),
+  reorderTabs: (from, to) =>
+    set((s) => {
+      if (from === to || from < 0 || to < 0 || from >= s.tabs.length || to >= s.tabs.length) return s;
+      const tabs = s.tabs.slice();
+      const [m] = tabs.splice(from, 1);
+      tabs.splice(to, 0, m);
+      return { tabs };
+    }),
+  discardChange: (path) => {
+    const { vfs, baseline } = get();
+    const next = path in baseline.files ? writeFile(vfs, path, baseline.files[path]) : path in vfs.files ? removePath(vfs, path, false) : vfs;
+    get().commit(next);
+  },
+  acceptBaseline: () => set((s) => ({ baseline: s.vfs })),
 
   setActive: (path) => set({ active: path }),
 
@@ -159,7 +185,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       set({ tabs: tabs.map(moved), active: active ? moved(active) : null });
     }),
 
-  saveFile: async (path) => {
+  saveFile: async (path, silent = false) => {
     const s = get();
     if (!isFile(s.vfs, path)) return;
     if (s.source.kind === "folder") {
@@ -179,11 +205,11 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       delete dirty[path];
       return { dirty };
     });
-    toast.success(`Saved ${baseName(path)}`);
+    if (!silent) toast.success(`Saved ${baseName(path)}`);
   },
 
-  saveAll: async () => {
-    for (const p of Object.keys(get().dirty)) await get().saveFile(p);
+  saveAll: async (silent = false) => {
+    for (const p of Object.keys(get().dirty)) await get().saveFile(p, silent);
   },
 
   openFolder: async () => {
@@ -195,7 +221,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       const handle = await pickFolder();
       const { vfs, skipped, truncated } = await readTree(handle);
       rootHandle = handle;
-      set({ vfs, tabs: [], active: null, dirty: {}, source: { kind: "folder", name: handle.name, connected: true } });
+      set({ vfs, baseline: vfs, tabs: [], active: null, dirty: {}, source: { kind: "folder", name: handle.name, connected: true } });
       const first = allFilePaths(vfs).find((p) => /readme/i.test(p)) ?? allFilePaths(vfs)[0];
       if (first) get().openFile(first);
       toast.success(`Opened ${handle.name} (${Object.keys(vfs.files).length} files${skipped ? `, ${skipped} skipped` : ""})`);
@@ -255,7 +281,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   resetWorkspace: () => {
     rootHandle = null;
-    set({ vfs: SEED, tabs: ["/README.md"], active: "/README.md", dirty: {}, source: { kind: "virtual" }, selection: "" });
+    set({ vfs: SEED, baseline: SEED, tabs: ["/README.md"], active: "/README.md", dirty: {}, source: { kind: "virtual" }, selection: "" });
   },
 }));
 

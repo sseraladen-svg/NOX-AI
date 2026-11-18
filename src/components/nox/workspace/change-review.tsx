@@ -19,11 +19,11 @@ const COLOR = { added: "text-emerald-400", modified: "text-amber-400", deleted: 
 const MARK = { added: "A", modified: "M", deleted: "D" } as const;
 
 /** Side-by-side diff of what the agent changed (before vs. now). */
-export function ChangeReview({ open, onClose, before, changes }: { open: boolean; onClose: () => void; before: VfsState | null; changes: FileChange[] }) {
+export function ChangeReview({ open, onClose, before, changes, initial }: { open: boolean; onClose: () => void; before: VfsState | null; changes: FileChange[]; initial?: string | null }) {
   const { resolvedTheme } = useTheme();
   const vfs = useWorkspace((s) => s.vfs);
   const [sel, setSel] = React.useState<string | null>(null);
-  const current = sel ?? changes[0]?.path ?? null;
+  const current = sel ?? initial ?? changes[0]?.path ?? null;
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-6xl w-[96vw] h-[82vh] flex flex-col gap-2 p-3">
