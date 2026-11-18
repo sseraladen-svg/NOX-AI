@@ -62,6 +62,19 @@ function Row({ item }: { item: Item }) {
         </div>
       );
     }
+    case "verify": {
+      const errs = item.issues.filter((i) => i.severity === "error");
+      const warns = item.issues.length - errs.length;
+      return (
+        <div className={cn("rounded border px-2 py-1.5 text-xs", item.passed ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-amber-500/30 bg-amber-500/10 text-amber-200")}>
+          <div className="flex items-center gap-1.5 font-medium">
+            {item.passed ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+            {item.passed ? `Checks passed${warns ? ` (${warns} warning${warns > 1 ? "s" : ""})` : ""}` : `Checks found ${errs.length} problem${errs.length > 1 ? "s" : ""}${item.round === 0 ? " — sending them back to fix" : ""}`}
+          </div>
+          {!item.passed && <ul className="mt-1 space-y-0.5 font-mono text-[11px]">{errs.slice(0, 4).map((i, n) => <li key={n} className="truncate" title={i.message}>{i.path}{i.line ? `:${i.line}` : ""} — {i.message}</li>)}</ul>}
+        </div>
+      );
+    }
     case "warning":
       return <div className="flex gap-2 text-xs text-amber-400"><AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />{item.text}</div>;
     case "error":
@@ -91,11 +104,26 @@ export function AgentPanel() {
   );
   const [review, setReview] = React.useState(false);
   const endRef = React.useRef<HTMLDivElement>(null);
+  const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const live = React.useMemo(() => describeStreaming(streaming) || stripActions(streaming).slice(-300), [streaming]);
 
   React.useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [items.length, live, running]);
+
+  React.useEffect(() => {
+    const onDraft = (e: Event) => {
+      setDraft((e as CustomEvent<string>).detail);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    };
+    const onFocus = () => setTimeout(() => inputRef.current?.focus(), 50);
+    window.addEventListener("nox:agent-draft", onDraft);
+    window.addEventListener("nox:focus-agent", onFocus);
+    return () => {
+      window.removeEventListener("nox:agent-draft", onDraft);
+      window.removeEventListener("nox:focus-agent", onFocus);
+    };
+  }, [setDraft]);
 
   const submit = () => {
     if (!draft.trim() || running) return;
@@ -146,6 +174,7 @@ export function AgentPanel() {
 
       <div className="shrink-0 border-t border-border p-2 flex items-end gap-2">
         <textarea
+          ref={inputRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}

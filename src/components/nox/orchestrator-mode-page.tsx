@@ -175,10 +175,7 @@ export function OrchestratorModePage() {
       </header>
 
       {view === "ide" ? (
-        <WorkspaceIDE
-          chatPane={<div className="flex-1 min-h-0 flex flex-col gap-3 p-3">{chatBody}</div>}
-          onAsk={chat.setInput}
-        />
+        <WorkspaceIDE />
       ) : (
       <div className="flex-1 mx-auto w-full max-w-7xl px-3 sm:px-4 py-4 flex gap-4 min-h-0">
         <ExecutionRail

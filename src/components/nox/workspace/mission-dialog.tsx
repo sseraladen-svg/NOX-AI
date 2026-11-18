@@ -40,11 +40,12 @@ export function MissionDialog() {
 
   if (!pending) return null;
   const { analysis, availability } = pending;
+  const classifying = pending.classifying;
   const av = availability ?? [];
   const byS = (s: Source) => av.find((a) => a.source === s);
   const activeSteps = analysis.steps.filter((s) => enabled[s.id] ?? s.enabled);
   const resolved = (s: PlannedStep): Source | null => (availability ? effectiveSource(s.role, sources[s.id] && sources[s.id] !== "auto" ? (sources[s.id] as Source) : null, av) : null);
-  const canRun = !!availability && activeSteps.every((s) => resolved(s) !== null);
+  const canRun = !classifying && !!availability && activeSteps.every((s) => resolved(s) !== null);
 
   const run = () => {
     const edits: Edits = { enabled: {}, sources: {} };
@@ -70,6 +71,7 @@ export function MissionDialog() {
             <span className="rounded bg-muted px-2 py-0.5">{INTENT_LABEL[analysis.intent] ?? analysis.intent}</span>
             <span className="rounded bg-muted px-2 py-0.5">Size: {analysis.complexity}</span>
             <span className="rounded bg-muted px-2 py-0.5">Match: {Math.round(analysis.confidence * 100)}%</span>
+            <span className="rounded bg-muted px-2 py-0.5">{classifying ? "Asking the Host model…" : pending.classifiedBy ? `Classified by Host model (${pending.classifiedBy})` : "Classified by rules"}</span>
             {analysis.readOnly && <span className="rounded bg-sky-500/20 text-sky-300 px-2 py-0.5">Read-only</span>}
           </div>
         </div>
