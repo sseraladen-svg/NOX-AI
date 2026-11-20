@@ -109,7 +109,9 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
   confirmMode: null,
 
   load: async () => {
-    set({ loaded: false, loadError: null });
+    // Do not reset `loaded` here: AuthGate unmounts the whole page while it is false, which closed the
+    // settings dialog (it calls load() when it opens). AuthGate resets it when the user changes.
+    set({ loadError: null });
     try {
       if (isGuestSession()) {
         const localConfig = getGuestConfig<MultiModelConfigDoc>();

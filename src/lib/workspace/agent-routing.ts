@@ -27,6 +27,8 @@ export interface Analysis {
   budget: { ctx: number; maxOut: number };
   estimate: string;
   notes: string[];
+  source: "rules" | "host";
+  fixRounds: number; // how many times failed checks are sent back to the builder
 }
 
 const RE = {
@@ -40,7 +42,7 @@ const RE = {
   big: /\b(app|application|project|website|full[- ]?stack|system|api|backend|frontend|multiple|several|whole|entire|all files|platform)\b/,
 };
 
-export function analyzeTask(task: string, ctx: { fileCount: number }): Analysis {
+export function analyzeTask(task: string, ctx: { fileCount: number }, forced?: { intent?: Intent; complexity?: Complexity }): Analysis {
   const t = task.toLowerCase();
   const hit = (r: RegExp) => (t.match(new RegExp(r.source, "g")) ?? []).length;
   const scores: [Intent, number][] = [
@@ -58,12 +60,14 @@ export function analyzeTask(task: string, ctx: { fileCount: number }): Analysis 
   const notes: string[] = [];
   let intent: Intent = top[1] > 0 ? top[0] : "general";
   if (intent === "general") intent = ctx.fileCount > 0 ? "modify" : "create";
-  const confidence = top[1] === 0 ? 0.4 : Math.min(0.95, Math.max(0.45, 0.5 + 0.15 * top[1] - 0.1 * second[1]));
+  if (forced?.intent) intent = forced.intent;
+  const confidence = forced ? 0.85 : top[1] === 0 ? 0.4 : Math.min(0.95, Math.max(0.45, 0.5 + 0.15 * top[1] - 0.1 * second[1]));
   if (RE.vision.test(t)) notes.push("Mentions an image or diagram. The Agent tab cannot analyse images; use the Host chat with a Vision model for that part.");
 
   const bigWords = RE.big.test(t);
   let complexity: Complexity = task.length > 220 || (bigWords && task.length > 60) ? "large" : task.length > 90 || ctx.fileCount > 12 || hit(RE.create) + hit(RE.modify) > 1 ? "medium" : "small";
   if ((intent === "explain" || intent === "plan") && complexity === "large") complexity = "medium";
+  if (forced?.complexity) complexity = forced.complexity;
 
   const readOnly = intent === "explain" || intent === "plan";
   const planOnly = intent === "plan";
@@ -93,6 +97,8 @@ export function analyzeTask(task: string, ctx: { fileCount: number }): Analysis 
     intent, complexity, confidence, readOnly, planOnly,
     autoFinish: !readOnly && complexity === "small",
     steps, maxSteps, budget,
+    source: forced ? "host" : "rules",
+    fixRounds: readOnly ? 0 : complexity === "small" ? 1 : 2,
     estimate: `about ${calls}${calls > 1 ? "–" + (calls + 2) : ""} model call${calls > 1 ? "s" : ""}`,
     notes,
   };

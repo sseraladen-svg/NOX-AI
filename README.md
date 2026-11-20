@@ -90,13 +90,29 @@ Postgres (Prisma)                 Provider APIs
 
 Orchestrator mode opens as a code workspace (toggle back to the classic chat layout with the button in the header).
 
-- **Editor:** Monaco (the VS Code engine) with tabs, syntax highlighting, `Ctrl/Cmd+S`, and Explain / Fix / Refactor shortcuts that prefill a message to the Host.
-- **Files:** a virtual workspace stored in your browser (IndexedDB), upload support, or **Open folder** to edit a real folder on your computer through the browser File System Access API (Chrome / Edge). Edits to a real folder are written to disk on save; creating, renaming and deleting files is mirrored immediately. `node_modules`, `.git`, `.next`, `dist` and binary or very large files are skipped.
-- **Host integration:** with *Editor context* on, every message to the Host also carries your file list, open tabs, active file and selection (appended to the model request only, never shown or stored). Code blocks in replies get an **Apply** button; start a block with a comment such as `// file: /src/app.ts` to target a file, otherwise the active file is replaced.
+- **Editor:** Monaco (the VS Code engine), see [Editor features](#editor-features).
+- **Files:** a virtual workspace stored in your browser (IndexedDB), upload support, or **Open folder** to edit a real folder on your computer through the browser File System Access API (Chrome / Edge). Edits to a real folder are written to disk on save (or automatically after 1 second); creating, renaming and deleting files is mirrored immediately. `node_modules`, `.git`, `.next`, `dist` and binary or very large files are skipped.
+- **Agents work in the editor, not in chat.** The right pane is the Orchestrator agent: it creates, edits and deletes files in the editor, runs code in the terminal and reports short status. The classic chat layout is still available from the header toggle.
 - **Terminal (xterm.js):**
   - *Virtual* shell over the workspace files: `ls`, `cd`, `cat`, `mkdir`, `touch`, `rm`, `mv`, `cp`, `echo > file`, `grep`, `find`, `tree`, `open`, and `node file.js`.
   - `node` and the editor **Run** button execute JavaScript in a sandboxed iframe worker (no cookies, no access to the app's API; 8 second limit). HTML files preview in a sandboxed iframe with relative CSS and JS inlined.
   - *Local shell* runs real commands on the machine hosting the app. It is off by default and only works when `NOX_LOCAL_TERMINAL=1`, you are signed in, the request targets `localhost`, and the app is not on Vercel. Commands run with the server user's permissions, so enable it only on your own computer. Secrets (`AUTH_SECRET`, `NOX_AI_SECRET`, database URLs) are removed from the command environment.
+
+### Editor features
+
+| Area | What you get |
+|---|---|
+| Editing | Monaco: IntelliSense and diagnostics for JS/TS/JSON/CSS/HTML across all workspace files, multi-cursor, folding, bracket colors, sticky scroll, snippets, minimap, find/replace, format document, format on save |
+| Navigation | Quick Open `Ctrl+P` (fuzzy), command palette `Ctrl+Shift+P`, go to line `Ctrl+G`, go to symbol `Ctrl+Shift+O`, breadcrumbs, tabs with drag reorder, close others/all, copy path |
+| Search | Find in Files `Ctrl+Shift+F` with regex, case, whole word, include/exclude globs, replace in file or everywhere |
+| Changes | Source-control style view of everything changed since the workspace was opened, side-by-side diffs, discard per file, accept all |
+| Problems | Problems panel and status bar counts from the editor's diagnostics; click to jump |
+| Terminals | Several terminals (virtual shell, optional Local shell), run JavaScript, sandboxed HTML preview |
+| Cursor-style AI | `Ctrl+K` edit the selection with your Coding model (undo with `Ctrl+Z`); optional ghost-text inline completions (off by default, uses tokens) |
+| Look and feel | 8 themes, font size, tab size, word wrap, line numbers, status bar with line/column, language, changes and problems |
+| Shortcuts | `Ctrl+S` save, `Ctrl+B` sidebar, ``Ctrl+` `` terminal, `Ctrl+Shift+M` problems, `Ctrl+Shift+A` focus the agent |
+
+Not included: a debugger, extensions marketplace, language servers for Python/Java/etc. (they get syntax highlighting only), real git, and split editor groups.
 
 ### Agent: AI that edits your files
 
@@ -104,9 +120,9 @@ The **Agent** tab (default in the workspace) works like VS Code agent mode. You 
 
 **Flow**
 
-1. **Analyze (rules, 0 tokens).** The request is classified by rules into intent (question, create, change, clean-up, automation, plan-only), size (small, medium, large) and the agents it needs.
+1. **Analyze (rules first, 0 tokens).** The request is classified by rules into intent (question, create, change, clean-up, automation, plan-only), size (small, medium, large) and the agents it needs. If the rules are unsure (match under 60%) and your Host model is suitable, one tiny Host call (about 150 tokens) classifies it instead; vision-only Host models are skipped.
 2. **Plan check popup.** Before anything runs you see the agents that will be used, why each is needed, and whether its model is ready. It checks live: API key saved, Ollama reachable, model installed, and whether the model suits coding. Unavailable agents show an alternative (use the Coding model, or `ollama pull qwen2.5-coder:7b`). You can switch each agent's model, turn optional steps off, and then press **Run agents**. A setting controls when it appears: always, bigger tasks only, or never.
-3. **Run.** Plan (Planning model) for large tasks, then Build (Coding or Automation model), then Review (Engineering model) only when it is useful. Each step is a single model call.
+3. **Run.** Plan (Planning model) for large tasks, then Build (Coding or Automation model) using a pre-written creation playbook, then automatic checks, then Review (Engineering model) only when it is useful. Each step is a single model call.
 4. **Result.** Summary, files changed, model calls used, and **Keep / Undo / Review changes** (diff view).
 
 | Task | Agents | Steps |
@@ -116,6 +132,11 @@ The **Agent** tab (default in the workspace) works like VS Code agent mode. You 
 | Medium | Coding, optional Review | up to 8 |
 | Large | Planning, Coding, Review | up to 12 |
 | "Plan …" | Planning only | 1 |
+
+**Creation playbooks and quality checks** (`playbooks.ts`, `validators.ts`)
+
+- The builder starts with a short playbook for the detected kind (web page, JavaScript script, Python, React, server, docs, config) and topic (calculator, to-do, timer, form, game, landing page, dashboard, API client): file layout, accessibility, edge cases and how to verify.
+- After building, zero-token checks run on every changed file: JavaScript syntax, JSON validity, CSS braces, broken `src`/`href`/`import` references, leftover placeholders, plus the editor's own diagnostics. Problems are sent straight back to the builder to fix, then re-checked (1 round for small tasks, 2 for larger).
 
 **Efficiency rules** (`AGENT_RULEBOOK` in `src/lib/workspace/agent-prompts.ts`, enforced in code)
 

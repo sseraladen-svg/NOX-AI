@@ -47,6 +47,7 @@ export function AuthGate({
   const userId = user?.id;
   React.useEffect(() => {
     if (guestSession || userId) {
+      useMultiModel.setState({ loaded: false }); // new user or guest session: show the loader until their config arrives
       loadConfig();
       loadList();
     }

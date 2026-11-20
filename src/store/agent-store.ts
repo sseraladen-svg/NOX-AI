@@ -6,7 +6,9 @@ import { type Analysis, type Availability, type Source, analyzeTask } from "@/li
 import { type AgentAction } from "@/lib/workspace/agent-protocol";
 import { type FileChange, revertChanges } from "@/lib/workspace/agent-exec";
 import { type VfsState } from "@/lib/workspace/vfs";
-import { callAgentModel, checkAvailability, describeRole } from "@/lib/workspace/agent-model";
+import { callAgentModel, checkAvailability, classifyWithHost, describeRole } from "@/lib/workspace/agent-model";
+import { collectDiagnostics } from "@/lib/workspace/editor-bridge";
+import type { Issue } from "@/lib/workspace/validators";
 import { execLocalCommand } from "@/lib/workspace/local-shell-client";
 import { runFileCaptured } from "@/components/nox/workspace/run-actions";
 
@@ -16,13 +18,14 @@ export type Item =
   | { id: number; kind: "text"; phase: string; text: string }
   | { id: number; kind: "action"; action: AgentAction; ok: boolean; message: string; output?: string }
   | { id: number; kind: "warning" | "error" | "info"; text: string }
+  | { id: number; kind: "verify"; passed: boolean; issues: Issue[]; round: number }
   | { id: number; kind: "summary"; status: string; text: string; changes: FileChange[] };
 
 type NewItem<T = Item> = T extends Item ? Omit<T, "id"> : never;
 
 export type Confirm = "always" | "complex" | "never";
-export type Settings = { confirm: Confirm; allowShell: boolean };
-export type Pending = { task: string; analysis: Analysis; availability: Availability[] | null };
+export type Settings = { confirm: Confirm; allowShell: boolean; hostClassify: boolean };
+export type Pending = { task: string; analysis: Analysis; availability: Availability[] | null; classifying: boolean; classifiedBy: string | null };
 /** What the user chose in the mission popup. */
 export type Edits = { enabled: Partial<Record<Phase, boolean>>; sources: Partial<Record<Phase, Source | null>> };
 
@@ -56,7 +59,7 @@ export const useAgent = create<AgentState>((set, get) => ({
   running: false,
   streaming: "",
   draft: "",
-  settings: { confirm: "always", allowShell: false },
+  settings: { confirm: "always", allowShell: false, hostClassify: true },
   pending: null,
   history: [],
   checkpoint: null,
@@ -81,16 +84,31 @@ export const useAgent = create<AgentState>((set, get) => ({
   start: async (task) => {
     const text = task.trim();
     if (!text || get().running || get().pending) return;
-    const analysis = analyzeTask(text, { fileCount: Object.keys(useWorkspace.getState().vfs.files).length });
-    const { confirm } = get().settings;
+    const fileCount = Object.keys(useWorkspace.getState().vfs.files).length;
+    let analysis = analyzeTask(text, { fileCount });
+    const { confirm, hostClassify } = get().settings;
+    const unsure = hostClassify && analysis.confidence < 0.6;
     if (confirm === "never" || (confirm === "complex" && analysis.complexity === "small")) {
+      if (unsure) {
+        const c = await classifyWithHost(text);
+        if (c) analysis = analyzeTask(text, { fileCount }, { intent: c.intent, complexity: c.complexity });
+      }
       await get().execute(text, analysis, { enabled: {}, sources: {} });
       return;
     }
-    set({ pending: { task: text, analysis, availability: null }, draft: "" });
+    set({ pending: { task: text, analysis, availability: null, classifying: unsure, classifiedBy: null }, draft: "" });
     void checkAvailability()
       .then((availability) => set((st) => (st.pending?.task === text ? { pending: { ...st.pending, availability } } : st)))
       .catch(() => set((st) => (st.pending?.task === text ? { pending: { ...st.pending, availability: [] } } : st)));
+    if (unsure) {
+      const c = await classifyWithHost(text);
+      set((st) => {
+        if (st.pending?.task !== text) return st;
+        return c
+          ? { pending: { ...st.pending, analysis: analyzeTask(text, { fileCount }, { intent: c.intent, complexity: c.complexity }), classifying: false, classifiedBy: c.model } }
+          : { pending: { ...st.pending, classifying: false } };
+      });
+    }
   },
 
   confirmRun: async (edits) => {
@@ -117,6 +135,7 @@ export const useAgent = create<AgentState>((set, get) => ({
       if (e.type === "phase") push({ kind: "phase", phase: e.phase, label: describeRole(e.role, sourceFor(e.role)) });
       else if (e.type === "text") push({ kind: "text", phase: e.phase, text: e.text });
       else if (e.type === "action") push({ kind: "action", action: e.action, ok: e.result.ok, message: e.result.message, output: e.action.type === "run" || e.action.type === "shell" ? e.result.output : undefined });
+      else if (e.type === "verify") push({ kind: "verify", passed: e.passed, issues: e.issues, round: e.round });
       else if (e.type === "warning") push({ kind: "warning", text: e.message });
       else push({ kind: "error", text: e.message });
     };
@@ -137,6 +156,7 @@ export const useAgent = create<AgentState>((set, get) => ({
         commit: (next) => ws().commit(next),
         context: () => ({ active: ws().active, tabs: ws().tabs, selection: ws().selection }),
         runFile: runFileCaptured,
+        validate: (paths) => collectDiagnostics(paths),
         runShell: async (command) => {
           if (!settings.allowShell) throw new Error("shell commands are turned off in the agent settings");
           const info = (await fetch("/api/workspace/exec").then((r) => r.json())) as { enabled?: boolean; reason?: string };
@@ -154,6 +174,8 @@ export const useAgent = create<AgentState>((set, get) => ({
         readOnly: analysis.readOnly,
         planOnly: analysis.planOnly,
         autoFinish: analysis.autoFinish,
+        modifying: analysis.intent === "modify" || analysis.intent === "cleanup",
+        fixRounds: analysis.fixRounds,
         buildRole: analysis.steps.find((s) => s.id === "build")?.role ?? "coding",
         budget: analysis.budget,
       }
