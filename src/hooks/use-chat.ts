@@ -309,14 +309,23 @@ export function useChat() {
               // incomplete JSON
             }
           }
-          buffer += decoder.decode();
-          if (buffer.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(buffer.slice(6));
-              if (data.type === "done") finalResult = data.result;
-            } catch {
-              // Ignore an incomplete final SSE fragment.
-            }
+        }
+
+        // Flush the decoder ONCE, after the stream ends. Flushing on every read
+        // turned a multi-byte character (Tamil, emoji) split across two network
+        // chunks into garbage. Then read any final line that had no newline.
+        buffer += decoder.decode();
+        for (const line of buffer.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === "chunk") progressiveText += data.text;
+            else if (data.type === "pendingClientExec") pendingClientExec = data.pendingClientExec;
+            else if (data.type === "confirmationRequired") confirmationData = data;
+            else if (data.type === "error") errorData = data;
+            else if (data.type === "done") finalResult = data.result;
+          } catch {
+            // Ignore an incomplete final SSE fragment.
           }
         }
 

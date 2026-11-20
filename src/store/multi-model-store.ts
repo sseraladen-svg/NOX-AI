@@ -196,6 +196,8 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
     })),
 
   save: async () => {
+    // Never save empty defaults over a config we failed to load.
+    if (get().loadError && !isGuestSession()) return false;
     set({ saving: true });
     try {
       const config = get().asDoc();
@@ -378,6 +380,20 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
 
   reset: async () => {
     try {
+      // Guests keep their config in the browser; the server routes need a login.
+      if (isGuestSession()) {
+        saveGuestConfig({ mode: get().mode } as MultiModelConfigDoc);
+        set({
+          globalConfig: null,
+          featureConfigs: {},
+          hostConfig: null,
+          specialistConfigs: {},
+          timeoutOverrides: {},
+          dirty: false,
+          tests: {},
+        });
+        return;
+      }
       const res = await authFetch("/api/multi-model/export-import?action=reset", {
         method: "POST",
       });
@@ -402,6 +418,7 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
 
   exportConfig: async () => {
     try {
+      if (isGuestSession()) return get().asDoc();
       const res = await authFetch("/api/multi-model/export-import?action=export", {
         method: "POST",
       });
@@ -414,6 +431,22 @@ export const useMultiModel = create<MultiModelStore>((set, get) => ({
 
   importConfig: async (doc) => {
     try {
+      if (isGuestSession()) {
+        if (!["SINGLE", "MULTI", "ORCHESTRATOR"].includes(doc?.mode)) return false;
+        const saved = saveGuestConfig(doc);
+        if (saved) {
+          set({
+            mode: doc.mode,
+            globalConfig: doc.globalConfig || null,
+            featureConfigs: doc.featureConfigs || {},
+            hostConfig: doc.hostConfig || null,
+            specialistConfigs: doc.specialistConfigs || {},
+            timeoutOverrides: doc.timeoutOverrides || {},
+            dirty: false,
+          });
+        }
+        return saved;
+      }
       const res = await authFetch("/api/multi-model/export-import?action=import", {
         method: "POST",
         body: { config: doc },

@@ -22,6 +22,7 @@ import { useConversations } from "@/store/conversations-store";
 import {
   FEATURES,
   type FeatureId,
+  type ConnectionType,
   type ModelAssignment,
   normalizeFeatureId,
 } from "@/lib/multi-model-types";
@@ -93,6 +94,7 @@ export function MultiModePage() {
   const chat = useChat();
   const mm = useMultiModel(useShallow((state) => ({
     featureConfigs: state.featureConfigs,
+    globalConfig: state.globalConfig,
     loaded: state.loaded,
     loadError: state.loadError,
     load: state.load,
@@ -176,21 +178,36 @@ export function MultiModePage() {
   // When a new conversation is created (first message in a tab), record its ID
   React.useEffect(() => {
     const convState = useConversations.getState();
-    if (convState.activeId && tabConversationIds[activeFeature] !== convState.activeId) {
-      const selected = convState.items.find((item) => item.id === convState.activeId);
-      const selectedScope =
-        selected?.mode.startsWith("MULTI:")
-          ? normalizeFeatureId(selected.mode.slice("MULTI:".length)) ||
-            activeFeature
-          : activeFeature;
-      setTabConversationIds((prev) => ({
-        ...prev,
-        [selectedScope]: convState.activeId,
-      }));
+    const activeId = convState.activeId;
+    if (!activeId) return;
+    const selected = convState.items.find((item) => item.id === activeId);
+    const scopeName =
+      selected?.mode.startsWith("MULTI:")
+        ? normalizeFeatureId(selected.mode.slice("MULTI:".length)) || activeFeature
+        : activeFeature;
+    const scope = (
+      Object.prototype.hasOwnProperty.call(tabConversationIds, scopeName)
+        ? scopeName
+        : activeFeature
+    ) as FeatureId;
+    // A conversation picked from the sidebar belongs to its own tab: show that
+    // tab. Before, the ID was filed under another tab while this one stayed
+    // open, so the effect re-ran forever (new object every time = endless render).
+    if (scope !== activeFeature) setActiveFeature(scope);
+    if (tabConversationIds[scope] !== activeId) {
+      setTabConversationIds((prev) =>
+        prev[scope] === activeId ? prev : { ...prev, [scope]: activeId }
+      );
     }
   }, [convs.activeId, activeFeature, tabConversationIds, convs.items]);
 
-  const assignment = mm.featureConfigs[activeFeature] || null;
+  // Unconfigured tabs run on the Chat model at dispatch time, so show that one.
+  const assignment: ModelAssignment = mm.featureConfigs[activeFeature] || mm.globalConfig || {
+    connectionType: "API" as ConnectionType,
+    provider: "openai",
+    modelName: "gpt-4o-mini",
+    status: "untested",
+  };
 
   const examples = EXAMPLES_BY_FEATURE[activeFeature];
 

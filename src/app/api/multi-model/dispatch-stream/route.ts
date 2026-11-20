@@ -57,8 +57,25 @@ export async function POST(req: NextRequest) {
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
+        // If the browser disconnects, enqueue/close throw. Swallow that so a
+        // dropped client can't turn into an unhandled error on the server.
+        let closed = false;
         const send = (data: unknown) => {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          } catch {
+            closed = true;
+          }
+        };
+        const safeClose = () => {
+          if (closed) return;
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
         };
 
         try {
@@ -86,7 +103,7 @@ export async function POST(req: NextRequest) {
               approvalId: result.approvalId,
               highImpactActions: result.highImpactActions,
             });
-            controller.close();
+            safeClose();
             return;
           }
 
@@ -103,14 +120,14 @@ export async function POST(req: NextRequest) {
               approvalId: result.approvalId,
               highImpactActions: result.highImpactActions,
             });
-            controller.close();
+            safeClose();
             return;
           }
 
           // If there's an error, send it
           if (result.error) {
             send({ type: "error", error: result.error });
-            controller.close();
+            safeClose();
             return;
           }
 
@@ -159,11 +176,11 @@ export async function POST(req: NextRequest) {
             orchestrationStage: result.orchestrationStage,
             workspace: result.workspace,
           });
-          controller.close();
+          safeClose();
         } catch (err) {
           logger.error("dispatch-stream failed", err);
           send({ type: "error", error: (err as Error).message });
-          controller.close();
+          safeClose();
         }
       },
     });

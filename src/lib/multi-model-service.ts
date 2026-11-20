@@ -121,7 +121,10 @@ const reachabilityCache = new Map<string, { result: ModelLimit; expiresAt: numbe
 const CACHE_TTL_MS = 60_000; // 60 seconds
 
 function getCacheKey(userId: string, assignment: ModelAssignment): string {
-  return `${userId}-${assignment.connectionType}-${assignment.provider}-${assignment.modelName}-${resolveEndpoint(assignment) || ""}-${assignment.apiKey?.slice(-4) || ""}`;
+  // Raw field values only: resolveEndpoint() can throw on an unsafe endpoint,
+  // and a cache lookup must never fail the whole limits check.
+  const endpoint = assignment.apiEndpoint || assignment.localEndpoint || assignment.endpoint || "";
+  return `${userId}-${assignment.connectionType}-${assignment.provider}-${assignment.modelName}-${endpoint}-${assignment.apiKey?.slice(-4) || ""}`;
 }
 
 function getCachedReachability(userId: string, assignment: ModelAssignment): ModelLimit | null {
@@ -534,6 +537,9 @@ export async function saveConfig(
   userId: string,
   doc: MultiModelConfigDoc
 ): Promise<void> {
+  if (!["SINGLE", "MULTI", "ORCHESTRATOR"].includes(doc.mode)) {
+    throw new Error("Invalid mode.");
+  }
   // Load the existing config so we can preserve API keys that are sent back
   // masked (e.g. "sk-••••7890"). When the frontend loads a config, the keys
   // are masked via maskApiKey() which uses the bullet character. If the user
@@ -623,8 +629,16 @@ export async function saveConfig(
     ? JSON.stringify(encryptAssignment(preserveMaskedKey(doc.hostConfig, existing?.hostConfig || null)))
     : null;
   const specialistConfigs = encryptSpecialistMap(preserveMap(doc.specialistConfigs, existing?.specialistConfigs || null) as Partial<Record<SpecialistId, ModelAssignment>> | undefined);
+  // A zero, negative or NaN timeout would make every call time out at once.
+  const clampTimeout = (v: unknown): number | undefined =>
+    typeof v === "number" && Number.isFinite(v)
+      ? Math.min(600_000, Math.max(1_000, Math.round(v)))
+      : undefined;
   const timeoutOverrides = doc.timeoutOverrides
-    ? JSON.stringify(doc.timeoutOverrides)
+    ? JSON.stringify({
+        LOCAL: clampTimeout(doc.timeoutOverrides.LOCAL),
+        API: clampTimeout(doc.timeoutOverrides.API),
+      })
     : null;
 
   await db.multiModelConfig.upsert({
@@ -898,7 +912,9 @@ export async function checkLimits(
       // Check cache first for all assignment types
       const cached = getCachedReachability(userId, assignment);
       if (cached) {
-        return { ...base, ...cached };
+        // The cache is keyed by model + key, so two roles sharing a model share
+        // an entry. Keep this role's own id/label instead of the cached one.
+        return { ...cached, id: base.id, label: base.label };
       }
 
       if (needsClientOllama(assignment)) {
@@ -953,7 +969,14 @@ async function quickApiReachabilityCheck(
   userId: string,
   assignment: ModelAssignment
 ): Promise<{ canFinish: boolean; reason?: string }> {
-  const { provider, apiKey, endpoint } = assignment;
+  const { provider, apiKey } = assignment;
+  // Use the saved apiEndpoint (the legacy `endpoint` field is stripped on save).
+  let endpoint: string | undefined;
+  try {
+    endpoint = resolveEndpoint(assignment) ?? assignment.endpoint;
+  } catch (err) {
+    return { canFinish: false, reason: (err as Error).message };
+  }
   // Z.ai is always reachable "" it uses the built-in SDK.
   if (provider === "zai") {
     return { canFinish: true };
@@ -973,6 +996,7 @@ async function quickApiReachabilityCheck(
     mistral: "https://api.mistral.ai/v1/models",
     groq: "https://api.groq.com/openai/v1/models",
     anthropic: "https://api.anthropic.com/v1/models",
+    openrouter: "https://openrouter.ai/api/v1/models",
   };
 
   try {
@@ -991,9 +1015,9 @@ async function quickApiReachabilityCheck(
       });
     } else if (provider === "gemini") {
       // Gemini uses key as query param.
-      const base =
-        endpoint || "https://generativelanguage.googleapis.com/v1beta/models";
-      res = await fetch(`${base}?key=${apiKey}`, {
+      const root = (endpoint || "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, "");
+      const base = root.endsWith("/models") ? root : `${root}/models`;
+      res = await fetch(`${base}?key=${encodeURIComponent(apiKey)}`, {
         method: "GET",
         signal: AbortSignal.timeout(8_000),
       });
@@ -1171,7 +1195,7 @@ function resolvePlan(
 }
 
 async function callModel(
-  assignment: ModelAssignment,
+  rawAssignment: ModelAssignment,
   messages: ChatMessage[],
   opts: {
     timeoutMs: number;
@@ -1193,6 +1217,10 @@ async function callModel(
   let timedOut = false;
   let lastError: string | undefined;
   let tokens: TokenUsage | undefined;
+  // Saved configs only keep apiEndpoint / localEndpoint (the legacy `endpoint`
+  // field is stripped on save), so resolve it again here. Otherwise a custom
+  // endpoint is silently ignored and requests go to the provider default.
+  let assignment = rawAssignment;
   const effectiveTimeout =
     (assignment.provider === "gemini" || assignment.provider === "ollama") && opts.onChunk
       ? DEFAULT_TIMEOUTS.GENERATION
@@ -1206,7 +1234,12 @@ async function callModel(
         : "You are NOX AI. Respond helpfully and concisely.");
 
   for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
+      assignment = {
+        ...rawAssignment,
+        endpoint: resolveEndpoint(rawAssignment) ?? rawAssignment.endpoint,
+      };
       const result = await Promise.race([
         assignment.provider === "gemini" && opts.onChunk
           ? callGeminiStreaming(
@@ -1225,12 +1258,12 @@ async function callModel(
               effectiveTimeout,
               opts.onChunk
             ),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-              () => reject(new Error(`timeout after ${effectiveTimeout}ms`)),
-              effectiveTimeout
-          )
-        ),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`timeout after ${effectiveTimeout}ms`)),
+            effectiveTimeout
+          );
+        }),
       ]);
       return {
         output: result.text,
@@ -1244,13 +1277,16 @@ async function callModel(
       };
     } catch (err) {
       retries = attempt + 1;
-      timedOut = true;
       const e = err as Error;
+      // Only real timeouts count as timed out; auth/quota errors do not.
+      timedOut = /timeout|timed out|aborted/i.test(e.message);
       const cause = (e as { cause?: { code?: string; message?: string } }).cause;
       const detail = cause?.code || cause?.message;
       lastError = detail ? `${e.message} (${detail})` : e.message;
       if (attempt === MAX_RETRY) break;
       await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -1382,7 +1418,7 @@ async function callOpenAiCompatible(
     method: "POST",
     headers,
     body: JSON.stringify({ model, max_tokens: maxTok(), messages }),
-  }, DEFAULT_TIMEOUTS.API);
+  }, DEFAULT_TIMEOUTS.GENERATION);
 
   if (!res.ok) {
     const body = await res.text().catch(() => res.statusText);
@@ -1565,7 +1601,7 @@ async function callAnthropic(
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({ model, max_tokens: maxTok(), system: systemHint, messages }),
-  }, DEFAULT_TIMEOUTS.API);
+  }, DEFAULT_TIMEOUTS.GENERATION);
 
   if (!res.ok) {
     const body = await res.text().catch(() => res.statusText);
@@ -1609,7 +1645,7 @@ async function callGemini(
   });
 
   const init = buildGeminiRequestInit(normalizedKey, "POST", { contents, systemInstruction: { parts: [{ text: systemHint }] }, generationConfig: { maxOutputTokens: maxTok() } });
-  const res = await fetchWithRetry(url, init, DEFAULT_TIMEOUTS.API);
+  const res = await fetchWithRetry(url, init, DEFAULT_TIMEOUTS.GENERATION);
 
   if (!res.ok) {
     const body = await res.text().catch(() => res.statusText);
@@ -3373,8 +3409,11 @@ Return these sections clearly so Host can verify and synthesize the result.]`,
 
   // SINGLE or MULTI (single-model path)
   const a = plan.assignments[0].assignment;
+  // Real generations need the long timeout. DEFAULT_TIMEOUTS.API (15s) is only
+  // meant for quick reachability checks and cut off normal answers.
   const timeout =
-    timeoutOverrides[a.connectionType] || DEFAULT_TIMEOUTS[a.connectionType];
+    timeoutOverrides[a.connectionType] ||
+    (a.connectionType === "API" ? DEFAULT_TIMEOUTS.GENERATION : DEFAULT_TIMEOUTS.LOCAL);
   if (needsClientOllama(a)) {
     return {
       ok: true,
@@ -3512,7 +3551,15 @@ export async function resumeDispatch(
 
   switch (stage) {
     case "single": {
-      const assignment = contextAssignment("assignment", doc.globalConfig);
+      // Guests don't trust the client-sent assignment, so pick it from their own
+      // config. In MULTI mode that is the feature's model, not globalConfig.
+      const ctxFeature = FEATURES.find((f) => f.id === ctx.feature)?.id;
+      const singleFallback =
+        doc.mode === "MULTI"
+          ? (ctxFeature && doc.featureConfigs?.[ctxFeature]) ||
+            doc.globalConfig
+          : doc.globalConfig;
+      const assignment = contextAssignment("assignment", singleFallback);
       return finishFromAssignment(assignment, String(ctx.role || "single"), typeof ctx.intent === "string" ? ctx.intent : undefined, messages[messages.length - 1]?.content || "");
     }
     case "direct": {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { PROVIDERS,FEATURES,SPECIALISTS } from "@/lib/multi-model-service";
+import { PROVIDERS,FEATURES,SPECIALISTS,DEFAULT_TIMEOUTS,MAX_RETRY } from "@/lib/multi-model-service";
 
 export const runtime = "nodejs";
 
@@ -12,9 +12,10 @@ export async function GET() {
     features: FEATURES,
     specialists: SPECIALISTS,
     defaults: {
-      LOCAL: 60_000,
-      API: 30_000,
-      maxRetry: 2,
+      // Report what dispatch really uses, not made-up numbers.
+      LOCAL: DEFAULT_TIMEOUTS.LOCAL,
+      API: DEFAULT_TIMEOUTS.GENERATION,
+      maxRetry: MAX_RETRY,
     },
   });
 }
