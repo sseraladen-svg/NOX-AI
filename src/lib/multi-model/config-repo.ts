@@ -120,6 +120,16 @@ function unmaskSpecialistMap(
   }
 }
 
+function aliasLegacySpecialists(
+  map: Partial<Record<SpecialistId, ModelAssignment>> | undefined
+): Partial<Record<SpecialistId, ModelAssignment>> | undefined {
+  if (!map) return map;
+  if (map.engineering && !map.coding) {
+    return { ...map, coding: map.engineering };
+  }
+  return map;
+}
+
 export async function getConfig(
   userId: string
 ): Promise<MultiModelConfigDoc> {
@@ -138,7 +148,7 @@ export async function getConfig(
     hostConfig: maskAssignment(
       row.hostConfig ? JSON.parse(row.hostConfig) : null
     ),
-    specialistConfigs: maskSpecialistMap(row.specialistConfigs),
+    specialistConfigs: aliasLegacySpecialists(maskSpecialistMap(row.specialistConfigs)),
     timeoutOverrides: row.timeoutOverrides
       ? JSON.parse(row.timeoutOverrides)
       : undefined,
@@ -167,7 +177,7 @@ export async function getConfigInternal(
     globalConfig: unmask(row.globalConfig),
     featureConfigs: unmaskFeatureMap(row.featureConfigs),
     hostConfig: unmask(row.hostConfig),
-    specialistConfigs: unmaskSpecialistMap(row.specialistConfigs),
+    specialistConfigs: aliasLegacySpecialists(unmaskSpecialistMap(row.specialistConfigs)),
     timeoutOverrides: row.timeoutOverrides
       ? JSON.parse(row.timeoutOverrides)
       : undefined,

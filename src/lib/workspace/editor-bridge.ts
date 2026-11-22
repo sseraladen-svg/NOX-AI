@@ -94,8 +94,26 @@ export function watchMarkers(m: Monaco): () => void {
 /** Editor diagnostics (errors only) for the agent's verify step. Empty if the editor is not ready. */
 export async function collectDiagnostics(paths: string[]): Promise<Issue[]> {
   if (!monaco) return [];
-  syncModels(monaco, useWorkspace.getState().vfs.files, useWorkspace.getState().active);
-  await new Promise((r) => setTimeout(r, 1200)); // let the language workers publish markers
+  const m = monaco;
+  syncModels(m, useWorkspace.getState().vfs.files, useWorkspace.getState().active);
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(settleTimer);
+      clearTimeout(maxTimer);
+      sub.dispose();
+      resolve();
+    };
+    const sub = m.editor.onDidChangeMarkers(() => {
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(done, 250);
+    });
+    const maxTimer = setTimeout(done, 1200);
+    settleTimer = setTimeout(done, 350);
+  });
   const set = new Set(paths);
   return readProblems(monaco)
     .filter((p) => set.has(p.path) && p.severity === "error")

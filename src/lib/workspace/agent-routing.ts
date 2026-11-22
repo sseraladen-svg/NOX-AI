@@ -65,7 +65,13 @@ export function analyzeTask(task: string, ctx: { fileCount: number }, forced?: {
   if (RE.vision.test(t)) notes.push("Mentions an image or diagram. The Agent tab cannot analyse images; use the Host chat with a Vision model for that part.");
 
   const bigWords = RE.big.test(t);
-  let complexity: Complexity = task.length > 220 || (bigWords && task.length > 60) ? "large" : task.length > 90 || ctx.fileCount > 12 || hit(RE.create) + hit(RE.modify) > 1 ? "medium" : "small";
+  const isProjectCreate = intent === "create" && (bigWords || ctx.fileCount === 0);
+  let complexity: Complexity =
+    task.length > 220 || (bigWords && (task.length > 60 || intent === "create"))
+      ? "large"
+      : isProjectCreate || task.length > 90 || ctx.fileCount > 12 || hit(RE.create) + hit(RE.modify) > 1
+        ? "medium"
+        : "small";
   if ((intent === "explain" || intent === "plan") && complexity === "large") complexity = "medium";
   if (forced?.complexity) complexity = forced.complexity;
 
@@ -73,8 +79,8 @@ export function analyzeTask(task: string, ctx: { fileCount: number }, forced?: {
   const planOnly = intent === "plan";
   const buildRole: AgentRole = intent === "automation" ? "automation" : "coding";
   const steps: PlannedStep[] = [];
-  if (planOnly || complexity === "large") {
-    steps.push({ id: "plan", role: "planning", label: "Plan", required: planOnly, enabled: true, reason: planOnly ? "You asked for a plan." : "Large task: a short plan first avoids rework." });
+  if (planOnly || complexity === "large" || isProjectCreate) {
+    steps.push({ id: "plan", role: "planning", label: "Plan", required: planOnly, enabled: true, reason: planOnly ? "You asked for a plan." : "Planning first keeps file order and imports consistent." });
   }
   if (!planOnly) {
     steps.push({
@@ -86,7 +92,7 @@ export function analyzeTask(task: string, ctx: { fileCount: number }, forced?: {
       reason: readOnly ? "Reads the files and answers; changes nothing." : "Creates and edits the files, runs JavaScript to check, fixes errors.",
     });
     if (!readOnly && complexity !== "small") {
-      steps.push({ id: "review", role: "engineering", label: "Review", required: false, enabled: true, reason: "Runs only if 2+ files changed or a run failed; checks imports and bugs." });
+      steps.push({ id: "review", role: "coding", label: "Review", required: false, enabled: true, reason: "Runs only if 2+ files changed or a run failed; checks imports and bugs." });
     }
   }
   const maxSteps = readOnly ? 3 : complexity === "small" ? 4 : complexity === "medium" ? 8 : 12;
@@ -147,10 +153,10 @@ export function rankModels(installed: string[]): string[] {
 }
 
 const CHAIN: Record<AgentRole, Source[]> = {
-  planning: ["planning", "coding", "host", "engineering", "automation"],
-  coding: ["coding", "automation", "host", "engineering", "planning"],
+  planning: ["planning", "coding", "host", "automation", "engineering"],
+  coding: ["coding", "engineering", "automation", "host", "planning"],
   automation: ["automation", "coding", "host", "engineering", "planning"],
-  engineering: ["engineering", "coding", "planning", "host", "automation"],
+  engineering: ["coding", "engineering", "planning", "host", "automation"],
 };
 
 export type Suggestion = { source: Source | null; pull?: string; message: string };
