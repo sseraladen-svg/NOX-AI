@@ -26,7 +26,7 @@ const MODE_CARDS: {
     label: "Single",
     tagline: "One model, every task",
     description:
-      "Connect one model (API or Local CLI) and use it for all six feature types — chat, voice, vision, coding, automation, robotics. Simplest setup, fastest responses.",
+      "Connect one model (API or Local CLI) and use it for Deep Analysis, Coding, Vision, Voice, and Robotics. Simplest setup, fastest responses.",
     icon: Globe,
     accent: "from-foreground to-foreground/70",
     features: [
@@ -40,14 +40,14 @@ const MODE_CARDS: {
     label: "Multi",
     tagline: "Right model for each job",
     description:
-      "Assign a dedicated model or local CLI to each feature. Deep Analysis, Coding, Vision, Voice, Automation, and Robotics use their own rules and configuration.",
+      "Assign a dedicated model or local CLI to 5 specialized workspaces: Deep Analysis (lenses & sources), Coding (dev modes & preview), Vision (Ctrl+V & ruler), Voice (9 langs), and Robotics (3D kinematics).",
     icon: Layers,
     accent: "from-foreground/85 to-foreground/55",
     features: [
-      "6 independent feature cards",
-      "Per-feature provider + connection",
-      "Feature-specific built-in rules",
-      "Selected-feature routing",
+      "5 specialized workspaces (no clutter)",
+      "Analysis Lenses + Multi-Source Tray",
+      "Dev Modes, Live Preview & Code Save",
+      "Vision Ctrl+V, 9-Lang Voice & 3D CSV",
     ],
   },
   {
@@ -55,11 +55,11 @@ const MODE_CARDS: {
     label: "Orchestrator",
     tagline: "Host routes to specialists",
     description:
-      "A Host model reads your prompt, decides what kind of task it is, routes it to the right specialist (planning, coding, vision, automation, engineering), then synthesizes the final reply.",
+      "A Host model reads your prompt, decides what kind of task it is, routes it to the right specialist (planning, coding, vision, automation), then synthesizes the final reply.",
     icon: Network,
     accent: "from-foreground/70 to-foreground/40",
     features: [
-      "Host + 5 specialist cards",
+      "Host + 4 specialist cards",
       "Multi-agent confirmation flow",
       "3-step pipeline: analyze → specialist → synthesize",
     ],
