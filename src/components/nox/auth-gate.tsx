@@ -20,6 +20,8 @@ import { useShallow } from "zustand/react/shallow";
  * effects don't fire against stale/default state. The mode picker and usage
  * dashboard don't need this.
  */
+let lastConfigLoadedFor: string | null = null;
+
 export function AuthGate({
   children,
   requireConfig = false,
@@ -41,19 +43,26 @@ export function AuthGate({
       setGuestSession(true);
       return;
     }
-    loadAuth();
+    // Already signed in (navigating between pages): skip the /me round-trip.
+    if (!useAuth.getState().user) loadAuth();
   }, [loadAuth]);
 
   const userId = user?.id;
   React.useEffect(() => {
-    if (guestSession || userId) {
-      useMultiModel.setState({ loaded: false }); // new user or guest session: show the loader until their config arrives
-      loadConfig();
+    const key = guestSession ? "guest" : userId;
+    if (key) {
+      // New user or guest session: show the loader until their config arrives.
+      // Same user moving between pages: reuse the config already in the store.
+      if (!(useMultiModel.getState().loaded && lastConfigLoadedFor === key)) {
+        lastConfigLoadedFor = key;
+        useMultiModel.setState({ loaded: false });
+        loadConfig();
+      }
       loadList();
     }
   }, [guestSession, userId, loadConfig, loadList]);
 
-  if (loading && !guestSession) {
+  if (loading && !user && !guestSession) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background nox-aurora">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />

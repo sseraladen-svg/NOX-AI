@@ -83,15 +83,29 @@ function defaultAssignment(connectionType: ConnectionType = "API"): ModelAssignm
   };
 }
 
+// Provider catalog is fetched once per page load, not on every dialog open.
+let providersCache: Provider[] | null = null;
+
 export function AdvancedCustomization() {
   const store = useMultiModel(useShallow((s) => ({ dirty: s.dirty, exportConfig: s.exportConfig, featureConfigs: s.featureConfigs, globalConfig: s.globalConfig, hostConfig: s.hostConfig, importConfig: s.importConfig, lastSavedAt: s.lastSavedAt, load: s.load, mode: s.mode, reset: s.reset, save: s.save, saving: s.saving, setFeature: s.setFeature, setGlobal: s.setGlobal, setHost: s.setHost, setMode: s.setMode, setSpecialist: s.setSpecialist, setTimeoutOverride: s.setTimeoutOverride, specialistConfigs: s.specialistConfigs, tests: s.tests, timeoutOverrides: s.timeoutOverrides })));
-  const [providers, setProviders] = React.useState<Provider[]>([]);
+  const [providers, setProviders] = React.useState<Provider[]>(providersCache ?? []);
 
   React.useEffect(() => {
-    store.load();
+    // Config is already loaded by AuthGate; reloading here only adds a
+    // request and can overwrite edits made before opening this dialog.
+    if (!useMultiModel.getState().loaded) store.load();
+    if (providersCache) return;
+    let cancelled = false;
     fetch("/api/multi-model/providers")
       .then((r) => r.json())
-      .then((j) => j.ok && setProviders(j.providers));
+      .then((j) => {
+        if (!j.ok) return;
+        providersCache = j.providers;
+        if (!cancelled) setProviders(j.providers);
+      });
+    return () => {
+      cancelled = true;
+    };
     // store is a stable zustand hook; only run on mount.
   }, []);
 

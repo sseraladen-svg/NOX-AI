@@ -38,7 +38,12 @@ import { Sheet,SheetContent,SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import type { DispatchStep } from "@/lib/multi-model-types";
 import { useShallow } from "zustand/react/shallow";
-import { WorkspaceIDE } from "./workspace/workspace-ide";
+import dynamic from "next/dynamic";
+
+const WorkspaceIDE = dynamic(() => import("./workspace/workspace-ide").then((m) => m.WorkspaceIDE), {
+  ssr: false,
+  loading: () => <div className="flex-1 grid place-items-center text-sm text-muted-foreground">Loading workbench…</div>,
+});
 
 const SPECIALIST_ICONS: Record<
   SpecialistId,

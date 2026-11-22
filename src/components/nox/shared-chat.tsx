@@ -44,7 +44,20 @@ import { Markdown } from "./markdown";
 import { useMultiModel } from "@/store/multi-model-store";
 import type { Mode } from "@/lib/multi-model-types";
 import type { IntentClassification,SpecialistId } from "@/lib/multi-model-types";
-import { AdvancedCustomization } from "./advanced-customization";
+import dynamic from "next/dynamic";
+
+const AdvancedCustomization = dynamic(
+  () => import("./advanced-customization").then((m) => m.AdvancedCustomization),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="space-y-3">
+        <div className="h-20 rounded-xl bg-muted/30 animate-pulse" />
+        <div className="h-48 rounded-xl bg-muted/30 animate-pulse" />
+      </div>
+    ),
+  }
+);
 import { MultiAgentConfirmDialog } from "./multi-agent-confirm-dialog";
 import type { LimitRow } from "@/store/multi-model-store";
 import { cn } from "@/lib/utils";
@@ -734,6 +747,14 @@ export function AdvancedDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  // Preload the configure UI shortly after the page settles so opening it is instant.
+  React.useEffect(() => {
+    const id = setTimeout(() => {
+      void import("./advanced-customization");
+    }, 1500);
+    return () => clearTimeout(id);
+  }, []);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto nox-scroll bg-card/95 backdrop-blur-xl border-border">

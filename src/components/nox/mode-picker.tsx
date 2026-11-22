@@ -73,16 +73,23 @@ export function ModePicker() {
   const [showGuide, setShowGuide] = React.useState(false);
   const [guideType, setGuideType] = React.useState<"api" | "cli" | null>(null);
 
-  const enterMode = async (mode: Mode) => {
+  // Warm the route chunks so the first click doesn't wait on a download.
+  React.useEffect(() => {
+    ["/single", "/multi", "/orchestrator", "/usage"].forEach((p) => router.prefetch(p));
+  }, [router]);
+
+  const enterMode = (mode: Mode) => {
     if (isGuestSession() && mode === "ORCHESTRATOR") {
       toast.info("Orchestrator mode requires an account.");
       return;
     }
     mm.setMode(mode);
-    if (!(await mm.save())) {
-      toast.error("Could not save your mode. Your account settings may be unavailable.");
-    }
+    // Navigate right away; persist the mode in the background instead of
+    // blocking the click on a network round-trip.
     router.push(`/${mode.toLowerCase()}`);
+    void mm.save().then((ok) => {
+      if (!ok) toast.error("Could not save your mode. Your account settings may be unavailable.");
+    });
   };
 
   const handleOpenDemo = () => {
