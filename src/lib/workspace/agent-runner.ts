@@ -3,7 +3,7 @@
 import { type VfsState } from "./vfs.ts";
 import { type AgentAction, parseAgentReply, stripActions } from "./agent-protocol.ts";
 import { type ActionResult, applyAction, summarizeChanges, type FileChange } from "./agent-exec.ts";
-import { type Issue, formatIssues, validateFiles } from "./validators.ts";
+import { type Issue, formatIssuesWithContext, validateFiles } from "./validators.ts";
 import { detectProjectKind, playbookFor } from "./playbooks.ts";
 import { type DagTaskNode, sortTasksTopologically } from "./topo-sort.ts";
 import { AUTOMATION_HINT, BUILDER_SYSTEM, PLANNER_SYSTEM, REVIEWER_SYSTEM, type AgentRole, type ContextInput, buildWorkspaceContext, shouldPlan } from "./agent-prompts.ts";
@@ -291,7 +291,7 @@ export async function runAgent(task: string, history: AgentMsg[], deps: AgentDep
             if (errors.length) issues.push(...errors.map((e) => `${e.path}: ${e.message}`).slice(0, 3));
             break;
           }
-          messages.push({ role: "user", content: `Automatic checks found problems:\n${formatIssues(errors)}\n\nFix them with actions (prefer <nox:edit>), then reply with <nox:done>.` });
+          messages.push({ role: "user", content: `Automatic checks found problems:\n${formatIssuesWithContext(errors, deps.getVfs())}\n\nFix them with actions (prefer <nox:edit>), then reply with <nox:done>.` });
           await actLoop("build", opts.buildRole, system, messages, 2, history.length);
         }
       }

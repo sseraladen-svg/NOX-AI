@@ -129,3 +129,41 @@ test("Multi Mode workflow helpers build structured payloads and compute robotics
   assert.equal(metrics.segments, 1);
   assert.ok(exportWaypointsCsv([{ label: "Home", x: 0, y: 0, z: 0 }], "mm").includes("1,\"Home\",0,0,0"));
 });
+
+import { applyAction } from "../src/lib/workspace/agent-exec.ts";
+import { emptyVfs, writeFile } from "../src/lib/workspace/vfs.ts";
+import { formatIssuesWithContext } from "../src/lib/workspace/validators.ts";
+
+test("applyAction edit strips accidental line-number prefixes and tolerates indentation shifts", () => {
+  let vfs = writeFile(emptyVfs(), "/app.ts", "function greet() {\n  return 'hi';\n}");
+  const prefixed = applyAction(vfs, {
+    type: "edit",
+    path: "/app.ts",
+    find: "2 |   return 'hi';",
+    replace: "2 |   return 'hello';",
+  });
+  assert.equal(prefixed.result.ok, true);
+  assert.ok(prefixed.state.files["/app.ts"].includes("return 'hello';"));
+
+  vfs = prefixed.state;
+  const indented = applyAction(vfs, {
+    type: "edit",
+    path: "/app.ts",
+    find: "return 'hello';",
+    replace: "  return 'world';",
+  });
+  assert.equal(indented.result.ok, true);
+  assert.ok(indented.state.files["/app.ts"].includes("return 'world';"));
+});
+
+test("formatIssuesWithContext includes surrounding code lines for error rounds", () => {
+  const vfs = writeFile(emptyVfs(), "/calc.ts", "const a = 1;\nconst b = x;\nconst c = 3;");
+  const msg = formatIssuesWithContext(
+    [{ path: "/calc.ts", line: 2, severity: "error", message: "Cannot find name 'x'." }],
+    vfs,
+    1
+  );
+  assert.ok(msg.includes("1 | const a = 1;"));
+  assert.ok(msg.includes("2 | const b = x;"));
+  assert.ok(msg.includes("3 | const c = 3;"));
+});

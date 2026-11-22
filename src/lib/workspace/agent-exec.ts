@@ -13,7 +13,7 @@ export type ActionResult = {
 };
 
 export const MAX_FILE_BYTES = 512 * 1024;
-const MAX_READ_CHARS = 24_000;
+const MAX_READ_CHARS = 12_000;
 
 const lines = (s: string) => (s === "" ? 0 : s.split("\n").length);
 const fail = (message: string): ActionResult => ({ ok: false, message });
@@ -48,11 +48,53 @@ export function applyAction(state: VfsState, action: AgentAction): { state: VfsS
         if (!action.find) return done(state, fail("Edit needs a non-empty <find> text."));
         const crlf = state.files[path].includes("\r\n");
         const text = state.files[path].replace(/\r\n/g, "\n");
-        const find = action.find.replace(/\r\n/g, "\n");
-        const count = text.split(find).length - 1;
-        if (count === 0) return done(state, fail(`Edit failed in ${path}: <find> text not found. Read the file again and copy the exact text.`));
-        if (count > 1) return done(state, fail(`Edit failed in ${path}: <find> matches ${count} places. Include more surrounding lines to make it unique.`));
-        let out = text.replace(find, () => action.replace.replace(/\r\n/g, "\n"));
+        const stripLinePrefix = (block: string) => {
+          const ls = block.split("\n");
+          const hasPrefix = ls.some((l) => /^\s*\d+\s*\|\s?/.test(l));
+          return hasPrefix ? ls.map((l) => l.replace(/^\s*\d+\s*\|\s?/, "")).join("\n") : block;
+        };
+        let find = action.find.replace(/\r\n/g, "\n");
+        let rep = action.replace.replace(/\r\n/g, "\n");
+        let count = text.split(find).length - 1;
+        if (count === 0) {
+          const strippedFind = stripLinePrefix(find);
+          if (strippedFind !== find) {
+            find = strippedFind;
+            rep = stripLinePrefix(rep);
+            count = text.split(find).length - 1;
+          }
+        }
+        let out: string | null = null;
+        if (count === 1) {
+          out = text.replace(find, () => rep);
+        } else if (count > 1) {
+          return done(state, fail(`Edit failed in ${path}: <find> matches ${count} places. Include more surrounding lines to make it unique.`));
+        } else {
+          // Whitespace-trimmed line-block fallback when local models shift indentation
+          const norm = (l: string) => l.replace(/\s+/g, " ").trim();
+          const fileLines = text.split("\n");
+          const findLines = find.split("\n");
+          const targetNorm = findLines.map(norm);
+          const matches: number[] = [];
+          if (findLines.length > 0 && targetNorm.some((l) => l.length > 0)) {
+            for (let i = 0; i <= fileLines.length - findLines.length; i++) {
+              let ok = true;
+              for (let j = 0; j < findLines.length; j++) {
+                if (norm(fileLines[i + j]) !== targetNorm[j]) { ok = false; break; }
+              }
+              if (ok) matches.push(i);
+            }
+          }
+          if (matches.length === 1) {
+            const idx = matches[0];
+            fileLines.splice(idx, findLines.length, ...rep.split("\n"));
+            out = fileLines.join("\n");
+          } else if (matches.length > 1) {
+            return done(state, fail(`Edit failed in ${path}: <find> matches ${matches.length} places. Include more surrounding lines to make it unique.`));
+          } else {
+            return done(state, fail(`Edit failed in ${path}: <find> text not found. Read the file again and copy the exact text.`));
+          }
+        }
         if (crlf) out = out.replace(/\n/g, "\r\n");
         return done(writeFile(state, path, out), { ok: true, message: `Edited ${path}`, changed: [path] });
       }

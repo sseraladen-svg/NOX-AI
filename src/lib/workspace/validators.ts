@@ -67,3 +67,21 @@ export function validateFiles(vfs: VfsState, paths: string[]): Issue[] {
 
 export const formatIssues = (issues: Issue[]): string =>
   issues.map((i) => `- ${i.severity.toUpperCase()} ${i.path}${i.line ? `:${i.line}` : ""}: ${i.message}`).join("\n");
+
+export function formatIssuesWithContext(issues: Issue[], vfs: VfsState, radius = 8): string {
+  return issues
+    .map((issue) => {
+      const header = `- ${issue.severity.toUpperCase()} ${issue.path}${issue.line ? `:${issue.line}` : ""}: ${issue.message}`;
+      const content = vfs.files[issue.path];
+      if (!content || !issue.line || issue.line < 1) return header;
+      const fileLines = content.replace(/\r\n/g, "\n").split("\n");
+      const start = Math.max(1, issue.line - radius);
+      const end = Math.min(fileLines.length, issue.line + radius);
+      const snippet = fileLines
+        .slice(start - 1, end)
+        .map((l, idx) => `  ${start + idx} | ${l}`)
+        .join("\n");
+      return `${header}\n${snippet}`;
+    })
+    .join("\n\n");
+}
