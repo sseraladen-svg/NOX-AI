@@ -47,6 +47,8 @@ import {
   type CodingModeId,
   buildCodingPayload,
   extensionForLang,
+  extractStreamingCodeBlocks,
+  stripCodeBlocksForChat,
   VISION_MODES,
   VOICE_LANGUAGES,
   computeMotionMetrics,
@@ -668,7 +670,7 @@ export function CodingFeatureUI({
   onSendText?: (text: string) => void;
 }) {
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
-  const codeBlocks = lastAssistant ? extractCodeBlocks(lastAssistant.content) : [];
+  const codeBlocks = lastAssistant ? extractStreamingCodeBlocks(lastAssistant.content, sending) : [];
   const [copiedIdx, setCopiedIdx] = React.useState<number | null>(null);
   const [previewIdx, setPreviewIdx] = React.useState<number | null>(null);
   const [copyError, setCopyError] = React.useState<string | null>(null);
@@ -826,7 +828,9 @@ export function CodingFeatureUI({
                     {m.role}
                   </div>
                   <div className="whitespace-pre-wrap text-xs leading-relaxed">
-                    {m.content}
+                    {m.role === "assistant" && !m.error
+                      ? stripCodeBlocksForChat(m.content, sending && m.id === lastAssistant?.id)
+                      : m.content}
                   </div>
                 </div>
               ))}
@@ -844,8 +848,13 @@ export function CodingFeatureUI({
             <div className="h-2 w-2 rounded-full bg-amber-400" />
             <div className="h-2 w-2 rounded-full bg-emerald-400" />
             <span className="text-[10px] text-muted-foreground ml-1 font-mono">
-              output.ts
+              {codeBlocks[0] ? `output.${extensionForLang(codeBlocks[0].lang)}` : "output.ts"}
             </span>
+            {sending && codeBlocks.some((b) => b.streaming) && (
+              <span className="text-[10px] text-primary font-mono animate-pulse ml-1">
+                streaming…
+              </span>
+            )}
           </div>
           {codeBlocks.length > 0 && (
             <Badge variant="outline" className="text-[10px]">
@@ -945,20 +954,6 @@ export function CodingFeatureUI({
       </div>
     </div>
   );
-}
-
-function extractCodeBlocks(text: string): { lang: string; code: string }[] {
-  const blocks: { lang: string; code: string }[] = [];
-  const regex = /```(\w*)\n?([\s\S]*?)```/g;
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    blocks.push({ lang: match[1] || "code", code: match[2].trim() });
-  }
-  // If no fenced blocks, check if the whole thing looks like code
-  if (blocks.length === 0 && text.trim().split("\n").length > 2) {
-    // leave empty - only show fenced blocks
-  }
-  return blocks;
 }
 
 // ─── 3. VOICE FEATURE - mic + transcript + TTS ──────────────────────────────

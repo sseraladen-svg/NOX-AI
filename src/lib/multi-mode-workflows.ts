@@ -251,3 +251,37 @@ export function exportWaypointsCsv(waypoints: Waypoint[], units: string): string
   );
   return [header, ...rows].join("\n");
 }
+
+export interface ExtractedCodeBlock {
+  lang: string;
+  code: string;
+  streaming?: boolean;
+}
+
+export function extractStreamingCodeBlocks(text: string, allowOpen = false): ExtractedCodeBlock[] {
+  const blocks: ExtractedCodeBlock[] = [];
+  const closedRe = /```([A-Za-z0-9_+-]*)\n?([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = closedRe.exec(text)) !== null) {
+    blocks.push({ lang: match[1] || "code", code: match[2].trim(), streaming: false });
+    lastIndex = closedRe.lastIndex;
+  }
+  if (allowOpen) {
+    const tail = text.slice(lastIndex);
+    const openMatch = /```([A-Za-z0-9_+-]*)\n?([\s\S]*)$/.exec(tail);
+    if (openMatch && openMatch[2].trim().length > 0) {
+      blocks.push({ lang: openMatch[1] || "code", code: openMatch[2], streaming: true });
+    }
+  }
+  return blocks;
+}
+
+export function stripCodeBlocksForChat(text: string, isStreaming = false): string {
+  const cleaned = text
+    .replace(/```[A-Za-z0-9_+-]*\n?[\s\S]*?```/g, "\n[Code written to editor →]\n")
+    .replace(/```[A-Za-z0-9_+-]*\n?[\s\S]*$/g, isStreaming ? "\n[Streaming code to editor…]\n" : "\n[Code written to editor →]\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return cleaned || (isStreaming ? "Streaming code to editor…" : "Code written to editor →");
+}

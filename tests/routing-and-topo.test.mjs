@@ -167,3 +167,19 @@ test("formatIssuesWithContext includes surrounding code lines for error rounds",
   assert.ok(msg.includes("2 | const b = x;"));
   assert.ok(msg.includes("3 | const c = 3;"));
 });
+
+import { extractStreamingCodeBlocks, stripCodeBlocksForChat } from "../src/lib/multi-mode-workflows.ts";
+
+test("extractStreamingCodeBlocks captures unclosed code blocks while streaming and strips them from chat", () => {
+  const partial = "Here is the script:\n```python\nprint('hello')\n";
+  assert.equal(extractStreamingCodeBlocks(partial, false).length, 0);
+  const live = extractStreamingCodeBlocks(partial, true);
+  assert.equal(live.length, 1);
+  assert.equal(live[0].lang, "python");
+  assert.equal(live[0].streaming, true);
+  assert.ok(live[0].code.includes("print('hello')"));
+
+  const chatText = stripCodeBlocksForChat(partial, true);
+  assert.ok(!chatText.includes("print('hello')"));
+  assert.ok(chatText.includes("Streaming code to editor"));
+});
