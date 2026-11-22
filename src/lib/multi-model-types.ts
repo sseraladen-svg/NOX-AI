@@ -14,7 +14,6 @@ export type FeatureId =
   | "voice"
   | "vision"
   | "coding"
-  | "automation"
   | "robotics";
 
 export type SpecialistId =
@@ -255,11 +254,6 @@ export const FEATURES: {
   },
   { id: "coding", label: "Coding", description: "Code generation & review." },
   {
-    id: "automation",
-    label: "Automation",
-    description: "Workflow & task chaining.",
-  },
-  {
     id: "robotics",
     label: "Robotics",
     description: "Physical/motion control plans.",
@@ -268,6 +262,7 @@ export const FEATURES: {
 
 export function normalizeFeatureId(value: unknown): FeatureId | null {
   if (value === "chat") return "deep-analysis";
+  if (value === "automation") return "coding";
   return FEATURES.find((feature) => feature.id === value)?.id || null;
 }
 
@@ -291,7 +286,9 @@ export function migrateFeatureConfigs(
     const assignment =
       feature.id === "deep-analysis" && !isAssignment(source["deep-analysis"])
         ? source.chat
-        : source[feature.id];
+        : feature.id === "coding" && !isAssignment(source.coding)
+          ? source.automation
+          : source[feature.id];
     if (isAssignment(assignment)) migrated[feature.id] = assignment;
   }
 

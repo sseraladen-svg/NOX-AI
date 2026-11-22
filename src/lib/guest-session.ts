@@ -84,7 +84,6 @@ const FEATURES = new Set([
   "voice",
   "vision",
   "coding",
-  "automation",
   "robotics",
 ]);
 const SESSION_ID_PATTERN =

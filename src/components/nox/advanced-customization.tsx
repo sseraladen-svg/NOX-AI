@@ -56,7 +56,6 @@ const FEATURE_ICONS: Record<FeatureId, React.ComponentType<{ className?: string 
   voice: Mic,
   vision: Eye,
   coding: Code2,
-  automation: Settings2,
   robotics: Cpu,
 };
 

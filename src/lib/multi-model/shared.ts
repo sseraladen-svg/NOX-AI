@@ -16,8 +16,6 @@ export const FEATURE_BUILTIN_RULES: Record<FeatureId, string> = {
     "Output structured, objective, and concise visual analysis. Prioritize defect detection and spatial relationships. No fluff. End with a fenced nox-vision JSON block containing {\"regions\":[{\"label\":\"...\",\"kind\":\"defect|object\",\"x\":0,\"y\":0,\"width\":0,\"height\":0}]}; use normalized coordinates from 0 to 1, and include only regions you can visually ground. Return an empty regions array when coordinates are uncertain.",
   voice:
     "Output concise, natural language suitable for text-to-speech conversion. Keep sentences short.",
-  automation:
-    "Output strict, step-by-step logical sequences. Prioritize deterministic execution and safety. Format executable workflow steps as a numbered list with a short title and detail for each step; identify risks and required approvals.",
   robotics:
     "Output precise, low-level motion or control instructions. Prioritize safety constraints and efficiency. End with a fenced nox-robotics JSON block containing {\"units\":\"mm\",\"waypoints\":[{\"label\":\"...\",\"x\":0,\"y\":0,\"z\":0}],\"safetyWarnings\":[]}; coordinates must be finite and physically justified, and uncertain values must be called out rather than invented. This is a plan only, not hardware control.",
 };

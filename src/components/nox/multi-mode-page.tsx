@@ -10,7 +10,6 @@ import {
   Mic,
   Eye,
   Code2,
-  Settings2 as GearIcon,
   Cpu,
   Globe,
   Server,
@@ -32,7 +31,6 @@ import {
   CodingFeatureUI,
   VoiceFeatureUI,
   VisionFeatureUI,
-  AutomationFeatureUI,
   RoboticsFeatureUI,
 } from "./feature-uis";
 import { cn } from "@/lib/utils";
@@ -46,7 +44,6 @@ const FEATURE_ICONS: Record<
   voice: Mic,
   vision: Eye,
   coding: Code2,
-  automation: GearIcon,
   robotics: Cpu,
 };
 
@@ -74,12 +71,6 @@ const EXAMPLES_BY_FEATURE: Record<FeatureId, string[]> = {
     "Fix this Python bug: def add(a,b): return a-b",
     "Explain async/await with an example",
     "Build a REST API endpoint for login",
-  ],
-  automation: [
-    "Automate a daily report workflow",
-    "Build a CI/CD pipeline for Node.js",
-    "Chain these 3 APIs together",
-    "Schedule a weekly data backup",
   ],
   robotics: [
     "Plan a pick-and-place motion",
@@ -235,8 +226,6 @@ export function MultiModePage() {
         return <VoiceFeatureUI {...commonProps} />;
       case "vision":
         return <VisionFeatureUI {...commonProps} />;
-      case "automation":
-        return <AutomationFeatureUI {...commonProps} />;
       case "robotics":
         return <RoboticsFeatureUI {...commonProps} />;
       default:

@@ -25,10 +25,8 @@ import {
   Image as ImageIcon,
   X,
   Eye,
-  Workflow,
   Cpu,
   Gauge,
-  CheckCircle2,
   TriangleAlert,
 } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -39,6 +37,21 @@ import { Badge } from "@/components/ui/badge";
 import type { ConversationMessage } from "@/store/conversations-store";
 import type { DispatchStep } from "@/lib/multi-model-types";
 import { Markdown } from "./markdown";
+import {
+  ANALYSIS_LENSES,
+  type AnalysisLensId,
+  type AnalysisSource,
+  buildAnalysisPayload,
+  estimateSourceTokens,
+  CODING_MODES,
+  type CodingModeId,
+  buildCodingPayload,
+  extensionForLang,
+  VISION_MODES,
+  VOICE_LANGUAGES,
+  computeMotionMetrics,
+  exportWaypointsCsv,
+} from "@/lib/multi-mode-workflows";
 
 // ─── Shared bits ────────────────────────────────────────────────────────────
 
@@ -468,12 +481,16 @@ function ChatInputBar({
   input,
   setInput,
   onSend,
+  onSendText,
+  enableAnalysisTools = false,
   sending,
   placeholder,
 }: {
   input: string;
   setInput: (s: string) => void;
   onSend: (image?: { data: string; mimeType: string }) => void;
+  onSendText?: (text: string) => void;
+  enableAnalysisTools?: boolean;
   sending: boolean;
   placeholder: string;
 }) {
@@ -481,6 +498,8 @@ function ChatInputBar({
   const [attachmentName, setAttachmentName] = React.useState<string | null>(null);
   const [imageAttachment, setImageAttachment] = React.useState<{ data: string; mimeType: string }>();
   const [attachmentError, setAttachmentError] = React.useState<string | null>(null);
+  const [lens, setLens] = React.useState<AnalysisLensId>("breakdown");
+  const [sources, setSources] = React.useState<AnalysisSource[]>([]);
 
   const readAttachment = async (file: File) => {
     setAttachmentError(null);
@@ -495,7 +514,11 @@ function ChatInputBar({
       return;
     }
     const text = await file.text();
-    setInput(`${input}\n\n[RAG document: ${file.name}]\n${text.slice(0, 100_000)}\n[/RAG document]\n`);
+    if (enableAnalysisTools) {
+      setSources((prev) => [...prev, { id: `${file.name}-${Date.now()}`, name: file.name, content: text.slice(0, 100_000) }]);
+    } else {
+      setInput(`${input}\n\n[RAG document: ${file.name}]\n${text.slice(0, 100_000)}\n[/RAG document]\n`);
+    }
     setAttachmentName(file.name);
     setImageAttachment(undefined);
   };
@@ -514,6 +537,48 @@ function ChatInputBar({
           {attachmentError && <span className="text-red-400">{attachmentError}</span>}
         </div>
       )}
+      {enableAnalysisTools && (
+        <div className="mb-2 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {ANALYSIS_LENSES.map((l) => (
+              <button
+                key={l.id}
+                type="button"
+                onClick={() => setLens(l.id)}
+                className={`px-2 py-0.5 rounded-md text-[11px] border transition ${
+                  lens === l.id
+                    ? "border-primary bg-primary/15 text-primary font-medium"
+                    : "border-border bg-card/40 text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {l.label}
+              </button>
+            ))}
+            {sources.length > 0 && (
+              <span className="ml-auto text-[11px] text-muted-foreground font-mono">
+                {sources.length} source{sources.length > 1 ? "s" : ""} · ~{estimateSourceTokens(sources)} tok
+              </span>
+            )}
+          </div>
+          {sources.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {sources.map((src) => (
+                <span key={src.id} className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-0.5 text-[11px]">
+                  {src.name}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${src.name}`}
+                    onClick={() => setSources((prev) => prev.filter((x) => x.id !== src.id))}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex items-end gap-2">
         <Textarea
           value={input}
@@ -521,7 +586,12 @@ function ChatInputBar({
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              onSend(imageAttachment);
+              if (enableAnalysisTools && onSendText && (sources.length > 0 || lens !== "breakdown")) {
+                onSendText(buildAnalysisPayload(input, lens, sources));
+                setSources([]);
+              } else {
+                onSend(imageAttachment);
+              }
             }
           }}
           placeholder={placeholder}
@@ -602,6 +672,27 @@ export function CodingFeatureUI({
   const [copiedIdx, setCopiedIdx] = React.useState<number | null>(null);
   const [previewIdx, setPreviewIdx] = React.useState<number | null>(null);
   const [copyError, setCopyError] = React.useState<string | null>(null);
+  const [codingMode, setCodingMode] = React.useState<CodingModeId>("generate");
+  const [targetLang, setTargetLang] = React.useState("auto");
+
+  const submitCoding = () => {
+    if (onSendText && (codingMode !== "generate" || targetLang !== "auto") && input.trim()) {
+      onSendText(buildCodingPayload(input, codingMode, targetLang));
+    } else {
+      onSend();
+    }
+  };
+
+  const downloadBlock = (block: { lang: string; code: string }, idx: number) => {
+    const ext = extensionForLang(block.lang);
+    const blob = new Blob([block.code], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `snippet-${idx + 1}.${ext}`;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
 
   const copy = (text: string, idx: number) => {
     setCopyError(null);
@@ -646,13 +737,43 @@ export function CodingFeatureUI({
               Prompt
             </span>
           </div>
+          <div className="flex flex-wrap items-center gap-1.5 mb-2">
+            {CODING_MODES.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setCodingMode(m.id)}
+                className={`px-2 py-0.5 rounded-md text-[11px] border transition ${
+                  codingMode === m.id
+                    ? "border-primary bg-primary/15 text-primary font-medium"
+                    : "border-border bg-card/40 text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+            <select
+              aria-label="Target language"
+              value={targetLang}
+              onChange={(e) => setTargetLang(e.target.value)}
+              className="ml-auto rounded-md border border-border bg-card px-2 py-0.5 text-[11px] text-foreground"
+            >
+              <option value="auto">Auto lang</option>
+              <option value="TypeScript">TypeScript</option>
+              <option value="Python">Python</option>
+              <option value="JavaScript">JavaScript</option>
+              <option value="SQL">SQL</option>
+              <option value="Go">Go</option>
+              <option value="Rust">Rust</option>
+            </select>
+          </div>
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
-                onSend();
+                submitCoding();
               }
             }}
             placeholder="Describe the code you need...  (⌘/Ctrl+Enter to run)"
@@ -665,7 +786,7 @@ export function CodingFeatureUI({
             </span>
             <Button
               size="sm"
-              onClick={() => onSend()}
+              onClick={submitCoding}
               disabled={sending || !input.trim()}
               className="bg-primary text-primary-foreground hover:bg-primary/90 h-8"
             >
@@ -783,6 +904,13 @@ export function CodingFeatureUI({
                         Explain this code
                       </button>
                       <button
+                        type="button"
+                        onClick={() => downloadBlock(block, i)}
+                        className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+                      >
+                        <Download className="h-3 w-3" /> Save
+                      </button>
+                      <button
                         onClick={() => download(block, i)}
                         className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
                       >
@@ -859,6 +987,8 @@ export function VoiceFeatureUI({
   const recognitionRef = React.useRef<any>(null);
   const [liveTranscript, setLiveTranscript] = React.useState("");
   const [playbackRate, setPlaybackRate] = React.useState(1);
+  const [speechLang, setSpeechLang] = React.useState("en-US");
+  const [continuous, setContinuous] = React.useState(false);
   const [waveform, setWaveform] = React.useState<number[]>(() => Array(24).fill(0));
   const [waveformError, setWaveformError] = React.useState<string | null>(null);
 
@@ -872,9 +1002,9 @@ export function VoiceFeatureUI({
       return;
     }
     const recognition = new SpeechRecognition();
-    recognition.continuous = false;
+    recognition.continuous = continuous;
     recognition.interimResults = true;
-    recognition.lang = "en-US";
+    recognition.lang = speechLang;
 
     recognition.onresult = (event: any) => {
       let transcript = "";
@@ -1044,6 +1174,27 @@ export function VoiceFeatureUI({
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium">
             {recording ? "Listening..." : sttSupported ? "Tap to speak" : "Speech recognition not supported"}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 mt-1 mb-1">
+            <select
+              aria-label="Speech language"
+              value={speechLang}
+              onChange={(e) => setSpeechLang(e.target.value)}
+              className="rounded-md border border-border bg-card px-2 py-0.5 text-[11px] text-foreground"
+            >
+              {VOICE_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>{l.label}</option>
+              ))}
+            </select>
+            <label className="inline-flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                checked={continuous}
+                onChange={(e) => setContinuous(e.target.checked)}
+                className="accent-primary"
+              />
+              Continuous
+            </label>
           </div>
           <div className="text-[11px] text-muted-foreground">
             {recording
@@ -1400,9 +1551,29 @@ export function VisionFeatureUI({
       {/* Right: analysis */}
       <div className="lg:w-1/2 flex flex-col gap-2 min-h-0">
         <div className="rounded-xl border border-border bg-card/40 backdrop-blur p-2.5">
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {VISION_MODES.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setInput(m.prompt)}
+                className="px-2 py-0.5 rounded-md text-[11px] border border-border bg-card/40 text-muted-foreground hover:text-foreground transition"
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onPaste={(e) => {
+              const item = Array.from(e.clipboardData?.items ?? []).find((it) => it.type.startsWith("image/"));
+              const file = item?.getAsFile();
+              if (file) {
+                e.preventDefault();
+                handleFile(file);
+              }
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -1527,259 +1698,6 @@ function extractVisionRegions(text: string): {
   return { regions, invalid };
 }
 
-// ─── 5. AUTOMATION FEATURE - workflow node canvas ───────────────────────────
-
-export function AutomationFeatureUI({
-  messages,
-  sending,
-  loadingMessages,
-  scrollRef,
-  input,
-  setInput,
-  onSend,
-  onSendText,
-}: {
-  messages: ConversationMessage[];
-  sending: boolean;
-  loadingMessages: boolean;
-  scrollRef: React.RefObject<HTMLDivElement | null>;
-  input: string;
-  setInput: (s: string) => void;
-  onSend: (image?: { data: string; mimeType: string }) => void;
-  onSendText?: (text: string) => void;
-}) {
-  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
-  const steps = lastAssistant ? extractWorkflowSteps(lastAssistant.content) : [];
-
-  // Interactive workflow state - each step can be checked off
-  const [checkedSteps, setCheckedSteps] = React.useState<Set<number>>(new Set());
-
-  // Reset checked steps when new workflow arrives
-  React.useEffect(() => {
-    setCheckedSteps(new Set());
-  }, [lastAssistant?.id]);
-
-  const toggleStep = (i: number) => {
-    setCheckedSteps((prev) => {
-      const next = new Set(prev);
-      if (next.has(i)) next.delete(i);
-      else next.add(i);
-      return next;
-    });
-  };
-
-  const completedCount = checkedSteps.size;
-  const progress = steps.length > 0 ? Math.round((completedCount / steps.length) * 100) : 0;
-  const retryStep = (step: { name: string; detail?: string }, index: number) => {
-    const request = `Review and correct workflow step ${index + 1}: ${step.name}${step.detail ? ` — ${step.detail}` : ""}. Return the corrected step and its safety checks.`;
-    if (onSendText) onSendText(request);
-    else setInput(request);
-  };
-
-  return (
-    <div className="flex flex-col lg:flex-row gap-3 min-h-0 flex-1">
-      {/* Left: interactive workflow canvas */}
-      <div className="lg:w-1/2 flex flex-col gap-2 min-h-0">
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-2">
-            <Workflow className="h-4 w-4 text-primary" />
-            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Workflow
-            </span>
-            {steps.length > 0 && (
-              <Badge variant="outline" className="text-[10px]">
-                {completedCount}/{steps.length} done
-              </Badge>
-            )}
-          </div>
-        </div>
-
-        {/* Progress bar */}
-        {steps.length > 0 && (
-          <div>
-            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-              <motion.div
-                className="h-full bg-gradient-to-r from-primary to-emerald-500"
-                animate={{ width: `${progress}%` }}
-                transition={{ duration: 0.3 }}
-              />
-            </div>
-            <p className="mt-1 text-[10px] text-muted-foreground">
-              Manual progress only. Confirm each step after completing it; this interface does not execute external workflows.
-            </p>
-          </div>
-        )}
-
-        <div className="flex-1 overflow-y-auto nox-scroll rounded-xl border border-border bg-card/20 p-4 min-h-0">
-          {steps.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center text-sm text-muted-foreground">
-              <Workflow className="h-10 w-10 mb-3 opacity-40" />
-              <p className="font-medium">No workflow yet</p>
-              <p className="text-xs mt-1 max-w-xs">
-                Describe an automation task (e.g. &ldquo;Daily report pipeline&rdquo;).
-                The AI will outline steps for you to review and track manually.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {steps.map((step, i) => {
-                const isChecked = checkedSteps.has(i);
-                return (
-                  <motion.div
-                    key={i}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.08 }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => toggleStep(i)}
-                        disabled={step.status === "error"}
-                        aria-label={`${isChecked ? "Unmark" : "Mark"} step ${i + 1} ${isChecked ? "incomplete" : "complete"}`}
-                        className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 transition ${
-                          isChecked
-                            ? "bg-emerald-500/20 border border-emerald-500/40"
-                            : step.status === "error"
-                            ? "bg-red-500/15 border border-red-500/40"
-                            : "bg-primary/15 border border-primary/30 hover:bg-primary/25"
-                        }`}
-                      >
-                        {isChecked ? (
-                          <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                        ) : step.status === "error" ? (
-                          <TriangleAlert className="h-4 w-4 text-red-400" />
-                        ) : (
-                          <span className="text-xs font-mono text-primary">{i + 1}</span>
-                        )}
-                      </button>
-                      <div
-                        className={`flex-1 rounded-lg border px-3 py-2 transition ${
-                          isChecked
-                            ? "border-emerald-500/30 bg-emerald-500/5"
-                            : step.status === "error"
-                            ? "border-red-500/40 bg-red-500/5"
-                            : "border-border bg-card/60"
-                        }`}
-                      >
-                        <div className={`text-sm font-medium ${isChecked ? "line-through text-muted-foreground" : step.status === "error" ? "text-red-300" : ""}`}>
-                          {step.name}
-                        </div>
-                        {step.detail && (
-                          <div className={`text-[11px] mt-0.5 ${step.status === "error" ? "text-red-300/80" : "text-muted-foreground"}`}>
-                            {step.detail}
-                          </div>
-                        )}
-                      </div>
-                      {step.status === "error" && (
-                        <Button type="button" size="sm" variant="outline" onClick={() => retryStep(step, i)} className="h-7 shrink-0 text-[10px]">
-                          <RefreshCw className="h-3 w-3 mr-1" />
-                          Retry
-                        </Button>
-                      )}
-                    </div>
-                    {i < steps.length - 1 && (
-                      <div className="ml-4 h-4 w-px bg-border" />
-                    )}
-                  </motion.div>
-                );
-              })}
-              {lastAssistant && (
-                <div className="mt-3">
-                  <DispatchTrace steps={lastAssistant.trace || []} />
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Right: prompt + conversation */}
-      <div className="lg:w-1/2 flex flex-col gap-2 min-h-0">
-        <div className="rounded-xl border border-border bg-card/40 backdrop-blur p-2.5">
-          <Textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                onSend();
-              }
-            }}
-            placeholder="Describe the workflow to automate...  (⌘/Ctrl+Enter)"
-            className="min-h-[60px] max-h-32 resize-none border-0 bg-transparent focus-visible:ring-0 text-sm"
-            rows={3}
-          />
-          <div className="flex justify-end mt-1">
-            <Button
-              size="sm"
-              onClick={() => onSend()}
-              disabled={sending || !input.trim()}
-              className="bg-primary text-primary-foreground hover:bg-primary/90 h-8"
-            >
-              {sending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-              ) : (
-                <Play className="h-3.5 w-3.5 mr-1.5" />
-              )}
-              Build
-            </Button>
-          </div>
-        </div>
-
-        <div
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto nox-scroll rounded-xl border border-border bg-card/20 p-3 min-h-0"
-        >
-          {messages.length === 0 && !loadingMessages ? (
-            <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-              <p>Conversation appears here.</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {messages.map((m) => (
-                <div
-                  key={m.id}
-                  className={`text-xs rounded-lg p-2.5 ${
-                    m.role === "user"
-                      ? "bg-primary/10 border border-primary/20"
-                      : "bg-muted/40"
-                  }`}
-                >
-                  <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">
-                    {m.role}
-                  </div>
-                  <Markdown content={m.content} className="nox-prose" />
-                </div>
-              ))}
-              {sending && <ThinkingIndicator />}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function extractWorkflowSteps(text: string): { name: string; detail?: string; status: "planned" | "error" }[] {
-  const steps: { name: string; detail?: string; status: "planned" | "error" }[] = [];
-  const lines = text.split("\n");
-  for (const line of lines) {
-    const match = line.match(/^\s*(?:\d+[.)]|[-*])\s+(.+)\s*$/);
-    if (!match) continue;
-    const body = match[1].trim();
-    const boldTitle = body.match(/^\*\*(.+?)\*\*:?\s*(.*)$/);
-    const plainTitle = body.match(/^(.+?):\s+(.+)$/);
-    const title = boldTitle?.[1] || plainTitle?.[1] || body;
-    const detail = boldTitle?.[2] || plainTitle?.[2] || "";
-    steps.push({
-      name: title.trim(),
-      detail: detail.trim() || undefined,
-      status: /\b(error|failed|blocked|unavailable)\b/i.test(body) ? "error" : "planned",
-    });
-  }
-  return steps.slice(0, 12);
-}
-
 // ─── 6. ROBOTICS FEATURE - sensor grid + motion plan ────────────────────────
 
 export function RoboticsFeatureUI({
@@ -1804,6 +1722,18 @@ export function RoboticsFeatureUI({
   const [speed, setSpeed] = React.useState(0.5);
   const [acceleration, setAcceleration] = React.useState(0.5);
   const points = plan ? getWaypointPlotPoints(plan.waypoints) : [];
+  const metrics = plan ? computeMotionMetrics(plan.waypoints, speed, acceleration) : null;
+  const downloadWaypointsCsv = () => {
+    if (!plan || plan.waypoints.length === 0) return;
+    const csv = exportWaypointsCsv(plan.waypoints, plan.units);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "robotics-waypoints.csv";
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
 
   return (
     <div className="flex flex-col lg:flex-row gap-3 min-h-0 flex-1">
@@ -1823,7 +1753,8 @@ export function RoboticsFeatureUI({
             <>
               <div className="flex items-center justify-between mb-2 text-[10px] text-muted-foreground">
                 <span>Top-down X/Y path · {plan.units}</span>
-                <span>{plan.waypoints.length} waypoints</span>
+                <span>{plan.waypoints.length} waypoints · {metrics?.totalDistance ?? 0} {plan.units} · ~{metrics?.estimatedSeconds ?? 0}s</span>
+                <button type="button" onClick={downloadWaypointsCsv} className="text-primary hover:underline">Export CSV</button>
               </div>
               <svg viewBox="0 0 400 300" role="img" aria-label="Preview of the proposed robot motion path" className="w-full h-56 rounded-lg bg-background/40">
                 <path d="M50 20V270H380" fill="none" stroke="currentColor" className="text-border" strokeWidth="1" />

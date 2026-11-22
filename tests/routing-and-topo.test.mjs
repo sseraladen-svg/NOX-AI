@@ -88,3 +88,44 @@ test("formatOrderedPlan sorts JSON DAG plan into dependency waves and preserves 
   assert.ok(ordered.indexOf("/src/api.ts") < ordered.indexOf("/src/App.tsx"));
   assert.equal(formatOrderedPlan("1. Plain plan"), "1. Plain plan");
 });
+
+import { FEATURES, normalizeFeatureId } from "../src/lib/multi-model-types.ts";
+import {
+  buildAnalysisPayload,
+  buildCodingPayload,
+  computeMotionMetrics,
+  exportWaypointsCsv,
+  extractVisionRegions,
+} from "../src/lib/multi-mode-workflows.ts";
+
+test("Multi Mode FEATURES excludes automation and aliases legacy automation to coding", () => {
+  assert.equal(FEATURES.some((f) => f.id === "automation"), false);
+  assert.deepEqual(
+    FEATURES.map((f) => f.id),
+    ["deep-analysis", "voice", "vision", "coding", "robotics"]
+  );
+  assert.equal(normalizeFeatureId("automation"), "coding");
+});
+
+test("Multi Mode workflow helpers build structured payloads and compute robotics metrics", () => {
+  const analysis = buildAnalysisPayload("Check latency", "risk-audit", [
+    { id: "1", name: "app.log", content: "ERROR timeout" },
+  ]);
+  assert.ok(analysis.includes("[Analysis Mode: Risk & Failure Audit]"));
+  assert.ok(analysis.includes("--- Source: app.log ---"));
+
+  const coding = buildCodingPayload("TypeError: x", "debug", "TypeScript");
+  assert.ok(coding.includes("(Target language: TypeScript)"));
+
+  const regions = extractVisionRegions('```nox-vision\n{"regions":[{"label":"btn","kind":"object","x":0.1,"y":0.2,"width":0.3,"height":0.1}]}\n```');
+  assert.equal(regions.length, 1);
+
+  const metrics = computeMotionMetrics(
+    [{ x: 0, y: 0, z: 0 }, { x: 30, y: 40, z: 0 }],
+    0.5,
+    1.0
+  );
+  assert.equal(metrics.totalDistance, 50);
+  assert.equal(metrics.segments, 1);
+  assert.ok(exportWaypointsCsv([{ label: "Home", x: 0, y: 0, z: 0 }], "mm").includes("1,\"Home\",0,0,0"));
+});
