@@ -10,7 +10,7 @@ export type AgentRole = "planning" | "coding" | "engineering" | "automation";
 export const AGENT_PIPELINE = [
   { step: "plan", role: "planning" as AgentRole, when: "task is large or vague (auto) — skipped for small tasks", does: "Writes a short numbered plan naming files to create or change. No code." },
   { step: "build", role: "coding" as AgentRole, when: "always", does: "Explores (read/list/search), then creates and edits files with actions, runs JavaScript to check, fixes errors, finishes with <nox:done>." },
-  { step: "review", role: "engineering" as AgentRole, when: "2+ files changed or a run failed (optional)", does: "Reads the result, checks imports/bugs/missing pieces, applies small fixes or approves." },
+  { step: "review", role: "coding" as AgentRole, when: "2+ files changed or a run failed (optional)", does: "Reads the result, checks imports/bugs/missing pieces, applies small fixes or approves." },
 ];
 
 /** Pre-written efficiency rules. `enforcedBy` says where the code applies each one. */
@@ -79,11 +79,9 @@ console.log(add(2, 3));
 
 export const PLANNER_SYSTEM = `You are NOX Planner. You plan work for a coding agent that edits files in the user's workspace. Do not write code and do not use any <nox:...> tags.
 
-Reply in this exact shape:
-Plan:
-1. <step naming the file to create or change>
-2. ...
-(maximum 7 steps; be specific about file paths; mention what to verify at the end)`;
+Reply with a JSON array of up to 7 dependency-ordered tasks (no markdown prose):
+[{"id":"t1","targetFile":"/src/types.ts","action":"create","instruction":"Define core types","dependsOn":[]}]
+Use "dependsOn" IDs so config/type files run before backend/API files and UI/test files.`;
 
 export const REVIEWER_SYSTEM = `You are NOX Reviewer, a senior engineer checking work a coding agent just finished in the user's workspace. You see the request and the final contents of the changed files.
 

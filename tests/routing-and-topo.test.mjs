@@ -59,3 +59,32 @@ test("formatEditorContext injects line numbers, cursor line, and problems", () =
   assert.ok(text.includes("2 | const y = 2;"));
   assert.ok(text.includes("/src/app.ts:2: Unused variable 'y'"));
 });
+
+import { SPECIALISTS } from "../src/lib/multi-model-types.ts";
+import { normalizeEndpoint } from "../src/lib/local-ollama.ts";
+
+test("SPECIALISTS catalog removes duplicate engineering card", () => {
+  assert.equal(SPECIALISTS.some((s) => s.id === "engineering"), false);
+  assert.deepEqual(
+    SPECIALISTS.map((s) => s.id),
+    ["planning", "coding", "vision", "automation"]
+  );
+});
+
+test("normalizeEndpoint rewrites localhost to 127.0.0.1", () => {
+  assert.equal(normalizeEndpoint("http://localhost:11434"), "http://127.0.0.1:11434");
+  assert.equal(normalizeEndpoint(), "http://127.0.0.1:11434");
+});
+
+import { formatOrderedPlan } from "../src/lib/workspace/agent-runner.ts";
+
+test("formatOrderedPlan sorts JSON DAG plan into dependency waves and preserves plain text", () => {
+  const jsonPlan = JSON.stringify([
+    { id: "ui", targetFile: "/src/App.tsx", action: "create", instruction: "Build UI", dependsOn: ["api"] },
+    { id: "api", targetFile: "/src/api.ts", action: "create", instruction: "Build API", dependsOn: [] },
+  ]);
+  const ordered = formatOrderedPlan(jsonPlan);
+  assert.ok(ordered.indexOf("Wave 1:") < ordered.indexOf("Wave 2:"));
+  assert.ok(ordered.indexOf("/src/api.ts") < ordered.indexOf("/src/App.tsx"));
+  assert.equal(formatOrderedPlan("1. Plain plan"), "1. Plain plan");
+});

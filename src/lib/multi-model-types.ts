@@ -319,11 +319,6 @@ export const SPECIALISTS: {
     label: "Automation",
     description: "Chains tools & APIs.",
   },
-  {
-    id: "engineering",
-    label: "Engineering",
-    description: "Full-Stack Software Engineering Agent.",
-  },
 ];
 
 export const PROVIDERS = [

@@ -5,6 +5,7 @@ import { type AgentAction, parseAgentReply, stripActions } from "./agent-protoco
 import { type ActionResult, applyAction, summarizeChanges, type FileChange } from "./agent-exec.ts";
 import { type Issue, formatIssues, validateFiles } from "./validators.ts";
 import { detectProjectKind, playbookFor } from "./playbooks.ts";
+import { type DagTaskNode, sortTasksTopologically } from "./topo-sort.ts";
 import { AUTOMATION_HINT, BUILDER_SYSTEM, PLANNER_SYSTEM, REVIEWER_SYSTEM, type AgentRole, type ContextInput, buildWorkspaceContext, shouldPlan } from "./agent-prompts.ts";
 
 export type AgentMsg = { role: "user" | "assistant"; content: string };
@@ -105,6 +106,32 @@ export function formatHandoff(task: string, h: Handoff, vfs: VfsState): string {
     h.issues.length ? `Open issues:\n- ${h.issues.join("\n- ")}` : "",
     `Final file contents:\n${files}`,
   ].filter(Boolean).join("\n\n");
+}
+
+/** Parses optional JSON DAG plans and orders tasks into dependency-safe waves. */
+export function formatOrderedPlan(planText: string): string {
+  const m = /\[[\s\S]*\]/.exec(planText);
+  if (!m) return planText;
+  try {
+    const raw = JSON.parse(m[0]) as Array<Partial<DagTaskNode>>;
+    if (!Array.isArray(raw) || raw.length === 0) return planText;
+    const nodes: DagTaskNode[] = raw.map((t, i) => ({
+      id: typeof t.id === "string" && t.id ? t.id : `t${i + 1}`,
+      targetFile: typeof t.targetFile === "string" ? t.targetFile : "/",
+      action: t.action === "patch" || t.action === "command" ? t.action : "create",
+      instruction: typeof t.instruction === "string" ? t.instruction : "",
+      dependsOn: Array.isArray(t.dependsOn) ? t.dependsOn.filter((d): d is string => typeof d === "string") : [],
+    }));
+    const { waves } = sortTasksTopologically(nodes);
+    return waves
+      .map((wave, idx) =>
+        `Wave ${idx + 1}:\n` +
+        wave.map((n) => `- [${n.id}] (${n.action}) ${n.targetFile}: ${n.instruction}`).join("\n")
+      )
+      .join("\n\n");
+  } catch {
+    return planText;
+  }
 }
 
 export async function runAgent(task: string, history: AgentMsg[], deps: AgentDeps, options: Partial<AgentOptions> = {}): Promise<AgentRunResult> {
@@ -226,7 +253,10 @@ export async function runAgent(task: string, history: AgentMsg[], deps: AgentDep
       const treeCtx = buildWorkspaceContext(deps.getVfs(), ctxInput, { bodies: false });
       planText = (await call("planning", PLANNER_SYSTEM, [{ role: "user", content: `${treeCtx}\n\nTask: ${task}` }])).trim();
       check();
-      if (planText) deps.emit({ type: "text", phase: "plan", text: planText });
+      if (planText) {
+        planText = formatOrderedPlan(planText);
+        deps.emit({ type: "text", phase: "plan", text: planText });
+      }
       if (opts.planOnly) {
         summary = planText;
         status = "chat";
@@ -269,7 +299,7 @@ export async function runAgent(task: string, history: AgentMsg[], deps: AgentDep
       const changedNow = summarizeChanges(before, deps.getVfs());
       if (opts.review && !opts.readOnly && outcome === "done" && (changedNow.length >= 2 || runFailed)) {
         const packet = formatHandoff(task, { plan: planText, summary, changes: changedNow, runLog, issues }, deps.getVfs());
-        const r = await actLoop("review", "engineering", REVIEWER_SYSTEM, [{ role: "user", content: packet }], 3);
+        const r = await actLoop("review", "coding", REVIEWER_SYSTEM, [{ role: "user", content: packet }], 3);
         if (r === "limit") deps.emit({ type: "warning", message: "Review stopped after 3 steps." });
       }
     }

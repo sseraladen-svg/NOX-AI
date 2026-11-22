@@ -8,6 +8,54 @@ export function normalizeEndpoint(endpoint?: string): string {
   return base.replace("://localhost", "://127.0.0.1");
 }
 
+const MODEL_INFO_TTL_MS = 5 * 60 * 1000;
+const TAGS_TTL_MS = 30 * 1000;
+
+export interface OllamaModelInfo {
+  contextLength: number;
+  capabilities: string[];
+}
+
+const modelInfoCache = new Map<string, { value: OllamaModelInfo; expiresAt: number }>();
+const tagsCache = new Map<string, { models: string[]; expiresAt: number }>();
+
+export async function getOllamaModelInfo(endpoint: string, model: string): Promise<OllamaModelInfo | null> {
+  const base = normalizeEndpoint(endpoint);
+  const key = `${base}::${model}`;
+  const hit = modelInfoCache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.value;
+  try {
+    const res = await fetch(`${base}/api/show`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      model_info?: Record<string, unknown>;
+      capabilities?: string[];
+    };
+    let contextLength = 4096;
+    if (json.model_info) {
+      for (const [k, v] of Object.entries(json.model_info)) {
+        if (k.endsWith(".context_length") && typeof v === "number" && v > 0) {
+          contextLength = v;
+          break;
+        }
+      }
+    }
+    const value: OllamaModelInfo = {
+      contextLength,
+      capabilities: Array.isArray(json.capabilities) ? json.capabilities : [],
+    };
+    modelInfoCache.set(key, { value, expiresAt: Date.now() + MODEL_INFO_TTL_MS });
+    return value;
+  } catch {
+    return null;
+  }
+}
+
 export async function testOllamaFromBrowser(endpoint: string, model: string) {
   const base = normalizeEndpoint(endpoint);
 
@@ -49,7 +97,8 @@ export async function generateFromBrowser(
   model: string,
   prompt: string,
   image?: { data: string; mimeType: string },
-  onChunk?: (text: string) => void
+  onChunk?: (text: string) => void,
+  opts?: { keepAlive?: string | number; format?: "json" | Record<string, unknown>; numCtx?: number }
 ): Promise<
   | { ok: true; text: string; tokens?: { input: number; output: number; total: number }; latencyMs?: number }
   | { ok: false; error: string }
@@ -65,6 +114,9 @@ export async function generateFromBrowser(
         model,
         prompt,
         stream: true,
+        keep_alive: opts?.keepAlive ?? "10m",
+        ...(opts?.format ? { format: opts.format } : {}),
+        ...(opts?.numCtx ? { options: { num_ctx: opts.numCtx } } : {}),
         ...(imageData ? { images: [imageData] } : {}),
       }),
       signal: AbortSignal.timeout(BROWSER_OLLAMA_TIMEOUT_MS),
@@ -147,15 +199,19 @@ export async function generateFromBrowser(
 
 export async function listOllamaModels(endpoint: string): Promise<string[]> {
   const base = normalizeEndpoint(endpoint);
+  const hit = tagsCache.get(base);
+  if (hit && hit.expiresAt > Date.now()) return hit.models;
   try {
     const res = await fetch(`${base}/api/tags`, {
       signal: AbortSignal.timeout(5_000),
     });
     if (!res.ok) return [];
     const json = await res.json();
-    return (json.models || [])
+    const models = (json.models || [])
       .map((m: { name?: string }) => m.name || "")
       .filter((name: string) => name.length > 0);
+    tagsCache.set(base, { models, expiresAt: Date.now() + TAGS_TTL_MS });
+    return models;
   } catch {
     return [];
   }
